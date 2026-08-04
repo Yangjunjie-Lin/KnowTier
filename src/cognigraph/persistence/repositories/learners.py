@@ -1,0 +1,130 @@
+from __future__ import annotations
+
+from datetime import datetime
+from typing import Any
+from uuid import UUID
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from cognigraph.persistence.postgres.models import (
+    Learner,
+    LearnerKnowledgeState,
+    MasteryEvidence,
+)
+
+
+class LearnerRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def add(self, learner: Learner) -> Learner:
+        self.session.add(learner)
+        await self.session.flush()
+        return learner
+
+    async def create(
+        self,
+        *,
+        workspace_id: UUID,
+        display_name: str,
+        learner_id: UUID | None = None,
+        external_id: str | None = None,
+        language: str = "zh-CN",
+        preferences: dict[str, Any] | None = None,
+    ) -> Learner:
+        values: dict[str, Any] = {
+            "workspace_id": workspace_id,
+            "display_name": display_name,
+            "external_id": external_id,
+            "language": language,
+            "preferences": preferences or {},
+        }
+        if learner_id is not None:
+            values["id"] = learner_id
+        return await self.add(Learner(**values))
+
+    async def get(self, learner_id: UUID, *, workspace_id: UUID | None = None) -> Learner | None:
+        statement = select(Learner).where(Learner.id == learner_id)
+        if workspace_id is not None:
+            statement = statement.where(Learner.workspace_id == workspace_id)
+        result: Learner | None = await self.session.scalar(statement)
+        return result
+
+    async def list_for_workspace(self, workspace_id: UUID) -> list[Learner]:
+        result = await self.session.scalars(
+            select(Learner).where(Learner.workspace_id == workspace_id).order_by(Learner.created_at)
+        )
+        return list(result.all())
+
+
+class LearnerStateRepository:
+    def __init__(self, session: AsyncSession) -> None:
+        self.session = session
+
+    async def get(
+        self,
+        learner_id: UUID,
+        knowledge_point_id: UUID,
+        *,
+        for_update: bool = False,
+    ) -> LearnerKnowledgeState | None:
+        statement = select(LearnerKnowledgeState).where(
+            LearnerKnowledgeState.learner_id == learner_id,
+            LearnerKnowledgeState.knowledge_point_id == knowledge_point_id,
+        )
+        if for_update:
+            statement = statement.with_for_update()
+        result: LearnerKnowledgeState | None = await self.session.scalar(statement)
+        return result
+
+    async def get_or_create(
+        self, *, workspace_id: UUID, learner_id: UUID, knowledge_point_id: UUID
+    ) -> LearnerKnowledgeState:
+        state = await self.get(learner_id, knowledge_point_id, for_update=True)
+        if state is not None:
+            return state
+        state = LearnerKnowledgeState(
+            workspace_id=workspace_id,
+            learner_id=learner_id,
+            knowledge_point_id=knowledge_point_id,
+        )
+        self.session.add(state)
+        await self.session.flush()
+        return state
+
+    async def save(self, state: LearnerKnowledgeState) -> LearnerKnowledgeState:
+        self.session.add(state)
+        await self.session.flush()
+        return state
+
+    async def add_evidence(self, evidence: MasteryEvidence) -> MasteryEvidence:
+        self.session.add(evidence)
+        await self.session.flush()
+        return evidence
+
+    async def list_states(self, learner_id: UUID) -> list[LearnerKnowledgeState]:
+        result = await self.session.scalars(
+            select(LearnerKnowledgeState)
+            .where(LearnerKnowledgeState.learner_id == learner_id)
+            .order_by(LearnerKnowledgeState.updated_at.desc())
+        )
+        return list(result.all())
+
+    async def list_evidence(
+        self,
+        learner_id: UUID,
+        *,
+        knowledge_point_id: UUID | None = None,
+        since: datetime | None = None,
+        limit: int = 100,
+    ) -> list[MasteryEvidence]:
+        if not 1 <= limit <= 1000:
+            raise ValueError("limit must be between 1 and 1000")
+        statement = select(MasteryEvidence).where(MasteryEvidence.learner_id == learner_id)
+        if knowledge_point_id is not None:
+            statement = statement.where(MasteryEvidence.knowledge_point_id == knowledge_point_id)
+        if since is not None:
+            statement = statement.where(MasteryEvidence.created_at >= since)
+        statement = statement.order_by(MasteryEvidence.created_at.desc()).limit(limit)
+        return list((await self.session.scalars(statement)).all())

@@ -1,0 +1,102 @@
+name: cognigraph-tutor
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-cognigraph}
+      POSTGRES_USER: ${POSTGRES_USER:-cognigraph}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-cognigraph-local-password}
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"
+      interval: 5s
+      timeout: 5s
+      retries: 20
+      start_period: 10s
+
+  neo4j:
+    image: neo4j:5.26-community
+    restart: unless-stopped
+    environment:
+      NEO4J_AUTH: ${NEO4J_USER:-neo4j}/${NEO4J_PASSWORD:-cognigraph-local-password}
+      NEO4J_server_memory_heap_initial__size: ${NEO4J_HEAP_INITIAL:-512m}
+      NEO4J_server_memory_heap_max__size: ${NEO4J_HEAP_MAX:-1G}
+      NEO4J_server_memory_pagecache_size: ${NEO4J_PAGECACHE:-512m}
+    ports:
+      - "${NEO4J_HTTP_PORT:-7474}:7474"
+      - "${NEO4J_BOLT_PORT:-7687}:7687"
+    volumes:
+      - neo4j_data:/data
+      - neo4j_logs:/logs
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          cypher-shell -a bolt://localhost:7687
+          -u "$${NEO4J_AUTH%%/*}" -p "$${NEO4J_AUTH#*/}"
+          "RETURN 1" >/dev/null 2>&1
+      interval: 10s
+      timeout: 10s
+      retries: 30
+      start_period: 30s
+
+  api:
+    image: ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+    restart: unless-stopped
+    working_dir: /app
+    command:
+      - sh
+      - -c
+      - >-
+        uv sync --frozen --no-dev --extra documents &&
+        uv run alembic upgrade head &&
+        uv run uvicorn cognigraph.main:app --host 0.0.0.0 --port 8000
+    environment:
+      COGNIGRAPH_ENVIRONMENT: ${COGNIGRAPH_ENVIRONMENT:-development}
+      COGNIGRAPH_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-cognigraph}:${POSTGRES_PASSWORD:-cognigraph-local-password}@postgres:5432/${POSTGRES_DB:-cognigraph}
+      COGNIGRAPH_NEO4J_URI: bolt://neo4j:7687
+      COGNIGRAPH_NEO4J_USER: ${NEO4J_USER:-neo4j}
+      COGNIGRAPH_NEO4J_PASSWORD: ${NEO4J_PASSWORD:-cognigraph-local-password}
+      COGNIGRAPH_NEO4J_REQUIRED: "true"
+      COGNIGRAPH_STORAGE_PATH: /app/data/uploads
+      COGNIGRAPH_USE_MOCK_LLM: ${COGNIGRAPH_USE_MOCK_LLM:-true}
+      COGNIGRAPH_API_KEY: ${COGNIGRAPH_API_KEY:-}
+    ports:
+      - "${API_PORT:-8000}:8000"
+    volumes:
+      - .:/app
+      - venv_data:/app/.venv
+      - uv_cache:/root/.cache/uv
+      - upload_data:/app/data/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request;
+          urllib.request.urlopen('http://localhost:8000/health', timeout=3)
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      start_period: 30s
+
+volumes:
+  postgres_data:
+  neo4j_data:
+  neo4j_logs:
+  upload_data:
+  venv_data:
+  uv_cache:

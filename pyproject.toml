@@ -1,0 +1,97 @@
+[build-system]
+requires = ["hatchling>=1.27"]
+build-backend = "hatchling.build"
+
+[project]
+name = "cognigraph-tutor"
+version = "0.1.0"
+description = "Traceable six-level tutoring agent with learner and knowledge graphs"
+readme = "README.md"
+requires-python = ">=3.12,<3.14"
+license = { file = "LICENSE" }
+authors = [{ name = "Cognigraph Tutor contributors" }]
+dependencies = [
+  "aiosqlite>=0.20,<1",
+  "alembic>=1.14,<2",
+  "asyncpg>=0.30,<1",
+  "fastapi>=0.115,<1",
+  "greenlet>=3.1,<4",
+  "langgraph>=0.3,<2",
+  "litellm>=1.61,<2",
+  "neo4j>=5.26,<7",
+  "pgvector>=0.3,<1",
+  "pillow>=11,<13",
+  "pydantic>=2.10,<3",
+  "pydantic-settings>=2.7,<3",
+  "pyshacl>=0.30,<1",
+  "python-docx>=1.1,<2",
+  "python-json-logger>=3.2,<5",
+  "python-multipart>=0.0.20,<1",
+  "python-pptx>=1.0,<2",
+  "pypdf>=5.1,<7",
+  "rdflib>=7.1,<8",
+  "sqlalchemy[asyncio]>=2.0.36,<3",
+  "structlog>=24.4,<27",
+  "typer>=0.15,<1",
+  "uvicorn[standard]>=0.34,<1",
+]
+
+[project.optional-dependencies]
+documents = ["docling>=2.25,<3"]
+ocr = ["paddleocr>=2.9,<4"]
+
+[dependency-groups]
+dev = [
+  "httpx>=0.28,<1",
+  "mypy>=1.14,<2",
+  "pytest>=8.3,<10",
+  "pytest-asyncio>=0.25,<2",
+  "reportlab>=4.2,<5",
+  "ruff>=0.9,<1",
+  "types-python-dateutil>=2.9,<3",
+]
+
+[project.scripts]
+cognigraph = "cognigraph.cli:app"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/cognigraph"]
+
+[tool.hatch.build.targets.wheel.force-include]
+"alembic.ini" = "cognigraph/alembic.ini"
+"migrations" = "cognigraph/migrations"
+
+[tool.pytest.ini_options]
+addopts = "-ra --strict-markers --strict-config"
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
+pythonpath = ["src"]
+testpaths = ["tests"]
+markers = [
+  "integration: integration tests that exercise repository boundaries",
+  "contract: provider contract tests",
+  "e2e: end-to-end workflow tests",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "B", "UP", "ASYNC", "RUF"]
+ignore = ["B008"]
+
+[tool.ruff.lint.per-file-ignores]
+"migrations/versions/*.py" = ["E501"]
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+plugins = ["pydantic.mypy"]
+packages = ["cognigraph"]
+exclude = ["migrations"]
+warn_unused_ignores = true
+
+[tool.pydantic-mypy]
+init_forbid_extra = true
+warn_required_dynamic_aliases = true
