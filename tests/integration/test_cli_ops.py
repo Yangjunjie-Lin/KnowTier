@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from click import unstyle
 from typer.testing import CliRunner
 
 from cognigraph.cli import app
@@ -144,8 +145,9 @@ def test_export_script_is_an_executable_typer_wrapper() -> None:
     )
 
     assert result.returncode == 0, result.stderr
-    assert "--workspace" in result.stdout
-    assert "--format" in result.stdout
+    help_output = unstyle(result.stdout)
+    assert "--workspace" in help_output
+    assert "--format" in help_output
 
 
 def test_dependency_and_compose_profiles_are_reproducible() -> None:
