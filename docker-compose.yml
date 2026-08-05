@@ -136,9 +136,8 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        # Defaults use widely cached tags. Override when Docker Hub is reachable:
-        # FRONTEND_NODE_IMAGE=node:22-alpine
-        NODE_IMAGE: ${FRONTEND_NODE_IMAGE:-node:20-alpine}
+        # Keep Node 22 as the production default; override with a mirror or cached tag when needed.
+        NODE_IMAGE: ${FRONTEND_NODE_IMAGE:-node:22-alpine}
         NGINX_IMAGE: ${FRONTEND_NGINX_IMAGE:-nginx:1.27-alpine}
         VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api}
         VITE_API_TIMEOUT_MS: ${VITE_API_TIMEOUT_MS:-30000}

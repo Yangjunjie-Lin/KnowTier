@@ -1,6 +1,6 @@
 # Base images are overridable for restricted networks / local caches:
-#   docker compose build --build-arg NODE_IMAGE=node:20-alpine frontend
-ARG NODE_IMAGE=node:20-alpine
+#   docker compose build --build-arg NODE_IMAGE=registry.example.com/node:22-alpine frontend
+ARG NODE_IMAGE=node:22-alpine
 ARG NGINX_IMAGE=nginx:1.27-alpine
 
 FROM ${NODE_IMAGE} AS build
