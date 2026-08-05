@@ -114,8 +114,18 @@ jobs:
           COGNIGRAPH_USE_MOCK_LLM: "true"
           COGNIGRAPH_STORAGE_PATH: ${{ runner.temp }}/cognigraph-uploads
         run: |
-          kill "$(cat api.pid)"
-          wait "$(cat api.pid)" || true
+          old_pid="$(cat api.pid)"
+          kill "$old_pid"
+          for attempt in $(seq 1 60); do
+            if ! kill -0 "$old_pid" 2>/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          if kill -0 "$old_pid" 2>/dev/null; then
+            cat api.log
+            exit 1
+          fi
           .venv/bin/uvicorn cognigraph.main:app --host 127.0.0.1 --port 8000 > api-restart.log 2>&1 &
           echo $! > api.pid
           for attempt in $(seq 1 60); do

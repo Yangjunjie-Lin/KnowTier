@@ -178,3 +178,6 @@ def test_production_workflow_tracks_the_uvicorn_process_for_restarts() -> None:
     assert workflow.count(".venv/bin/uvicorn cognigraph.main:app") == 2
     assert "uv run uvicorn cognigraph.main:app" not in workflow
     assert workflow.count('kill -0 "$(cat api.pid)"') == 2
+    assert 'old_pid="$(cat api.pid)"' in workflow
+    assert 'if ! kill -0 "$old_pid"' in workflow
+    assert 'wait "$(cat api.pid)"' not in workflow
