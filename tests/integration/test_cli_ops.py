@@ -168,3 +168,13 @@ def test_dependency_and_compose_profiles_are_reproducible() -> None:
     assert "uv lock --check" in makefile
     assert "ruff format --check src tests scripts" in makefile
     assert "check: lock-check format-check lint typecheck test" in makefile
+
+
+def test_production_workflow_tracks_the_uvicorn_process_for_restarts() -> None:
+    workflow = (REPOSITORY_ROOT / ".github" / "workflows" / "integration.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert workflow.count(".venv/bin/uvicorn cognigraph.main:app") == 2
+    assert "uv run uvicorn cognigraph.main:app" not in workflow
+    assert workflow.count('kill -0 "$(cat api.pid)"') == 2

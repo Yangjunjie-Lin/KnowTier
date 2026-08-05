@@ -61,9 +61,13 @@ jobs:
           COGNIGRAPH_TOOL_CALLING_ENABLED: "true"
           COGNIGRAPH_STORAGE_PATH: ${{ runner.temp }}/cognigraph-uploads
         run: |
-          uv run uvicorn cognigraph.main:app --host 127.0.0.1 --port 8000 > api.log 2>&1 &
+          .venv/bin/uvicorn cognigraph.main:app --host 127.0.0.1 --port 8000 > api.log 2>&1 &
           echo $! > api.pid
           for attempt in $(seq 1 60); do
+            if ! kill -0 "$(cat api.pid)" 2>/dev/null; then
+              cat api.log
+              exit 1
+            fi
             if curl --fail --silent http://127.0.0.1:8000/ready; then
               exit 0
             fi
@@ -112,9 +116,13 @@ jobs:
         run: |
           kill "$(cat api.pid)"
           wait "$(cat api.pid)" || true
-          uv run uvicorn cognigraph.main:app --host 127.0.0.1 --port 8000 > api-restart.log 2>&1 &
+          .venv/bin/uvicorn cognigraph.main:app --host 127.0.0.1 --port 8000 > api-restart.log 2>&1 &
           echo $! > api.pid
           for attempt in $(seq 1 60); do
+            if ! kill -0 "$(cat api.pid)" 2>/dev/null; then
+              cat api-restart.log
+              exit 1
+            fi
             if curl --fail --silent http://127.0.0.1:8000/ready; then
               exit 0
             fi
