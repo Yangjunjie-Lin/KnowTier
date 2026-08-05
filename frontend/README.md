@@ -68,6 +68,12 @@ docker compose up --build
 Open `http://127.0.0.1:8080`. Set `FRONTEND_PORT` before starting Compose to use another host
 port. The API remains available directly on `http://127.0.0.1:8000` for diagnostics.
 
+The frontend Dockerfile no longer uses a `# syntax=` directive (that forced an extra Hub pull).
+Build args `FRONTEND_NODE_IMAGE` and `FRONTEND_NGINX_IMAGE` default to locally common tags
+(`node:20-alpine`, `nginx:1.27-alpine`). If Docker Hub auth fails with an IPv6 timeout to
+`auth.docker.io`, keep those defaults or point them at a registry mirror / already-pulled tags
+instead of `node:22-alpine`.
+
 To build only the frontend image after the API stack is available:
 
 ```powershell
