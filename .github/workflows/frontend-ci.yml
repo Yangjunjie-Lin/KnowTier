@@ -68,6 +68,8 @@ jobs:
       - name: Install Chromium and system dependencies
         working-directory: frontend
         run: npx playwright install --with-deps chromium
+      - name: Validate production Compose configuration
+        run: docker compose config --quiet
       - name: Validate full-stack Compose configuration
         run: docker compose -f docker-compose.e2e.yml config --quiet
       - name: Start and wait for the full stack
@@ -84,6 +86,10 @@ jobs:
           mkdir -p full-stack-artifacts
           docker compose -f docker-compose.e2e.yml ps --all > full-stack-artifacts/compose-ps.txt 2>&1
           docker compose -f docker-compose.e2e.yml logs --no-color > full-stack-artifacts/compose.log 2>&1
+          docker compose -f docker-compose.e2e.yml logs --no-color api > full-stack-artifacts/api.log 2>&1
+          docker compose -f docker-compose.e2e.yml logs --no-color postgres > full-stack-artifacts/postgresql.log 2>&1
+          docker compose -f docker-compose.e2e.yml logs --no-color neo4j > full-stack-artifacts/neo4j.log 2>&1
+          docker compose -f docker-compose.e2e.yml logs --no-color frontend > full-stack-artifacts/frontend-nginx.log 2>&1
       - name: Upload traces, screenshots, and container logs
         if: always()
         uses: actions/upload-artifact@v4

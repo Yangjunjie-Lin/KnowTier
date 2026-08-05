@@ -23,6 +23,10 @@ vi.mock("@/services/api", () => ({
     chat: vi.fn(),
     uploadDocument: vi.fn(),
     ingestDocument: vi.fn(),
+    getLearnerModel: vi.fn(),
+    getLearnerEvidence: vi.fn(),
+    getLearnerGraph: vi.fn(),
+    getDomainDetail: vi.fn(),
   },
 }));
 
@@ -147,6 +151,22 @@ describe("LearnPage", () => {
   beforeEach(() => {
     localStorage.clear();
     vi.clearAllMocks();
+    vi.mocked(api.getLearnerModel).mockResolvedValue({
+      learner_id: learner.id,
+      workspace_id: workspace.id,
+      items: [],
+    });
+    vi.mocked(api.getLearnerEvidence).mockResolvedValue({
+      learner_id: learner.id,
+      items: [],
+    });
+    vi.mocked(api.getLearnerGraph).mockResolvedValue({
+      elements: { nodes: [], edges: [] },
+      meta: {},
+    });
+    vi.mocked(api.getDomainDetail).mockResolvedValue({
+      data: { prerequisites: [] },
+    });
   });
 
   it("reads a tolerant navigation target and only prefills its confirmation", () => {
@@ -252,6 +272,83 @@ describe("LearnPage", () => {
     expect(screen.getByRole("button", { name: "拍照" })).toBeDisabled();
     expect(screen.getByLabelText("上传学习资料")).toBeDisabled();
     expect(screen.getByLabelText("拍照上传学习资料")).toBeDisabled();
+  });
+
+  it("refreshes model, evidence, learner graph, and domain detail after chat", async () => {
+    vi.mocked(api.chat).mockResolvedValue(chatResponse);
+    renderPage();
+    fireEvent.change(screen.getByLabelText("学习消息"), {
+      target: { value: "请检查我的理解" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送学习消息" }));
+    await waitFor(() => expect(api.getLearnerModel).toHaveBeenCalled());
+    expect(api.getLearnerEvidence).toHaveBeenCalled();
+    expect(api.getLearnerGraph).toHaveBeenCalled();
+    expect(api.getDomainDetail).toHaveBeenCalledWith(
+      workspace.id,
+      chatResponse.target_knowledge_point.id,
+      expect.any(AbortSignal),
+    );
+  });
+
+  it("shows an explicit synchronization state until chat-triggered reads settle", async () => {
+    let resolveEvidence:
+      | ((value: { learner_id: string; items: [] }) => void)
+      | undefined;
+    vi.mocked(api.chat).mockResolvedValue(chatResponse);
+    vi.mocked(api.getLearnerEvidence).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveEvidence = resolve;
+        }),
+    );
+    renderPage();
+    fireEvent.change(screen.getByLabelText("学习消息"), {
+      target: { value: "提交本轮答案" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送学习消息" }));
+    expect(
+      (await screen.findAllByText("正在同步本轮模型变化")).length,
+    ).toBeGreaterThan(0);
+    resolveEvidence?.({ learner_id: learner.id, items: [] });
+    await waitFor(() =>
+      expect(screen.queryByText("正在同步本轮模型变化")).not.toBeInTheDocument(),
+    );
+  });
+
+  it("turns a prerequisite action into navigation state without changing the backend target", async () => {
+    const prerequisiteId = "99999999-9999-4999-8999-999999999999";
+    vi.mocked(api.getDomainDetail).mockImplementation(
+      (_workspaceId, nodeId) =>
+        Promise.resolve({
+          data: {
+            prerequisites:
+              nodeId === chatResponse.target_knowledge_point.id
+                ? [{ id: prerequisiteId, display_name: "条件概率" }]
+                : [],
+          },
+        }),
+    );
+    renderPage({
+      learningTarget: {
+        id: chatResponse.target_knowledge_point.id,
+        name: "梯度下降",
+        source: "domain-graph",
+      },
+    });
+    expect(await screen.findByText("条件概率")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "开始学习" }));
+    expect(screen.getByLabelText<HTMLTextAreaElement>("学习消息").value).toContain(
+      "条件概率",
+    );
+    expect(api.chat).not.toHaveBeenCalled();
+    await waitFor(() =>
+      expect(api.getDomainDetail).toHaveBeenCalledWith(
+        workspace.id,
+        prerequisiteId,
+        expect.any(AbortSignal),
+      ),
+    );
   });
 
   it("renders future response enums safely as product copy", () => {

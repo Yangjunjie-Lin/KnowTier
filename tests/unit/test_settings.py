@@ -4,6 +4,7 @@ import pytest
 
 from cognigraph.config import Settings
 from cognigraph.ingestion.ocr_adapter import OCRUnavailableError, PaddleOCRAdapter
+from cognigraph.llm.fake_provider import FakeProvider
 from cognigraph.services.runtime import ApplicationRuntime
 
 
@@ -65,3 +66,24 @@ def test_runtime_fails_fast_when_enabled_ocr_runtime_is_unavailable(
 
     with pytest.raises(OCRUnavailableError, match="opt-in runtime is unavailable"):
         ApplicationRuntime(Settings(_env_file=None, ocr_enabled=True))
+
+
+@pytest.mark.parametrize(
+    ("environment", "expected"),
+    [("test", True), ("development", False), ("production", False)],
+)
+def test_learning_insights_fixture_is_runtime_gated_to_test(
+    environment: str,
+    expected: bool,
+) -> None:
+    runtime = ApplicationRuntime(
+        Settings(
+            _env_file=None,
+            environment=environment,
+            use_mock_llm=True,
+            mock_learning_insights_fixture_enabled=True,
+        )
+    )
+    provider = runtime.model_gateway.provider
+    assert isinstance(provider, FakeProvider)
+    assert provider.learning_insights_fixture is expected

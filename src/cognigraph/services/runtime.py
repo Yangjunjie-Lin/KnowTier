@@ -97,7 +97,14 @@ class ApplicationRuntime:
             self.semantic_graph,
         )
         provider = (
-            FakeProvider() if self.settings.use_mock_llm else LiteLLMProvider(self.settings.api_key)
+            FakeProvider(
+                learning_insights_fixture=(
+                    self.settings.environment.casefold() == "test"
+                    and self.settings.mock_learning_insights_fixture_enabled
+                )
+            )
+            if self.settings.use_mock_llm
+            else LiteLLMProvider(self.settings.api_key)
         )
         self.model_gateway = ModelGateway(
             self.settings,

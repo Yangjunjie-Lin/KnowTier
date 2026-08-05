@@ -38,6 +38,9 @@ class Settings(BaseSettings):
     )
 
     use_mock_llm: bool = True
+    # Deterministic browser-E2E data. Runtime additionally gates this fixture
+    # to ``environment=test`` so setting it cannot alter development or production.
+    mock_learning_insights_fixture_enabled: bool = False
     teacher_model: str = "openai/gpt-4.1-mini"
     extractor_model: str = "openai/gpt-4.1-mini"
     grader_model: str = "openai/gpt-4.1-mini"

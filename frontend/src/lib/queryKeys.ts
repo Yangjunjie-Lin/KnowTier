@@ -18,6 +18,8 @@ export const queryKeys = {
   domainGraph: (workspaceId: string) => ["domain-graph", workspaceId] as const,
   domainSubgraph: (workspaceId: string, nodeId: string) =>
     ["domain-subgraph", workspaceId, nodeId] as const,
+  domainNodeDetail: (workspaceId: string, nodeId: string) =>
+    ["domain-node-detail", workspaceId, nodeId] as const,
   domainRevisions: (workspaceId: string) =>
     ["domain-revisions", workspaceId] as const,
 };

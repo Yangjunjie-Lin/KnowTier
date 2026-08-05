@@ -9,6 +9,7 @@ frontend/coverage/
 frontend/playwright-report/
 frontend/playwright-report-full-stack/
 frontend/test-results/
+frontend/*.tsbuildinfo
 __pycache__/
 *.py[cod]
 .pytest_cache/

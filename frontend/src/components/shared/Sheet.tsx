@@ -10,6 +10,7 @@ export function Sheet({
   eyebrow,
   description,
   width = "md",
+  placement = "right",
   children,
 }: {
   open: boolean;
@@ -18,6 +19,7 @@ export function Sheet({
   eyebrow?: ReactNode;
   description: string;
   width?: "md" | "lg";
+  placement?: "right" | "bottom" | "responsive";
   children: ReactNode;
 }) {
   return (
@@ -26,8 +28,15 @@ export function Sheet({
         <Dialog.Overlay className="fixed inset-0 z-40 bg-slate-900/30" />
         <Dialog.Content
           className={cn(
-            "fixed inset-y-0 right-0 z-50 h-full w-full overflow-y-auto border-l border-slate-200 bg-white p-5 shadow-2xl outline-none dark:border-slate-800 dark:bg-slate-950",
-            width === "lg" ? "max-w-lg" : "max-w-md",
+            "fixed z-50 w-full overflow-y-auto border-slate-200 bg-white p-5 shadow-2xl outline-none dark:border-slate-800 dark:bg-slate-950",
+            placement === "right" &&
+              "inset-y-0 right-0 h-full border-l",
+            placement === "bottom" &&
+              "inset-x-0 bottom-0 max-h-[85vh] rounded-t-2xl border-t",
+            placement === "responsive" &&
+              "inset-x-0 bottom-0 max-h-[85vh] rounded-t-2xl border-t md:inset-y-0 md:left-auto md:right-0 md:h-full md:max-h-none md:rounded-none md:border-l md:border-t-0",
+            placement !== "bottom" &&
+              (width === "lg" ? "md:max-w-lg" : "md:max-w-md"),
           )}
         >
           <Dialog.Description className="sr-only">
