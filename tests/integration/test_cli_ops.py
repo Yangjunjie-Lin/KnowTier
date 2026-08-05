@@ -128,6 +128,10 @@ def test_export_script_is_an_executable_typer_wrapper() -> None:
     environment["PYTHONPATH"] = (
         f"{source_path}{os.pathsep}{existing_path}" if existing_path else source_path
     )
+    # Rich truncates option names when captured output inherits a narrow CI
+    # terminal. Fix the width so this subprocess assertion tests the wrapper's
+    # command surface rather than the runner's presentation settings.
+    environment["COLUMNS"] = "200"
 
     result = subprocess.run(
         [sys.executable, "scripts/export_graph.py", "--help"],

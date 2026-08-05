@@ -42,9 +42,8 @@ class Database:
             "pool_pre_ping": pool_pre_ping,
         }
         if self.url.startswith("sqlite"):
-            # SQLite serializes writers.  A short default busy timeout makes
-            # concurrent repository tests fail nondeterministically before the
-            # repository's bounded unique-conflict retry can run.
+            # SQLite serializes writers. Let concurrent units of work wait for
+            # the BEGIN IMMEDIATE reservation instead of failing immediately.
             engine_options["connect_args"] = {"timeout": 30}
         self.engine: AsyncEngine = create_async_engine(self.url, **engine_options)
         if self.url.startswith("sqlite"):
@@ -80,7 +79,10 @@ class Database:
         return self.session_factory()
 
     def unit_of_work(self) -> SqlAlchemyUnitOfWork:
-        return SqlAlchemyUnitOfWork(self.session_factory)
+        return SqlAlchemyUnitOfWork(
+            self.session_factory,
+            begin_immediate=self.url.startswith("sqlite"),
+        )
 
     async def ping(self) -> bool:
         try:
@@ -105,8 +107,14 @@ class Database:
 class SqlAlchemyUnitOfWork:
     """One transaction spanning repositories that participate in a use case."""
 
-    def __init__(self, session_factory: async_sessionmaker[AsyncSession]) -> None:
+    def __init__(
+        self,
+        session_factory: async_sessionmaker[AsyncSession],
+        *,
+        begin_immediate: bool = False,
+    ) -> None:
         self._session_factory = session_factory
+        self._begin_immediate = begin_immediate
         self.session: AsyncSession | None = None
         self.workspaces: WorkspaceRepository
         self.learners: LearnerRepository
@@ -126,7 +134,14 @@ class SqlAlchemyUnitOfWork:
         if self.session is not None:
             raise RuntimeError("unit of work cannot be re-entered")
         self.session = self._session_factory()
-        await self.session.begin()
+        if self._begin_immediate:
+            # SQLite cannot upgrade two read transactions to writers safely:
+            # the losing SAVEPOINT gets SQLITE_BUSY before busy_timeout can
+            # resolve the dependency. Reserve its single writer before any
+            # repository read; PostgreSQL keeps the normal transaction path.
+            await self.session.execute(text("BEGIN IMMEDIATE"))
+        else:
+            await self.session.begin()
         self.workspaces = WorkspaceRepository(self.session)
         self.learners = LearnerRepository(self.session)
         self.learner_states = LearnerStateRepository(self.session)
