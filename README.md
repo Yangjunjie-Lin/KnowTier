@@ -1,10 +1,11 @@
-# Cognigraph Tutor
+# KnowTier / Cognigraph Tutor
 
-Cognigraph Tutor is a backend-only tutoring agent that combines a deterministic six-level
+KnowTier is a full-stack tutoring workspace. Its Cognigraph backend combines a deterministic six-level
 teaching policy, learner mastery estimation, source-grounded knowledge extraction, and a
 versioned first-class relation graph. FastAPI exposes document, chat, graph, learner, and
-export APIs. PostgreSQL is the operational/audit system of record; Neo4j is the semantic
-projection written through a transactional Outbox.
+export APIs. The React frontend exposes these workflows through a responsive learning UI.
+PostgreSQL is the operational/audit system of record; Neo4j is the semantic projection written
+through a transactional Outbox.
 
 The default mock mode needs no model API key and performs a complete, deterministic teaching
 flow suitable for local development and tests.
@@ -13,6 +14,7 @@ flow suitable for local development and tests.
 
 - Python 3.12
 - [uv](https://docs.astral.sh/uv/)
+- Node.js 22 and npm 10 for frontend development
 - Docker Compose for the production-shaped PostgreSQL/Neo4j stack
 
 ## Local setup
@@ -48,6 +50,18 @@ uv run uvicorn cognigraph.main:app --reload
 OpenAPI is available at `http://127.0.0.1:8000/docs`. Health endpoints are `/health` and
 `/ready`; readiness checks both the SQL store and the configured semantic graph repository.
 
+In a second terminal, start the frontend development server:
+
+```powershell
+cd frontend
+npm install
+npm run dev
+```
+
+Open `http://127.0.0.1:5173`. Vite proxies `/api` to the local FastAPI service, so local
+development does not require permissive CORS. Frontend-specific setup and verification are
+documented in [frontend/README.md](frontend/README.md).
+
 Install the richer document stack when needed:
 
 ```bash
@@ -66,14 +80,15 @@ for OCR or Vision, preserving page and bounding-box provenance without reprocess
 
 ## Docker Compose
 
-```bash
+```powershell
 cp .env.example .env
-docker compose up
+docker compose up --build
 ```
 
-The stack uses `pgvector/pgvector:pg16`, Neo4j 5.26 Community, and a Python 3.12 uv API
-container. It installs the locked runtime plus the `documents` extra, runs Alembic, and starts
-the API only after both databases are healthy. Database data, uploads, the Linux virtual
+The stack uses `pgvector/pgvector:pg16`, Neo4j 5.26 Community, a Python 3.12 uv API container,
+and an Nginx-served frontend at `http://127.0.0.1:8080`. It installs the locked runtime plus the
+`documents` extra, runs Alembic, and starts the API only after both databases are healthy.
+Database data, uploads, the Linux virtual
 environment, and the uv cache use separate named volumes, so a host Windows `.venv` is never
 overwritten. Re-run `uv lock` whenever `pyproject.toml` dependencies change before starting the
 frozen container install.

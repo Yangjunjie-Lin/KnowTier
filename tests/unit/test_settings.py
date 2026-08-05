@@ -35,6 +35,22 @@ def test_legacy_budget_names_remain_compatible() -> None:
     assert settings.max_graph_nodes == settings.graph_max_nodes == 75
 
 
+def test_cors_origins_reject_wildcard() -> None:
+    with pytest.raises(ValueError, match="wildcards"):
+        Settings(_env_file=None, cors_allowed_origins=["*"])
+
+
+def test_cors_origins_accept_exact_list() -> None:
+    settings = Settings(
+        _env_file=None,
+        cors_allowed_origins=["http://127.0.0.1:5173", "https://app.example/"],
+    )
+    assert settings.cors_allowed_origins == (
+        "http://127.0.0.1:5173",
+        "https://app.example",
+    )
+
+
 def test_lightweight_default_does_not_enable_optional_ocr_runtime() -> None:
     assert not Settings(_env_file=None).ocr_enabled
 

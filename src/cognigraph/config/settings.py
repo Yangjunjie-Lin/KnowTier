@@ -112,6 +112,10 @@ class Settings(BaseSettings):
     outbox_worker_enabled: bool = True
     outbox_poll_interval_seconds: float = 1.0
     outbox_batch_size: int = 20
+    # Exact browser Origins allowed for cross-origin API access. Empty keeps
+    # CORS disabled so same-origin Vite/Nginx proxies remain the default path.
+    # Wildcards are rejected; credentials are never enabled with CORS.
+    cors_allowed_origins: tuple[str, ...] = ()
 
     @field_validator(
         "max_upload_bytes",
@@ -184,6 +188,39 @@ class Settings(BaseSettings):
     def bounded_pdf_dpi(cls, value: int) -> int:
         if not 72 <= value <= 600:
             raise ValueError("ocr_pdf_dpi must be between 72 and 600")
+        return value
+
+    @field_validator("cors_allowed_origins", mode="before")
+    @classmethod
+    def parse_cors_origins(cls, value: object) -> object:
+        if value is None or value == "":
+            return ()
+        if isinstance(value, str):
+            text = value.strip()
+            if text.startswith("["):
+                import json
+
+                parsed = json.loads(text)
+                if not isinstance(parsed, list):
+                    raise ValueError("cors_allowed_origins JSON value must be a list")
+                value = parsed
+            else:
+                value = [item.strip() for item in text.split(",") if item.strip()]
+        if isinstance(value, (list, tuple)):
+            origins: list[str] = []
+            for item in value:
+                origin = str(item).strip()
+                if not origin:
+                    continue
+                if origin == "*":
+                    raise ValueError(
+                        "cors_allowed_origins must list exact Origins; "
+                        "wildcards are not allowed"
+                    )
+                if "://" not in origin:
+                    raise ValueError(f"cors origin must include a scheme: {origin}")
+                origins.append(origin.rstrip("/"))
+            return tuple(origins)
         return value
 
 

@@ -1,5 +1,13 @@
 .env
+frontend/.env*
+!frontend/.env.example
 .venv/
+.pnpm-store/
+frontend/node_modules/
+frontend/dist/
+frontend/coverage/
+frontend/playwright-report/
+frontend/test-results/
 __pycache__/
 *.py[cod]
 .pytest_cache/
@@ -13,4 +21,3 @@ build/
 data/
 .idea/
 .vscode/
-

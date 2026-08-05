@@ -131,6 +131,20 @@ services:
       # failed while the frozen environment is still being materialized.
       start_period: 600s
 
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-/api}
+        VITE_API_TIMEOUT_MS: ${VITE_API_TIMEOUT_MS:-30000}
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-8080}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+
   # The default API image intentionally stays small.  Start this profile when
   # PaddleOCR and scanned-PDF rendering are required:
   #   docker compose --profile ocr up api-ocr
