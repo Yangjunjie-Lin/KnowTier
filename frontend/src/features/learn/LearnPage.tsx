@@ -10,6 +10,7 @@ import {
   Lightbulb,
   LoaderCircle,
   Paperclip,
+  PanelRightOpen,
   RotateCcw,
   Send,
   Sparkles,
@@ -18,7 +19,11 @@ import {
   X,
 } from "lucide-react";
 import { useMemo, useRef, useState } from "react";
-import { useLocation } from "react-router-dom";
+import { useLocation, useNavigate } from "react-router-dom";
+import { EvidencePanel } from "@/components/learn/EvidencePanel";
+import { LearningStatusSheet } from "@/components/learn/LearningStatusSheet";
+import { MisconceptionPanel } from "@/components/learn/MisconceptionPanel";
+import { PrerequisitePanel } from "@/components/learn/PrerequisitePanel";
 import {
   CognitiveBadge,
   CognitiveLevelTrack,
@@ -26,6 +31,7 @@ import {
 } from "@/components/shared/LearningVisuals";
 import { EmptyState, ErrorState } from "@/components/shared/States";
 import { PageHeader } from "@/components/shared/PageHeader";
+import type { PrerequisiteInsight } from "@/lib/learningInsights";
 import { queryKeys } from "@/lib/queryKeys";
 import { cn } from "@/lib/utils";
 import { api } from "@/services/api";
@@ -51,6 +57,10 @@ import {
   teachingModes,
   toolNameLabel,
 } from "./teachingLabels";
+import {
+  refreshLearningInsights,
+  useLearningInsights,
+} from "./useLearningInsights";
 
 interface ConversationMessage {
   id: string;
@@ -124,6 +134,7 @@ export function LearnPage() {
     newSession,
   } = useAppStore();
   const location = useLocation();
+  const navigate = useNavigate();
   const queryClient = useQueryClient();
   const navigationTarget = useMemo(
     () => learningTargetFromState(location.state),
@@ -143,6 +154,9 @@ export function LearnPage() {
   const [showAttachments, setShowAttachments] = useState(false);
   const [uploadOperation, setUploadOperation] =
     useState<UploadOperation | null>(null);
+  const [learningStatusOpen, setLearningStatusOpen] = useState(false);
+  const [synchronizingInsightsTargetId, setSynchronizingInsightsTargetId] =
+    useState<UUID | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
@@ -157,6 +171,13 @@ export function LearnPage() {
         .find((item) => item.result !== undefined)?.result,
     [messages],
   );
+  const learningInsightsResult = useLearningInsights({
+    workspaceId: currentWorkspace?.id,
+    learnerId: currentLearner?.id,
+    latestChatResponse: latestResult,
+    navigationTarget,
+    synchronizingTargetId: synchronizingInsightsTargetId,
+  });
 
   const replaceAttachments = (next: UUID[]) => {
     attachmentIdsRef.current = next;
@@ -173,7 +194,7 @@ export function LearnPage() {
         attachment_ids: input.attachmentIds,
         requested_mode: input.requestedMode,
       }),
-    onSuccess: (result) => {
+    onSuccess: async (result) => {
       setMessages((current) => [
         ...current,
         {
@@ -186,30 +207,33 @@ export function LearnPage() {
       setMessage("");
       replaceAttachments([]);
       setNavigationTargetConfirmed(true);
-      void queryClient.invalidateQueries({
-        queryKey: queryKeys.model(currentLearner!.id),
-      });
-      void queryClient.invalidateQueries({
-        queryKey: queryKeys.evidence(currentLearner!.id),
-      });
-      void queryClient.invalidateQueries({
-        queryKey: queryKeys.learnerGraph(currentLearner!.id),
-      });
-      void queryClient.invalidateQueries({
-        queryKey: queryKeys.learnerRevisions(currentLearner!.id),
-      });
-      void queryClient.invalidateQueries({
-        queryKey: queryKeys.manifest(currentWorkspace!.id),
-      });
-      void queryClient.invalidateQueries({
-        queryKey: queryKeys.domainGraph(currentWorkspace!.id),
-      });
-      void queryClient.invalidateQueries({
-        queryKey: queryKeys.domainRevisions(currentWorkspace!.id),
-      });
-      void queryClient.invalidateQueries({
-        queryKey: ["learning-path", currentLearner!.id],
-      });
+      const targetId = result.target_knowledge_point.id;
+      setSynchronizingInsightsTargetId(targetId);
+      await Promise.allSettled([
+        refreshLearningInsights(queryClient, {
+          workspaceId: currentWorkspace!.id,
+          learnerId: currentLearner!.id,
+          targetId,
+        }),
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.learnerRevisions(currentLearner!.id),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.manifest(currentWorkspace!.id),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.domainGraph(currentWorkspace!.id),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.domainRevisions(currentWorkspace!.id),
+        }),
+        queryClient.invalidateQueries({
+          queryKey: ["learning-path", currentLearner!.id],
+        }),
+      ]);
+      setSynchronizingInsightsTargetId((current) =>
+        current === targetId ? null : current,
+      );
     },
   });
 
@@ -326,8 +350,23 @@ export function LearnPage() {
     chatMutation.mutate({ text, attachmentIds, requestedMode: mode });
   };
 
+  const startPrerequisite = (item: PrerequisiteInsight) => {
+    const target: LearningTarget = {
+      id: item.id,
+      name: item.name,
+      source: "prerequisite-panel",
+    };
+    void navigate("/learn", { state: { learningTarget: target } });
+    setMessages([]);
+    setNavigationTargetConfirmed(false);
+    setSynchronizingInsightsTargetId(null);
+    setMessage(learningTargetDraft(target));
+    setLearningStatusOpen(false);
+    window.setTimeout(() => inputRef.current?.focus(), 0);
+  };
+
   const currentKnowledgePoint =
-    latestResult?.target_knowledge_point.name ?? navigationTarget?.name;
+    learningInsightsResult.insights.targetKnowledgePoint?.name;
   const currentLevel = latestResult?.cognitive_level ?? 1;
 
   return (
@@ -337,24 +376,36 @@ export function LearnPage() {
         title="学习空间"
         description="讲解、掌握检测与模型变化分层呈现，每一轮都保持可追溯。"
         actions={
-          <button
-            type="button"
-            onClick={() => {
-              newSession();
-              setMessages([]);
-              setNavigationTargetConfirmed(false);
-            }}
-            disabled={chatMutation.isPending}
-            className="secondary-button"
-          >
-            <RotateCcw className="h-4 w-4" />
-            新建 Session
-          </button>
+          <div className="flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setLearningStatusOpen(true)}
+              className="secondary-button xl:hidden"
+              aria-haspopup="dialog"
+            >
+              <PanelRightOpen className="h-4 w-4" />
+              学习状态
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                newSession();
+                setMessages([]);
+                setNavigationTargetConfirmed(false);
+                setSynchronizingInsightsTargetId(null);
+              }}
+              disabled={chatMutation.isPending}
+              className="secondary-button"
+            >
+              <RotateCcw className="h-4 w-4" />
+              新建 Session
+            </button>
+          </div>
         }
       />
 
       <div className="grid gap-4 xl:grid-cols-[250px_minmax(0,1fr)_300px]">
-        <aside className="space-y-4" aria-label="教学上下文">
+        <aside className="hidden space-y-4 xl:block" aria-label="教学上下文">
           <ContextPanel title="当前知识点">
             <p className="text-sm font-semibold text-slate-800 dark:text-slate-100">
               {currentKnowledgePoint ?? "等待本轮教学响应确认"}
@@ -426,13 +477,15 @@ export function LearnPage() {
             </p>
           </ContextPanel>
 
-          <ContextPanel title="前置知识">
-            <p className="text-xs leading-5 text-slate-500">
-              {latestResult?.teaching_action === "REVIEW_PREREQUISITE"
-                ? "本轮建议先复习前置知识；响应没有提供具体前置清单。"
-                : "当前聊天响应没有提供前置知识清单。可使用下方快捷操作检查。"}
-            </p>
-          </ContextPanel>
+          <PrerequisitePanel
+            target={learningInsightsResult.insights.targetKnowledgePoint}
+            items={learningInsightsResult.insights.prerequisites}
+            structureSource={
+              learningInsightsResult.insights.prerequisiteStructureSource
+            }
+            state={learningInsightsResult.panels.prerequisites}
+            onStart={startPrerequisite}
+          />
 
           <ContextPanel title="Session">
             <p className="break-all font-mono text-[11px] text-slate-500">
@@ -454,9 +507,31 @@ export function LearnPage() {
                 </p>
               </div>
             </div>
-            <span className="text-[11px] text-slate-400">
-              {teachingModeLabel(mode)}模式
-            </span>
+            <div className="flex items-center gap-2">
+              <span className="hidden text-[11px] text-slate-400 sm:inline">
+                {currentKnowledgePoint ?? "等待服务器确认当前知识点"}
+              </span>
+              <span className="hidden text-[11px] text-slate-400 xl:inline">
+                · {teachingModeLabel(mode)}模式
+              </span>
+              <label className="xl:hidden">
+                <span className="sr-only">教学模式（紧凑）</span>
+                <select
+                  value={mode}
+                  onChange={(event) =>
+                    setMode(event.target.value as RequestedMode)
+                  }
+                  className="form-input min-h-8 py-1 text-xs"
+                  aria-label="教学模式（紧凑）"
+                >
+                  {teachingModes.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.label}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            </div>
           </div>
 
           <div
@@ -656,7 +731,7 @@ export function LearnPage() {
           </div>
         </section>
 
-        <aside className="space-y-4" aria-label="学习模型与证据">
+        <aside className="hidden space-y-4 xl:block" aria-label="学习模型与证据">
           <ContextPanel title="掌握度与置信度">
             {latestResult ? (
               <MasteryBar
@@ -687,9 +762,17 @@ export function LearnPage() {
             )}
           </ContextPanel>
 
-          <ContextPanel title="误解">
-            <PanelEmpty text="当前聊天响应未提供结构化误解列表；不会从讲解文本猜测。" />
-          </ContextPanel>
+          <MisconceptionPanel
+            target={learningInsightsResult.insights.targetKnowledgePoint}
+            groups={learningInsightsResult.insights.misconceptions}
+            state={learningInsightsResult.panels.misconceptions}
+          />
+
+          <EvidencePanel
+            target={learningInsightsResult.insights.targetKnowledgePoint}
+            items={learningInsightsResult.insights.evidence}
+            state={learningInsightsResult.panels.evidence}
+          />
 
           <ContextPanel title="来源">
             {latestResult && latestResult.sources.length > 0 ? (
@@ -769,6 +852,12 @@ export function LearnPage() {
           </ContextPanel>
         </aside>
       </div>
+      <LearningStatusSheet
+        open={learningStatusOpen}
+        onOpenChange={setLearningStatusOpen}
+        result={learningInsightsResult}
+        onStartPrerequisite={startPrerequisite}
+      />
     </div>
   );
 }

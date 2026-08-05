@@ -22,11 +22,13 @@ class FakeProvider(ModelProvider):
         responses: list[str | BaseModel | ProviderResponse | Exception] | None = None,
         *,
         delay_seconds: float = 0.0,
+        learning_insights_fixture: bool = False,
     ) -> None:
         self._responses: deque[str | BaseModel | ProviderResponse | Exception] = deque(
             responses or []
         )
         self.delay_seconds = delay_seconds
+        self.learning_insights_fixture = learning_insights_fixture
         self.calls: list[tuple[str, list[ChatMessage], dict[str, Any]]] = []
         self.tool_calls: list[list[ToolDefinition]] = []
 
@@ -63,13 +65,17 @@ class FakeProvider(ModelProvider):
             content = item
         return ProviderResponse(content=content, provider=self.provider_name, model=model)
 
-    @staticmethod
     def _default_payload(
+        self,
         schema: dict[str, Any],
         messages: list[ChatMessage],
     ) -> str:
         properties = schema.get("properties", {})
         if "correctness" in properties:
+            if self.learning_insights_fixture:
+                fixture_grade = _learning_insights_grade(messages)
+                if fixture_grade is not None:
+                    return json.dumps(fixture_grade)
             return json.dumps(
                 {
                     "correctness": 0.75,
@@ -118,6 +124,8 @@ class FakeProvider(ModelProvider):
                     else "00000000-0000-0000-0000-000000000001"
                 )
             )
+            if self.learning_insights_fixture:
+                return json.dumps(_learning_insights_blueprint(source_id))
             stages = [
                 {
                     "cognitive_level": level,
@@ -187,3 +195,112 @@ def _message_text(message: ChatMessage) -> str:
         if isinstance(value, str):
             text_parts.append(value)
     return "\n".join(text_parts)
+
+
+def _learning_insights_grade(messages: list[ChatMessage]) -> dict[str, object] | None:
+    joined = "\n".join(_message_text(message) for message in messages).casefold()
+    misconception = "Bayesian updating ignores the likelihood evidence."
+    if "e2e_wrong_bayes_answer" in joined:
+        return {
+            "correctness": 0.2,
+            "reasoning": 0.25,
+            "independence": 0.8,
+            "transfer": 0.1,
+            "misconceptions": [misconception],
+            "new_misconceptions": [misconception],
+            "confidence": 0.96,
+            "question_understanding": 0.7,
+            "reasoning_error_type": "ignores_likelihood",
+            "missing_conditions": ["likelihood evidence"],
+            "resolved_misconceptions": [],
+            "explanation": "The answer explicitly ignores likelihood evidence.",
+        }
+    if "e2e_correct_bayes_answer" in joined:
+        return {
+            "correctness": 0.95,
+            "reasoning": 0.9,
+            "independence": 0.9,
+            "transfer": 0.85,
+            "misconceptions": [],
+            "new_misconceptions": [],
+            "confidence": 0.97,
+            "question_understanding": 0.95,
+            "reasoning_error_type": None,
+            "missing_conditions": [],
+            "resolved_misconceptions": [misconception],
+            "explanation": f"The correction explicitly resolves: {misconception}",
+        }
+    return None
+
+
+def _learning_insights_blueprint(source_id: str) -> dict[str, object]:
+    def stages(candidate_key: str, label: str) -> list[dict[str, object]]:
+        return [
+            {
+                "cognitive_level": level,
+                "learning_objective": f"Demonstrate {label} at level {level}.",
+                "teaching_strategy": f"Use the level {level} fixture strategy.",
+                "required_prerequisites": (
+                    ["conditional-probability-foundation"]
+                    if candidate_key == "bayesian-updating-target"
+                    else []
+                ),
+                "must_cover": ["the source-supported central idea"],
+                "diagnostic_question": f"What demonstrates level {level} understanding?",
+                "mastery_criteria": ["a correct independent answer with a reason"],
+                "promotion_requirements": ["two evidence forms across distinct turns"],
+                "remediation_policy": "Increase hint specificity one level at a time.",
+            }
+            for level in range(1, 7)
+        ]
+
+    return {
+        "title": "Learning insights full-stack fixture",
+        "domain": "probability",
+        "theories": [],
+        "knowledge_points": [
+            {
+                "candidate_key": "conditional-probability-foundation",
+                "canonical_name": "conditional probability foundation",
+                "plain_definition": (
+                    "Conditional probability measures probability under a condition."
+                ),
+                "formal_definition": "P(A|B)=P(A∩B)/P(B) when P(B)>0.",
+                "importance": 0.9,
+                "difficulty": 0.35,
+                "prerequisites": [],
+                "must_cover": ["conditioning event", "joint probability"],
+                "common_confusions": ["confusing P(A|B) with P(B|A)"],
+                "applicability": ["Bayesian updating"],
+                "limitations": ["requires a non-zero conditioning probability"],
+                "source_span_ids": [source_id],
+                "six_level_plan": stages(
+                    "conditional-probability-foundation",
+                    "conditional probability",
+                ),
+                "confidence": 0.95,
+            },
+            {
+                "candidate_key": "bayesian-updating-target",
+                "canonical_name": "bayesian updating target",
+                "plain_definition": "Bayesian updating combines a prior with likelihood evidence.",
+                "formal_definition": "P(H|E) is proportional to P(E|H)P(H).",
+                "importance": 0.95,
+                "difficulty": 0.65,
+                "prerequisites": ["conditional-probability-foundation"],
+                "must_cover": ["prior", "likelihood", "posterior"],
+                "common_confusions": ["ignoring likelihood evidence"],
+                "applicability": ["belief revision"],
+                "limitations": ["depends on model assumptions"],
+                "source_span_ids": [source_id],
+                "six_level_plan": stages("bayesian-updating-target", "Bayesian updating"),
+                "confidence": 0.95,
+            },
+        ],
+        "relations": [],
+        "examples": [],
+        "counterexamples": [],
+        "misconceptions": [],
+        "questions": [],
+        "unresolved_ambiguities": [],
+    }

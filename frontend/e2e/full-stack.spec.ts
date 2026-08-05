@@ -21,6 +21,10 @@ interface IngestionPayload {
 
 interface ChatPayload {
   response: string;
+  target_knowledge_point: {
+    id: string;
+    name: string;
+  };
   learner_update: {
     mastery_score: number;
     confidence: number;
@@ -159,7 +163,7 @@ test("real stack persists ingestion, tutoring, graphs, and versions across an AP
         name: filename,
         mimeType: "text/plain",
         buffer: Buffer.from(
-          "Bayes' theorem updates a prior belief with evidence. Conditional probability explains how the update is interpreted. A worked example compares prior and posterior belief.",
+          "Conditional probability foundation supports the Bayesian updating target. Bayesian updating combines a prior belief with likelihood evidence to obtain a posterior belief.",
           "utf8",
         ),
       }),
@@ -180,7 +184,7 @@ test("real stack persists ingestion, tutoring, graphs, and versions across an AP
   );
   expect(ingestion.document_id).toBe(document.id);
   expect(ingestion.graph_revision_id).not.toBe("");
-  expect(ingestion.knowledge_point_count).toBeGreaterThan(0);
+  expect(ingestion.knowledge_point_count).toBeGreaterThanOrEqual(2);
 
   const extractedKnowledge = await captureJson<{ blueprint: unknown }>(
     page,
@@ -189,9 +193,11 @@ test("real stack persists ingestion, tutoring, graphs, and versions across an AP
     () => page.getByRole("button", { name: "抽取知识" }).click(),
   );
   expect(JSON.stringify(extractedKnowledge.blueprint)).toContain(
-    "source concept",
+    "bayesian updating target",
   );
-  await expect(page.getByText("source concept", { exact: true }).first()).toBeVisible();
+  await expect(
+    page.getByText("bayesian updating target", { exact: true }).first(),
+  ).toBeVisible();
 
   await page.goto("/learn");
   await expect(
@@ -202,10 +208,9 @@ test("real stack persists ingestion, tutoring, graphs, and versions across an AP
   });
   await attachmentButton.first().click();
   await page.getByRole("button", { name: new RegExp(filename) }).last().click();
-  await page
-    .getByLabel("学习消息", { exact: true })
-    .fill("Explain the source concept and check whether I understand it.");
-  const chat = await captureJson<ChatPayload>(
+  const learningInput = page.getByLabel("学习消息", { exact: true });
+  await learningInput.fill("Teach me conditional probability foundation.");
+  const prerequisiteChat = await captureJson<ChatPayload>(
     page,
     "POST",
     "/v1/chat",
@@ -217,14 +222,93 @@ test("real stack persists ingestion, tutoring, graphs, and versions across an AP
       expect(requestPayload.attachment_ids).toContain(document.id);
     },
   );
-  expect(chat.response).not.toBe("");
-  expect(chat.learner_update.mastery_score).toBeGreaterThanOrEqual(0);
-  expect(chat.learner_update.mastery_score).toBeLessThanOrEqual(1);
-  expect(chat.learner_update.confidence).toBeGreaterThanOrEqual(0);
-  expect(chat.learner_update.confidence).toBeLessThanOrEqual(1);
-  expect(chat.learner_graph_update?.revision_id).toBeTruthy();
-  await expect(page.getByText(chat.response, { exact: false }).first()).toBeVisible();
+  expect(prerequisiteChat.target_knowledge_point.name).toBe(
+    "conditional probability foundation",
+  );
+  expect(prerequisiteChat.learner_graph_update?.revision_id).toBeTruthy();
+  await expect(learningInput).toBeEnabled();
+
+  await learningInput.fill(
+    "A condition restricts the sample space and uses the joint event.",
+  );
+  await captureJson<ChatPayload>(
+    page,
+    "POST",
+    "/v1/chat",
+    () => page.getByRole("button", { name: /发送/ }).click(),
+  );
+  await expect(learningInput).toBeEnabled();
+  await learningInput.fill(
+    "We divide the joint probability by the probability of the condition.",
+  );
+  const promotedPrerequisite = await captureJson<ChatPayload>(
+    page,
+    "POST",
+    "/v1/chat",
+    () => page.getByRole("button", { name: /发送/ }).click(),
+  );
+  expect(promotedPrerequisite.learner_update.mastery_score).toBeGreaterThanOrEqual(0.75);
+  await expect(learningInput).toBeEnabled();
+
+  await learningInput.fill("Teach me bayesian updating target.");
+  const targetChat = await captureJson<ChatPayload>(
+    page,
+    "POST",
+    "/v1/chat",
+    () => page.getByRole("button", { name: /发送/ }).click(),
+  );
+  expect(targetChat.target_knowledge_point.name).toBe("bayesian updating target");
+  expect(targetChat.learner_update.mastery_score).toBeGreaterThanOrEqual(0);
+  expect(targetChat.learner_update.mastery_score).toBeLessThanOrEqual(1);
+  expect(targetChat.learner_update.confidence).toBeGreaterThanOrEqual(0);
+  expect(targetChat.learner_update.confidence).toBeLessThanOrEqual(1);
+  await expect(page.getByText(targetChat.response, { exact: false }).last()).toBeVisible();
   await expect(page.getByText(/掌握度/).first()).toBeVisible();
+
+  const prerequisitePanel = page.getByRole("region", { name: "前置知识" });
+  const misconceptionPanel = page.getByRole("region", { name: "误解" });
+  const evidencePanel = page.getByRole("region", { name: "掌握证据" });
+  await expect(prerequisitePanel).toContainText("conditional probability foundation");
+  await expect(prerequisitePanel).toContainText("已掌握");
+
+  await learningInput.fill(
+    "E2E_WRONG_BAYES_ANSWER I ignore likelihood evidence.",
+  );
+  const wrongAnswer = await captureJson<ChatPayload>(
+    page,
+    "POST",
+    "/v1/chat",
+    () => page.getByRole("button", { name: /发送/ }).click(),
+  );
+  expect(wrongAnswer.target_knowledge_point.id).toBe(
+    targetChat.target_knowledge_point.id,
+  );
+  await expect(misconceptionPanel).toContainText(
+    "Bayesian updating ignores the likelihood evidence.",
+  );
+  await expect(misconceptionPanel).toContainText("当前有效");
+  await expect(evidencePanel).toContainText("正确性");
+
+  await learningInput.fill(
+    "E2E_CORRECT_BAYES_ANSWER The posterior combines the prior and likelihood evidence.",
+  );
+  await captureJson<ChatPayload>(
+    page,
+    "POST",
+    "/v1/chat",
+    () => page.getByRole("button", { name: /发送/ }).click(),
+  );
+  await expect(misconceptionPanel).toContainText(
+    "当前没有记录到仍然有效的误解。",
+  );
+  const historyToggle = misconceptionPanel.getByRole("button", {
+    name: /历史误解（1）/,
+  });
+  await historyToggle.click();
+  await expect(misconceptionPanel).toContainText("已解决");
+  await expect(misconceptionPanel).toContainText(
+    "Bayesian updating ignores the likelihood evidence.",
+  );
 
   const learnerModel = await captureJson<LearnerModelPayload>(
     page,
@@ -341,5 +425,41 @@ test("real stack persists ingestion, tutoring, graphs, and versions across an AP
   );
   expect(recoveredLearnerRevisions.items.map((item) => item.id)).toEqual(
     expect.arrayContaining(learnerRevisions.items.map((item) => item.id)),
+  );
+
+  await page.goto("/learn");
+  const recoveredLearningInput = page.getByLabel("学习消息", { exact: true });
+  await recoveredLearningInput.fill(
+    "Teach me bayesian updating target after the API restart.",
+  );
+  const recoveredTargetChat = await captureJson<ChatPayload>(
+    page,
+    "POST",
+    "/v1/chat",
+    () => page.getByRole("button", { name: /发送/ }).click(),
+  );
+  expect(recoveredTargetChat.target_knowledge_point.id).toBe(
+    targetChat.target_knowledge_point.id,
+  );
+
+  const recoveredPrerequisitePanel = page.getByRole("region", {
+    name: "前置知识",
+  });
+  const recoveredMisconceptionPanel = page.getByRole("region", { name: "误解" });
+  const recoveredEvidencePanel = page.getByRole("region", { name: "掌握证据" });
+  await expect(recoveredPrerequisitePanel).toContainText(
+    "conditional probability foundation",
+  );
+  await expect(recoveredPrerequisitePanel).toContainText("已掌握");
+  await expect(recoveredEvidencePanel).toContainText("正确性");
+  await expect(recoveredMisconceptionPanel).toContainText(
+    "当前没有记录到仍然有效的误解。",
+  );
+  await recoveredMisconceptionPanel
+    .getByRole("button", { name: /历史误解（1）/ })
+    .click();
+  await expect(recoveredMisconceptionPanel).toContainText("已解决");
+  await expect(recoveredMisconceptionPanel).toContainText(
+    "Bayesian updating ignores the likelihood evidence.",
   );
 });

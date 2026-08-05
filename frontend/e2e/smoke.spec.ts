@@ -5,6 +5,9 @@ const learnerId = "22222222-2222-4222-8222-222222222222";
 const documentId = "33333333-3333-4333-8333-333333333333";
 const knowledgePointId = "44444444-4444-4444-8444-444444444444";
 const secondKnowledgePointId = "44444444-4444-4444-8444-444444444445";
+const thirdKnowledgePointId = "44444444-4444-4444-8444-444444444446";
+const switchedKnowledgePointId = "44444444-4444-4444-8444-444444444447";
+const switchedPrerequisiteId = "44444444-4444-4444-8444-444444444448";
 const assertionId = "55555555-5555-4555-8555-555555555555";
 const domainRevisionId = "66666666-6666-4666-8666-666666666666";
 const learnerRevisionId = "77777777-7777-4777-8777-777777777777";
@@ -24,7 +27,7 @@ const learner = {
   language: "zh-CN",
   created_at: now,
 };
-const modelItem = {
+const bayesModelItem = {
   knowledge_point_id: knowledgePointId,
   knowledge_point: "贝叶斯定理",
   current_level: 2,
@@ -35,17 +38,43 @@ const modelItem = {
   prerequisites: [
     {
       knowledge_point_id: secondKnowledgePointId,
-      knowledge_point: "条件概率",
+      knowledge_point: "联合分布基础",
       mastery_score: 0.8,
       current_level: 2,
       status: "mastered",
     },
+    {
+      knowledge_point_id: thirdKnowledgePointId,
+      knowledge_point: "概率公理基础",
+      mastery_score: 0,
+      current_level: 1,
+      status: "not_mastered",
+    },
   ],
-  all_prerequisites_mastered: true,
-  prerequisite_status: "mastered",
+  all_prerequisites_mastered: false,
+  prerequisite_status: "not_mastered",
   last_interaction_at: now,
   next_review_at: "2026-08-06T08:00:00Z",
   recommended_action: "进行迁移练习",
+};
+const switchedModelItem = {
+  ...bayesModelItem,
+  knowledge_point_id: switchedKnowledgePointId,
+  knowledge_point: "梯度下降",
+  mastery_score: 0.51,
+  evidence_count: 1,
+  critical_misconceptions: ["把梯度方向弄反了"],
+  prerequisites: [
+    {
+      knowledge_point_id: switchedPrerequisiteId,
+      knowledge_point: "导数方向基础",
+      mastery_score: 0.62,
+      current_level: 2,
+      status: "not_mastered",
+    },
+  ],
+  all_prerequisites_mastered: false,
+  prerequisite_status: "not_mastered",
 };
 const graph = {
   elements: {
@@ -61,7 +90,21 @@ const graph = {
         data: {
           id: secondKnowledgePointId,
           type: "KnowledgePoint",
-          label: "条件概率",
+          label: "联合分布基础",
+        },
+      },
+      {
+        data: {
+          id: thirdKnowledgePointId,
+          type: "KnowledgePoint",
+          label: "概率公理基础",
+        },
+      },
+      {
+        data: {
+          id: switchedKnowledgePointId,
+          type: "KnowledgePoint",
+          label: "梯度下降",
         },
       },
     ],
@@ -81,6 +124,30 @@ const graph = {
   meta: { revision_id: domainRevisionId },
 };
 
+function evidenceItem(
+  id: string,
+  targetId: string | undefined,
+  evidenceType: string,
+  misconception: string | null = null,
+) {
+  return {
+    id,
+    ...(targetId ? { knowledge_point_id: targetId } : {}),
+    session_id: "88888888-8888-4888-8888-888888888888",
+    turn_id: `99999999-9999-4999-8999-${id.slice(-12)}`,
+    evidence_type: evidenceType,
+    cognitive_level: 2,
+    correctness_score: 0.72,
+    reasoning_score: 0.68,
+    independence_score: 0.74,
+    transfer_score: 0.41,
+    grader_confidence: 0.86,
+    observed_misconceptions: misconception ? [misconception] : [],
+    grader_explanation: `${evidenceType} 的真实评分说明`,
+    created_at: now,
+  };
+}
+
 function json(route: Route, body: unknown, status = 200) {
   return route.fulfill({
     status,
@@ -91,6 +158,8 @@ function json(route: Route, body: unknown, status = 200) {
 
 async function installApiContract(page: Page) {
   let ingested = false;
+  let chatRound = 0;
+  let evidenceFailure = false;
   const scopedRequests: string[] = [];
   await page.route("**/api/v1/**", async (route) => {
     const request = route.request();
@@ -183,6 +252,26 @@ async function installApiContract(page: Page) {
     }
     if (method === "GET" && path === "/v1/graph/export")
       return json(route, graph);
+    if (method === "GET" && path.startsWith("/v1/graph/nodes/")) {
+      const nodeId = path.split("/").at(-1);
+      const prerequisites =
+        nodeId === knowledgePointId
+          ? [
+              { id: secondKnowledgePointId, display_name: "联合分布基础" },
+              { id: thirdKnowledgePointId, display_name: "概率公理基础" },
+            ]
+          : nodeId === switchedKnowledgePointId
+            ? [{ id: switchedPrerequisiteId, display_name: "导数方向基础" }]
+            : [];
+      return json(route, {
+        workspace_id: workspaceId,
+        graph_revision_id: domainRevisionId,
+        data: {
+          node: { id: nodeId, entity_type: "KnowledgePoint" },
+          prerequisites,
+        },
+      });
+    }
     if (method === "GET" && path === "/v1/graph/revisions") {
       return json(route, {
         workspace_id: workspaceId,
@@ -205,20 +294,112 @@ async function installApiContract(page: Page) {
       });
     }
     if (method === "GET" && path === `/v1/learners/${learnerId}/model`) {
+      const switched = chatRound >= 2;
+      const activeItem = switched ? switchedModelItem : bayesModelItem;
+      const prerequisiteState = {
+        ...activeItem,
+        knowledge_point_id: switched
+          ? switchedPrerequisiteId
+          : secondKnowledgePointId,
+        knowledge_point: switched ? "导数方向基础" : "联合分布基础",
+        mastery_score: switched ? 0.62 : 0.82,
+        current_level: 2,
+        evidence_count: 1,
+        critical_misconceptions: [],
+        prerequisites: [],
+        all_prerequisites_mastered: true,
+        prerequisite_status: "none",
+      };
       return json(route, {
         learner_id: learnerId,
         workspace_id: workspaceId,
-        items: [modelItem],
+        items: [activeItem, prerequisiteState],
       });
     }
     if (method === "GET" && path === `/v1/learners/${learnerId}/evidence`) {
-      return json(route, { learner_id: learnerId, items: [] });
+      if (evidenceFailure) {
+        return json(route, { detail: "deterministic evidence outage" }, 503);
+      }
+      const switched = chatRound >= 2;
+      return json(route, {
+        learner_id: learnerId,
+        items: [
+          evidenceItem(
+            switched
+              ? "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2"
+              : "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1",
+            switched ? switchedKnowledgePointId : knowledgePointId,
+            switched ? "GRADIENT_APPLICATION" : "BAYES_EXPLANATION",
+            switched ? "把梯度方向弄反了" : "把后验概率当作先验概率",
+          ),
+          evidenceItem(
+            "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+            "cccccccc-cccc-4ccc-8ccc-cccccccccccc",
+            "OTHER_KP_EVIDENCE",
+          ),
+          evidenceItem(
+            "dddddddd-dddd-4ddd-8ddd-dddddddddddd",
+            undefined,
+            "UNASSOCIATED_EVIDENCE",
+          ),
+        ],
+      });
     }
     if (
       method === "GET" &&
       path === `/v1/learners/${learnerId}/knowledge-graph`
-    )
-      return json(route, graph);
+    ) {
+      const switched = chatRound >= 2;
+      const activeTarget = switched ? switchedKnowledgePointId : knowledgePointId;
+      const activeEvidence = switched
+        ? "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2"
+        : "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1";
+      const misconceptionText = switched
+        ? "把梯度方向弄反了"
+        : "把后验概率当作先验概率";
+      return json(route, {
+        elements: {
+          nodes: [
+            { data: { id: learnerId, type: "Learner", label: "Smoke Learner" } },
+            { data: { id: activeTarget, type: "LearnerKnowledgeState" } },
+            { data: { id: activeEvidence, type: "LearnerGraphResource" } },
+          ],
+          edges: [
+            {
+              data: {
+                id: switched ? "misconception-2" : "misconception-1",
+                assertion_id: switched ? "misconception-2" : "misconception-1",
+                source: learnerId,
+                target: activeTarget,
+                predicate: "HAS_MISCONCEPTION",
+                relation_type: "HAS_MISCONCEPTION",
+                natural_language_description: misconceptionText,
+                confidence: 0.82,
+                valid_from: now,
+                valid_to: null,
+                source_turn_id: "99999999-9999-4999-8999-999999999999",
+                evidence_id: activeEvidence,
+              },
+            },
+            {
+              data: {
+                id: switched ? "mastery-evidence-2" : "mastery-evidence-1",
+                assertion_id: switched ? "mastery-evidence-2" : "mastery-evidence-1",
+                source: learnerId,
+                target: activeEvidence,
+                predicate: "HAS_MASTERY_EVIDENCE",
+                relation_type: "HAS_MASTERY_EVIDENCE",
+                confidence: 0.86,
+                valid_from: now,
+                valid_to: null,
+                evidence_id: activeEvidence,
+              },
+            },
+          ],
+        },
+        meta: { learner_graph_revision_id: learnerRevisionId },
+      });
+    }
     if (
       method === "GET" &&
       path === `/v1/learners/${learnerId}/graph/revisions`
@@ -243,10 +424,16 @@ async function installApiContract(page: Page) {
       });
     }
     if (method === "POST" && path === "/v1/chat") {
+      chatRound += 1;
+      const switched = chatRound >= 2;
       return json(route, {
-        turn_id: "99999999-9999-4999-8999-999999999999",
-        response: "条件概率是理解贝叶斯定理的关键。",
-        target_knowledge_point: { id: knowledgePointId, name: "贝叶斯定理" },
+        turn_id: `99999999-9999-4999-8999-99999999999${Math.min(chatRound, 9)}`,
+        response: switched
+          ? "本轮服务器已切换到梯度下降。"
+          : "本轮服务器已确认贝叶斯定理。",
+        target_knowledge_point: switched
+          ? { id: switchedKnowledgePointId, name: "梯度下降" }
+          : { id: knowledgePointId, name: "贝叶斯定理" },
         cognitive_level: 2,
         teaching_action: "GUIDED_EXPLANATION",
         assessment: {
@@ -282,13 +469,19 @@ async function installApiContract(page: Page) {
     }
     return json(route, { detail: `Unmocked ${method} ${path}` }, 500);
   });
-  return scopedRequests;
+  return {
+    scopedRequests,
+    setEvidenceFailure: (value: boolean) => {
+      evidenceFailure = value;
+    },
+  };
 }
 
 test("initialization, ingestion, tutoring, model and both graph views", async ({
   page,
 }) => {
-  const scopedRequests = await installApiContract(page);
+  test.setTimeout(60_000);
+  const { scopedRequests, setEvidenceFailure } = await installApiContract(page);
   await page.goto("/init");
   await page.getByPlaceholder("例如：机器学习基础").fill("Smoke Workspace");
   await page.getByPlaceholder("machine-learning").fill("smoke-workspace");
@@ -322,13 +515,52 @@ test("initialization, ingestion, tutoring, model and both graph views", async ({
     .fill("请解释贝叶斯定理");
   await page.getByRole("button", { name: /发送/ }).click();
   await expect(
-    page.getByText("条件概率是理解贝叶斯定理的关键。"),
+    page.getByText("本轮服务器已确认贝叶斯定理。"),
   ).toBeVisible();
   await expect(page.getByText(/版本 77777777/)).toBeVisible();
 
+  const prerequisitePanel = page.getByRole("region", { name: "前置知识" });
+  const misconceptionPanel = page.getByRole("region", { name: "误解" });
+  const evidencePanel = page.getByRole("region", { name: "掌握证据" });
+  await expect(prerequisitePanel).toContainText("联合分布基础");
+  await expect(prerequisitePanel).toContainText("概率公理基础");
+  await expect(misconceptionPanel).toContainText("把后验概率当作先验概率");
+  await expect(evidencePanel).toContainText("BAYES_EXPLANATION");
+  await expect(evidencePanel).not.toContainText("OTHER_KP_EVIDENCE");
+  await expect(evidencePanel).not.toContainText("UNASSOCIATED_EVIDENCE");
+
+  await page
+    .getByLabel("学习消息", { exact: true })
+    .fill("请把服务器目标切换到梯度下降");
+  await page.getByRole("button", { name: /发送/ }).click();
+  await expect(
+    page.getByText("本轮服务器已切换到梯度下降。", { exact: true }),
+  ).toBeVisible();
+  await expect(prerequisitePanel).toContainText("导数方向基础");
+  await expect(misconceptionPanel).toContainText("把梯度方向弄反了");
+  await expect(evidencePanel).toContainText("GRADIENT_APPLICATION");
+  await expect(prerequisitePanel).not.toContainText("联合分布基础");
+  await expect(prerequisitePanel).not.toContainText("概率公理基础");
+  await expect(misconceptionPanel).not.toContainText("把后验概率当作先验概率");
+  await expect(evidencePanel).not.toContainText("BAYES_EXPLANATION");
+
+  setEvidenceFailure(true);
+  await page
+    .getByLabel("学习消息", { exact: true })
+    .fill("在当前目标继续一轮并模拟证据读取失败");
+  await page.getByRole("button", { name: /发送/ }).click();
+  await expect(evidencePanel).toContainText("部分数据不可用");
+  await expect(page.getByLabel("学习消息", { exact: true })).toBeEnabled();
+  await expect(prerequisitePanel).toContainText("导数方向基础");
+  await expect(misconceptionPanel).toContainText("把梯度方向弄反了");
+  setEvidenceFailure(false);
+  await evidencePanel.getByRole("button", { name: "重试" }).click();
+  await expect(evidencePanel).toContainText("GRADIENT_APPLICATION");
+  await expect(evidencePanel).not.toContainText("部分数据不可用");
+
   await page.goto("/model");
   await expect(page.getByRole("heading", { name: "个人模型" })).toBeVisible();
-  await expect(page.getByText("贝叶斯定理", { exact: true })).toBeVisible();
+  await expect(page.getByText("梯度下降", { exact: true })).toBeVisible();
 
   await page.goto("/graph/domain");
   await expect(

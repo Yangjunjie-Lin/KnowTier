@@ -22,7 +22,7 @@ jobs:
         with:
           version: "latest"
       - run: uv lock --check
-      - run: uv sync --frozen --dev
+      - run: uv sync --frozen --dev --extra documents
       - run: uv run ruff format --check src tests scripts
       - run: uv run ruff check src tests scripts
       - run: uv run mypy src/cognigraph
