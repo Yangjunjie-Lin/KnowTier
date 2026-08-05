@@ -13,6 +13,7 @@
     "vite.config.ts",
     "vitest.config.ts",
     "playwright.config.ts",
+    "playwright.full-stack.config.ts",
     "eslint.config.js",
     "e2e/**/*.ts"
   ]

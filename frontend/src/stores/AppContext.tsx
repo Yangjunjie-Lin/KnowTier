@@ -8,14 +8,25 @@ import {
   useState,
 } from "react";
 import { apiClient } from "@/lib/api/client";
-import type { DocumentRecord, Learner, UUID, Workspace } from "@/types/api";
+import type {
+  DocumentRecord,
+  Learner,
+  RequestedMode,
+  UUID,
+  Workspace,
+} from "@/types/api";
 import { recentDocumentFrom } from "@/types/app";
 import { sanitizeApiBaseUrl } from "@/lib/utils";
 import type {
   GraphDensity,
+  ExplanationDetail,
+  FontSizePreference,
+  GraphLabelDensity,
+  HintStrength,
   LocalPreferences,
   PersistedAppState,
   RecentDocument,
+  ReviewFrequency,
   ThemePreference,
 } from "@/types/app";
 
@@ -36,6 +47,13 @@ interface AppContextValue extends PersistedAppState {
   setTheme: (theme: ThemePreference) => void;
   setReducedMotion: (reduced: boolean) => void;
   setGraphDensity: (density: GraphDensity) => void;
+  setDefaultTeachingMode: (mode: RequestedMode) => void;
+  setExplanationDetail: (detail: ExplanationDetail) => void;
+  setPrioritizeExamples: (prioritize: boolean) => void;
+  setHintStrength: (strength: HintStrength) => void;
+  setReviewFrequency: (frequency: ReviewFrequency) => void;
+  setFontSize: (fontSize: FontSizePreference) => void;
+  setGraphLabelDensity: (density: GraphLabelDensity) => void;
   clearLocalHistory: () => void;
 }
 
@@ -44,6 +62,13 @@ const defaultPreferences: LocalPreferences = {
   theme: "light",
   reducedMotion: false,
   graphDensity: "comfortable",
+  defaultTeachingMode: "learn",
+  explanationDetail: "balanced",
+  prioritizeExamples: true,
+  hintStrength: "balanced",
+  reviewFrequency: "twice-weekly",
+  fontSize: "medium",
+  graphLabelDensity: "balanced",
 };
 
 function freshState(): PersistedAppState {
@@ -62,6 +87,72 @@ function freshState(): PersistedAppState {
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
+}
+
+function stringPreference<T extends string>(
+  value: unknown,
+  allowed: readonly T[],
+  fallback: T,
+): T {
+  return typeof value === "string" && allowed.includes(value as T)
+    ? (value as T)
+    : fallback;
+}
+
+function readPreferences(value: unknown): LocalPreferences {
+  const stored = isRecord(value) ? value : {};
+  return {
+    apiBaseUrl:
+      sanitizeApiBaseUrl(stored.apiBaseUrl) ?? defaultPreferences.apiBaseUrl,
+    theme: stringPreference(
+      stored.theme,
+      ["light", "dark", "system"] as const,
+      defaultPreferences.theme,
+    ),
+    reducedMotion:
+      typeof stored.reducedMotion === "boolean"
+        ? stored.reducedMotion
+        : defaultPreferences.reducedMotion,
+    graphDensity: stringPreference(
+      stored.graphDensity,
+      ["comfortable", "compact", "dense"] as const,
+      defaultPreferences.graphDensity,
+    ),
+    defaultTeachingMode: stringPreference(
+      stored.defaultTeachingMode,
+      ["learn", "review", "practice", "exam", "research"] as const,
+      defaultPreferences.defaultTeachingMode,
+    ),
+    explanationDetail: stringPreference(
+      stored.explanationDetail,
+      ["concise", "balanced", "detailed"] as const,
+      defaultPreferences.explanationDetail,
+    ),
+    prioritizeExamples:
+      typeof stored.prioritizeExamples === "boolean"
+        ? stored.prioritizeExamples
+        : defaultPreferences.prioritizeExamples,
+    hintStrength: stringPreference(
+      stored.hintStrength,
+      ["light", "balanced", "strong"] as const,
+      defaultPreferences.hintStrength,
+    ),
+    reviewFrequency: stringPreference(
+      stored.reviewFrequency,
+      ["daily", "twice-weekly", "weekly"] as const,
+      defaultPreferences.reviewFrequency,
+    ),
+    fontSize: stringPreference(
+      stored.fontSize,
+      ["small", "medium", "large"] as const,
+      defaultPreferences.fontSize,
+    ),
+    graphLabelDensity: stringPreference(
+      stored.graphLabelDensity,
+      ["minimal", "balanced", "detailed"] as const,
+      defaultPreferences.graphLabelDensity,
+    ),
+  };
 }
 
 function readState(): PersistedAppState {
@@ -88,16 +179,7 @@ function readState(): PersistedAppState {
       recentDocuments: Array.isArray(state.recentDocuments)
         ? state.recentDocuments.slice(0, 30)
         : [],
-      preferences: {
-        ...defaultPreferences,
-        ...(isRecord(state.preferences) ? state.preferences : {}),
-        apiBaseUrl:
-          sanitizeApiBaseUrl(
-            isRecord(state.preferences)
-              ? state.preferences.apiBaseUrl
-              : defaultPreferences.apiBaseUrl,
-          ) ?? defaultPreferences.apiBaseUrl,
-      },
+      preferences: readPreferences(state.preferences),
     };
   } catch {
     return freshState();
@@ -140,11 +222,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         (state.preferences.theme === "system" && media.matches);
       root.classList.toggle("dark", dark);
       root.dataset.reduceMotion = String(state.preferences.reducedMotion);
+      root.dataset.fontSize = state.preferences.fontSize;
     };
     apply();
     media.addEventListener("change", apply);
     return () => media.removeEventListener("change", apply);
-  }, [state.preferences.reducedMotion, state.preferences.theme]);
+  }, [
+    state.preferences.fontSize,
+    state.preferences.reducedMotion,
+    state.preferences.theme,
+  ]);
 
   const setWorkspace = useCallback(
     (workspace: Workspace | null) =>
@@ -242,6 +329,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setTheme: (theme) => updatePreferences({ theme }),
       setReducedMotion: (reducedMotion) => updatePreferences({ reducedMotion }),
       setGraphDensity: (graphDensity) => updatePreferences({ graphDensity }),
+      setDefaultTeachingMode: (defaultTeachingMode) =>
+        updatePreferences({ defaultTeachingMode }),
+      setExplanationDetail: (explanationDetail) =>
+        updatePreferences({ explanationDetail }),
+      setPrioritizeExamples: (prioritizeExamples) =>
+        updatePreferences({ prioritizeExamples }),
+      setHintStrength: (hintStrength) => updatePreferences({ hintStrength }),
+      setReviewFrequency: (reviewFrequency) =>
+        updatePreferences({ reviewFrequency }),
+      setFontSize: (fontSize) => updatePreferences({ fontSize }),
+      setGraphLabelDensity: (graphLabelDensity) =>
+        updatePreferences({ graphLabelDensity }),
       clearLocalHistory,
     }),
     [

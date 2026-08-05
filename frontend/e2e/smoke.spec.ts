@@ -317,12 +317,14 @@ test("initialization, ingestion, tutoring, model and both graph views", async ({
   ).toContainText("知识点");
 
   await page.goto("/learn");
-  await page.getByLabel("学习消息").fill("请解释贝叶斯定理");
-  await page.getByRole("button", { name: "发送" }).click();
+  await page
+    .getByLabel("学习消息", { exact: true })
+    .fill("请解释贝叶斯定理");
+  await page.getByRole("button", { name: /发送/ }).click();
   await expect(
     page.getByText("条件概率是理解贝叶斯定理的关键。"),
   ).toBeVisible();
-  await expect(page.getByText(/学生版本：77777777/)).toBeVisible();
+  await expect(page.getByText(/版本 77777777/)).toBeVisible();
 
   await page.goto("/model");
   await expect(page.getByRole("heading", { name: "个人模型" })).toBeVisible();

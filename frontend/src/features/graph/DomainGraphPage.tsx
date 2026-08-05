@@ -8,10 +8,11 @@ import {
   Undo2,
 } from "lucide-react";
 import { useMemo, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { api } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { rawGraphToCytoscape } from "@/lib/graph";
-import { jsonText } from "@/lib/utils";
+import { isUuid } from "@/lib/utils";
 import { useAppStore } from "@/stores/AppContext";
 import type {
   GraphEdgeData,
@@ -20,6 +21,10 @@ import type {
   JsonValue,
 } from "@/types/api";
 import { GraphCanvas } from "@/components/graph/GraphCanvas";
+import {
+  DomainAssertionDetail,
+  DomainNodeDetail,
+} from "@/components/graph/DomainDetails";
 import {
   EmptyState,
   ErrorState,
@@ -31,13 +36,17 @@ import { Sheet } from "@/components/shared/Sheet";
 export function DomainGraphPage() {
   const { currentWorkspace, preferences } = useAppStore();
   const workspaceId = currentWorkspace?.id;
+  const [searchParams] = useSearchParams();
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<string[]>([]);
   const [relationFilter, setRelationFilter] = useState<string[]>([]);
   const [selectedNode, setSelectedNode] = useState<GraphNodeData | null>(null);
   const [selectedEdge, setSelectedEdge] = useState<GraphEdgeData | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
-  const [focusNodeId, setFocusNodeId] = useState<string | null>(null);
+  const [focusNodeId, setFocusNodeId] = useState<string | null>(() => {
+    const linkedNodeId = searchParams.get("node");
+    return linkedNodeId && isUuid(linkedNodeId) ? linkedNodeId : null;
+  });
   const graph = useQuery({
     queryKey: queryKeys.domainGraph(workspaceId ?? ""),
     queryFn: ({ signal }) => api.getDomainGraph(workspaceId!, signal),
@@ -266,6 +275,8 @@ export function DomainGraphPage() {
           nodeTypes={typeFilter}
           relationTypes={relationFilter}
           density={preferences.graphDensity}
+          labelDensity={preferences.graphLabelDensity}
+          selectedId={selectedNode?.id ?? selectedEdge?.id ?? null}
           onNodeSelect={handleNode}
           onEdgeSelect={handleEdge}
         />
@@ -332,6 +343,7 @@ export function DomainGraphPage() {
       </div>
       {detailOpen && (
         <GraphDetailDrawer
+          kind={selectedNode ? "node" : "assertion"}
           title={selectedNode ? "节点详情" : "RelationAssertion 详情"}
           loading={nodeDetail.isLoading || edgeDetail.isLoading}
           error={nodeDetail.error ?? edgeDetail.error}
@@ -366,6 +378,7 @@ function Metric({ label, value }: { label: string; value: string | number }) {
 }
 
 function GraphDetailDrawer({
+  kind,
   title,
   data,
   loading,
@@ -373,6 +386,7 @@ function GraphDetailDrawer({
   onFocus,
   onClose,
 }: {
+  kind: "node" | "assertion";
   title: string;
   data: unknown;
   loading: boolean;
@@ -388,6 +402,7 @@ function GraphDetailDrawer({
       }}
       title={title}
       description={`${title}侧边栏`}
+      width="lg"
     >
       {loading ? (
         <LoadingState label="正在读取详情" />
@@ -396,21 +411,11 @@ function GraphDetailDrawer({
           <ErrorState error={error} />
         </div>
       ) : (
-        <>
-          {onFocus && (
-            <button
-              type="button"
-              onClick={onFocus}
-              className="secondary-button mt-5"
-            >
-              <Focus className="h-4 w-4" />
-              加载局部子图
-            </button>
-          )}
-          <pre className="mt-4 whitespace-pre-wrap break-words rounded-lg bg-slate-50 p-3 font-mono text-[11px] leading-5 text-slate-600 dark:bg-slate-900 dark:text-slate-300">
-            {jsonText(data)}
-          </pre>
-        </>
+        kind === "node" ? (
+          <DomainNodeDetail data={data} onFocus={onFocus} />
+        ) : (
+          <DomainAssertionDetail data={data} />
+        )
       )}
     </Sheet>
   );

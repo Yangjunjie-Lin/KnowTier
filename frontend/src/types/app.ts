@@ -1,7 +1,18 @@
-import type { DocumentRecord, Learner, UUID, Workspace } from "./api";
+import type {
+  DocumentRecord,
+  Learner,
+  RequestedMode,
+  UUID,
+  Workspace,
+} from "./api";
 
 export type ThemePreference = "light" | "dark" | "system";
 export type GraphDensity = "comfortable" | "compact" | "dense";
+export type ExplanationDetail = "concise" | "balanced" | "detailed";
+export type HintStrength = "light" | "balanced" | "strong";
+export type ReviewFrequency = "daily" | "twice-weekly" | "weekly";
+export type FontSizePreference = "small" | "medium" | "large";
+export type GraphLabelDensity = "minimal" | "balanced" | "detailed";
 
 export interface RecentDocument {
   id: UUID;
@@ -17,6 +28,13 @@ export interface LocalPreferences {
   theme: ThemePreference;
   reducedMotion: boolean;
   graphDensity: GraphDensity;
+  defaultTeachingMode: RequestedMode;
+  explanationDetail: ExplanationDetail;
+  prioritizeExamples: boolean;
+  hintStrength: HintStrength;
+  reviewFrequency: ReviewFrequency;
+  fontSize: FontSizePreference;
+  graphLabelDensity: GraphLabelDensity;
 }
 
 export interface PersistedAppState {

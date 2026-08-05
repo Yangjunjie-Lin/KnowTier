@@ -1,0 +1,128 @@
+name: knowtier-e2e
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: cognigraph_e2e
+      POSTGRES_USER: cognigraph_e2e
+      POSTGRES_PASSWORD: cognigraph-e2e-password
+    ports:
+      - "${E2E_POSTGRES_PORT:-15432}:5432"
+    volumes:
+      - e2e_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - pg_isready -U "$${POSTGRES_USER}" -d "$${POSTGRES_DB}"
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+
+  neo4j:
+    image: neo4j:5.26-community
+    environment:
+      NEO4J_AUTH: neo4j/cognigraph-e2e-password
+      NEO4J_server_memory_heap_initial__size: 256m
+      NEO4J_server_memory_heap_max__size: 512m
+      NEO4J_server_memory_pagecache_size: 256m
+    ports:
+      - "${E2E_NEO4J_HTTP_PORT:-17474}:7474"
+      - "${E2E_NEO4J_BOLT_PORT:-17687}:7687"
+    volumes:
+      - e2e_neo4j_data:/data
+      - e2e_neo4j_logs:/logs
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - >-
+          cypher-shell -a bolt://localhost:7687
+          -u neo4j -p cognigraph-e2e-password
+          "RETURN 1" >/dev/null 2>&1
+      interval: 10s
+      timeout: 10s
+      retries: 45
+      start_period: 30s
+
+  api:
+    image: ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+    working_dir: /app
+    command:
+      - sh
+      - -c
+      - >-
+        uv sync --frozen --no-dev &&
+        uv run alembic upgrade head &&
+        exec uv run uvicorn cognigraph.main:app --host 0.0.0.0 --port 8000
+    environment:
+      COGNIGRAPH_ENVIRONMENT: test
+      COGNIGRAPH_WORKSPACE_SCOPE_REQUIRED: "false"
+      COGNIGRAPH_DATABASE_URL: postgresql+asyncpg://cognigraph_e2e:cognigraph-e2e-password@postgres:5432/cognigraph_e2e
+      COGNIGRAPH_NEO4J_URI: bolt://neo4j:7687
+      COGNIGRAPH_NEO4J_USER: neo4j
+      COGNIGRAPH_NEO4J_PASSWORD: cognigraph-e2e-password
+      COGNIGRAPH_NEO4J_REQUIRED: "true"
+      COGNIGRAPH_STORAGE_PATH: /app/data/e2e-uploads
+      COGNIGRAPH_USE_MOCK_LLM: "true"
+      COGNIGRAPH_GRAPH_MODEL_ENABLED: "true"
+      COGNIGRAPH_TOOL_CALLING_ENABLED: "true"
+      COGNIGRAPH_OCR_ENABLED: "false"
+      COGNIGRAPH_VISION_ENABLED: "false"
+      COGNIGRAPH_VISION_FALLBACK_ENABLED: "false"
+      COGNIGRAPH_OUTBOX_POLL_INTERVAL_SECONDS: "0.1"
+    ports:
+      - "${E2E_API_PORT:-18000}:8000"
+    volumes:
+      - .:/app
+      - e2e_venv:/app/.venv
+      - e2e_uv_cache:/root/.cache/uv
+      - e2e_uploads:/app/data/e2e-uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request;
+          urllib.request.urlopen('http://localhost:8000/ready', timeout=5)
+      interval: 10s
+      timeout: 6s
+      retries: 60
+      start_period: 60s
+
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NODE_IMAGE: ${E2E_FRONTEND_NODE_IMAGE:-node:22-alpine}
+        NGINX_IMAGE: ${E2E_FRONTEND_NGINX_IMAGE:-nginx:1.27-alpine}
+        VITE_API_BASE_URL: /api
+        VITE_API_TIMEOUT_MS: 600000
+    ports:
+      - "${E2E_FRONTEND_PORT:-18080}:80"
+    depends_on:
+      api:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - wget --quiet --spider http://127.0.0.1/ready
+      interval: 5s
+      timeout: 5s
+      retries: 30
+      start_period: 10s
+
+volumes:
+  e2e_postgres_data:
+  e2e_neo4j_data:
+  e2e_neo4j_logs:
+  e2e_venv:
+  e2e_uv_cache:
+  e2e_uploads:

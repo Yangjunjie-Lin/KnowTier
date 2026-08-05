@@ -197,6 +197,52 @@ Workspace provisioning is a separate bootstrap operation and requires
 
 ## Verification
 
+The frontend uses the committed lockfile and Node.js 22. Run the same static,
+unit, production-build, and browser Contract Test sequence used by CI:
+
+```bash
+cd frontend
+npm ci
+npm run typecheck
+npm run lint
+npm run test
+npm run build
+npx playwright install --with-deps chromium
+npm run e2e
+```
+
+`npm run e2e` keeps the browser API Contract Test isolated by intercepting
+`/api/v1` requests. The separate full-stack suite uses real services and the
+credential-free Mock LLM through the Nginx `/api` proxy:
+
+```bash
+docker compose -f docker-compose.e2e.yml config --quiet
+docker compose -f docker-compose.e2e.yml up --detach --build --wait --wait-timeout 1200
+cd frontend
+npm ci
+npx playwright install --with-deps chromium
+npx playwright test --config=playwright.full-stack.config.ts
+cd ..
+docker compose -f docker-compose.e2e.yml down --volumes --remove-orphans
+```
+
+The full-stack browser test creates an isolated Workspace and learner, uploads
+and ingests TXT, teaches with `COGNIGRAPH_USE_MOCK_LLM=true`, reads both graphs,
+the personal model, and both version histories, then restarts FastAPI and
+verifies the persisted state again. Its default frontend URL is
+`http://127.0.0.1:18080`; the E2E host ports can be overridden with the
+`E2E_*_PORT` variables when they conflict locally.
+If `E2E_FRONTEND_PORT` is changed, set `COGNIGRAPH_E2E_FRONTEND_URL` to the
+matching `http://127.0.0.1:<port>` value before starting Playwright.
+
+Validate the production Compose manifest independently with:
+
+```bash
+docker compose config --quiet
+```
+
+Backend verification remains independent of the frontend jobs:
+
 ```bash
 uv lock --check
 uv sync --frozen --dev --extra documents
@@ -227,12 +273,16 @@ Live Neo4j, OCR, production E2E, performance, and paid-model tests are opt-in an
 unless their explicit environment is configured. The default unit, contract, repository, API,
 and PDF tests are offline.
 
-GitHub Actions separates these boundaries: `ci.yml` runs frozen lock/static/default offline
-checks, `integration.yml` provisions PostgreSQL 16 with pgvector and Neo4j 5.26 and exercises the
-production workflow, and `release-check.yml` starts the production-shaped Compose stack, runs the
-production-size synthetic budget suite, and runs the OCR acceptance job. The live-model job is
-present but executes only when the `COGNIGRAPH_API_KEY` repository secret is configured. OCR is
-mandatory for published releases and opt-in through `run_ocr` for a manual release-check dispatch.
+GitHub Actions separates these boundaries: `ci.yml` validates Docker Compose and runs frozen
+lock/static/default offline backend checks; `frontend-ci.yml` runs the complete Node.js 22
+frontend sequence plus both the API Contract Test and the real PostgreSQL/Neo4j/Mock-LLM browser
+flow; `integration.yml` provisions PostgreSQL 16 with pgvector and Neo4j 5.26 and exercises the
+production workflow; and `release-check.yml` starts the production-shaped Compose stack, runs the
+production-size synthetic budget suite, and runs the OCR acceptance job. Failed browser runs retain
+Playwright traces, screenshots, video, Compose service status, and container logs as workflow
+artifacts. The live-model job is present but executes only when the `COGNIGRAPH_API_KEY` repository
+secret is configured. OCR is mandatory for published releases and opt-in through `run_ocr` for a
+manual release-check dispatch.
 
 See [ARCHITECTURE.md](ARCHITECTURE.md), [DATA_MODEL.md](DATA_MODEL.md),
 [PROMPTS.md](PROMPTS.md), [TOOL_CALLING.md](TOOL_CALLING.md),

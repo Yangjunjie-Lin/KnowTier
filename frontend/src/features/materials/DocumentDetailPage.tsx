@@ -3,7 +3,6 @@ import {
   ArrowLeft,
   Braces,
   CheckCircle2,
-  FileArchive,
   FileText,
   LoaderCircle,
   Play,
@@ -13,7 +12,7 @@ import { useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
-import { formatBytes, formatDate, jsonText } from "@/lib/utils";
+import { formatBytes, formatDate } from "@/lib/utils";
 import { useAppStore } from "@/stores/AppContext";
 import {
   EmptyState,
@@ -23,7 +22,7 @@ import {
 } from "@/components/shared/States";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { IngestionSummary } from "@/components/materials/IngestionSummary";
-import type { JsonValue } from "@/types/api";
+import { KnowledgeBlueprintView } from "@/components/materials/KnowledgeBlueprintView";
 
 type Tab = "overview" | "chunks" | "knowledge";
 
@@ -294,7 +293,7 @@ function Knowledge({ query }: { query: ReturnType<typeof useQuery> }) {
     return (
       <ErrorState error={query.error} onRetry={() => void query.refetch()} />
     );
-  const blueprint = (query.data as { blueprint?: JsonValue | null } | undefined)
+  const blueprint = (query.data as { blueprint?: unknown } | undefined)
     ?.blueprint;
   if (!blueprint)
     return (
@@ -303,55 +302,5 @@ function Knowledge({ query }: { query: ReturnType<typeof useQuery> }) {
         description="完成摄取后，后端会在可用时返回 Knowledge Blueprint。"
       />
     );
-  return (
-    <div className="rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
-      <div className="mb-4 flex items-center gap-2">
-        <FileArchive className="h-5 w-5 text-[#3157D5]" />
-        <h2 className="text-base font-semibold">Knowledge Blueprint</h2>
-      </div>
-      <JsonTree value={blueprint} />
-    </div>
-  );
-}
-
-function JsonTree({ value, depth = 0 }: { value: JsonValue; depth?: number }) {
-  if (value === null || typeof value !== "object")
-    return (
-      <span className="text-sm text-slate-600 dark:text-slate-300">
-        {String(value)}
-      </span>
-    );
-  if (Array.isArray(value))
-    return (
-      <ul className="ml-4 space-y-1 border-l border-slate-200 pl-3 dark:border-slate-700">
-        {value.slice(0, 80).map((item, index) => (
-          <li key={index}>
-            <JsonTree value={item} depth={depth + 1} />
-          </li>
-        ))}
-      </ul>
-    );
-  return (
-    <dl className="space-y-2">
-      {Object.entries(value)
-        .slice(0, 100)
-        .map(([key, item]) => (
-          <div
-            key={key}
-            className="rounded-lg bg-slate-50 px-3 py-2 dark:bg-slate-800/60"
-          >
-            <dt className="font-mono text-[11px] text-[#3157D5]">{key}</dt>
-            <dd className="mt-1 break-words">
-              {typeof item === "object" && item !== null ? (
-                <JsonTree value={item} depth={depth + 1} />
-              ) : (
-                <span className="text-sm text-slate-600 dark:text-slate-300">
-                  {jsonText(item)}
-                </span>
-              )}
-            </dd>
-          </div>
-        ))}
-    </dl>
-  );
+  return <KnowledgeBlueprintView value={blueprint} />;
 }

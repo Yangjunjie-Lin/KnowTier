@@ -1,0 +1,102 @@
+name: Frontend CI
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  frontend:
+    name: Static, unit, build, and contract E2E
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install locked frontend dependencies
+        run: npm ci
+      - name: Typecheck
+        run: npm run typecheck
+      - name: Lint
+        run: npm run lint
+      - name: Unit and component tests
+        run: npm run test
+      - name: Production build
+        run: npm run build
+      - name: Install Chromium and system dependencies
+        run: npx playwright install --with-deps chromium
+      - name: Playwright API contract E2E
+        run: npm run e2e
+      - name: Upload contract E2E diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-contract-e2e-diagnostics
+          path: |
+            frontend/playwright-report
+            frontend/test-results
+          if-no-files-found: ignore
+          retention-days: 7
+
+  full-stack-e2e:
+    name: React, FastAPI, PostgreSQL, Neo4j, and Mock LLM
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      COMPOSE_PROJECT_NAME: knowtier-full-stack-e2e
+      COGNIGRAPH_E2E_FRONTEND_URL: http://127.0.0.1:18080
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install locked frontend dependencies
+        working-directory: frontend
+        run: npm ci
+      - name: Install Chromium and system dependencies
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+      - name: Validate full-stack Compose configuration
+        run: docker compose -f docker-compose.e2e.yml config --quiet
+      - name: Start and wait for the full stack
+        run: >-
+          docker compose -f docker-compose.e2e.yml
+          up --detach --build --wait --wait-timeout 1200
+      - name: Run real full-stack Playwright E2E
+        working-directory: frontend
+        run: npx playwright test --config=playwright.full-stack.config.ts
+      - name: Collect full-stack diagnostics
+        if: always()
+        run: |
+          set +e
+          mkdir -p full-stack-artifacts
+          docker compose -f docker-compose.e2e.yml ps --all > full-stack-artifacts/compose-ps.txt 2>&1
+          docker compose -f docker-compose.e2e.yml logs --no-color > full-stack-artifacts/compose.log 2>&1
+      - name: Upload traces, screenshots, and container logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-full-stack-e2e-diagnostics
+          path: |
+            frontend/playwright-report-full-stack
+            frontend/test-results/full-stack
+            full-stack-artifacts
+          if-no-files-found: ignore
+          retention-days: 7
+      - name: Stop the full stack
+        if: always()
+        run: >-
+          docker compose -f docker-compose.e2e.yml
+          down --volumes --remove-orphans

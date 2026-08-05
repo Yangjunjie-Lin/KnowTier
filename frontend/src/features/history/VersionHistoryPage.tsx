@@ -1,7 +1,6 @@
 import { useQuery } from "@tanstack/react-query";
 import {
   ChevronRight,
-  Clock3,
   GitCommitHorizontal,
   Layers3,
 } from "lucide-react";
@@ -9,7 +8,7 @@ import { useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
-import { formatDate, jsonText } from "@/lib/utils";
+import { formatDate } from "@/lib/utils";
 import { useAppStore } from "@/stores/AppContext";
 import type { LearnerRevision, RevisionSummary } from "@/types/api";
 import {
@@ -19,6 +18,10 @@ import {
 } from "@/components/shared/States";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Sheet } from "@/components/shared/Sheet";
+import {
+  DomainVersionDetail,
+  LearnerVersionDetail,
+} from "@/components/history/VersionDetails";
 
 export function DomainVersionPage() {
   return <VersionHistoryPage kind="domain" />;
@@ -169,15 +172,11 @@ function RevisionDrawer({
           <ErrorState error={detail.error} />
         </div>
       ) : (
-        <div className="mt-5 space-y-4">
-          <div className="flex items-center gap-2 text-xs text-slate-500">
-            <Clock3 className="h-4 w-4" />
-            {formatDate(item.created_at, true)}
-          </div>
-          <pre className="whitespace-pre-wrap break-words rounded-lg bg-slate-50 p-3 font-mono text-[11px] leading-5 text-slate-600 dark:bg-slate-900 dark:text-slate-300">
-            {jsonText(detail.data)}
-          </pre>
-        </div>
+        kind === "domain" ? (
+          <DomainVersionDetail data={detail.data} />
+        ) : (
+          <LearnerVersionDetail data={detail.data} />
+        )
       )}
     </Sheet>
   );

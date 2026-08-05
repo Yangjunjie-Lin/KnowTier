@@ -18,6 +18,7 @@ import { sanitizeApiBaseUrl } from "@/lib/utils";
 import { useAppStore } from "@/stores/AppContext";
 import { ErrorState } from "@/components/shared/States";
 import { PageHeader } from "@/components/shared/PageHeader";
+import { teachingModes } from "@/features/learn/teachingLabels";
 
 export function SettingsPage() {
   const store = useAppStore();
@@ -150,6 +151,142 @@ export function SettingsPage() {
                   <option value="comfortable">舒适</option>
                   <option value="compact">紧凑</option>
                   <option value="dense">密集</option>
+                </select>
+              </label>
+              <label className="block space-y-2">
+                <span className="text-xs font-medium text-slate-600 dark:text-slate-300">
+                  字体大小
+                </span>
+                <select
+                  value={store.preferences.fontSize}
+                  onChange={(event) =>
+                    store.setFontSize(
+                      event.target.value as "small" | "medium" | "large",
+                    )
+                  }
+                  className="form-input"
+                >
+                  <option value="small">小</option>
+                  <option value="medium">中</option>
+                  <option value="large">大</option>
+                </select>
+              </label>
+              <label className="block space-y-2">
+                <span className="text-xs font-medium text-slate-600 dark:text-slate-300">
+                  图谱标签显示密度
+                </span>
+                <select
+                  value={store.preferences.graphLabelDensity}
+                  onChange={(event) =>
+                    store.setGraphLabelDensity(
+                      event.target.value as
+                        | "minimal"
+                        | "balanced"
+                        | "detailed",
+                    )
+                  }
+                  className="form-input"
+                >
+                  <option value="minimal">最少</option>
+                  <option value="balanced">平衡</option>
+                  <option value="detailed">详细</option>
+                </select>
+              </label>
+            </div>
+          </SettingSection>
+          <SettingSection title="本地学习偏好">
+            <div className="space-y-4">
+              <p className="rounded-lg bg-indigo-50 px-3 py-2 text-xs leading-5 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300">
+                这些偏好只保存在本设备。后端目前没有对应字段，KnowTier 不会将它们显示成服务器配置。
+              </p>
+              <label className="block space-y-2">
+                <span className="text-xs font-medium text-slate-600 dark:text-slate-300">
+                  默认教学模式
+                </span>
+                <select
+                  value={store.preferences.defaultTeachingMode}
+                  onChange={(event) =>
+                    store.setDefaultTeachingMode(
+                      event.target.value as
+                        | "learn"
+                        | "review"
+                        | "practice"
+                        | "exam"
+                        | "research",
+                    )
+                  }
+                  className="form-input"
+                >
+                  {teachingModes.map((mode) => (
+                    <option key={mode.id} value={mode.id}>
+                      {mode.label} · {mode.description}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label className="block space-y-2">
+                <span className="text-xs font-medium text-slate-600 dark:text-slate-300">
+                  解释详细程度
+                </span>
+                <select
+                  value={store.preferences.explanationDetail}
+                  onChange={(event) =>
+                    store.setExplanationDetail(
+                      event.target.value as
+                        | "concise"
+                        | "balanced"
+                        | "detailed",
+                    )
+                  }
+                  className="form-input"
+                >
+                  <option value="concise">简洁</option>
+                  <option value="balanced">平衡</option>
+                  <option value="detailed">详细</option>
+                </select>
+              </label>
+              <ToggleRow
+                label="优先示例"
+                checked={store.preferences.prioritizeExamples}
+                onChange={store.setPrioritizeExamples}
+              />
+              <label className="block space-y-2">
+                <span className="text-xs font-medium text-slate-600 dark:text-slate-300">
+                  提示强度
+                </span>
+                <select
+                  value={store.preferences.hintStrength}
+                  onChange={(event) =>
+                    store.setHintStrength(
+                      event.target.value as "light" | "balanced" | "strong",
+                    )
+                  }
+                  className="form-input"
+                >
+                  <option value="light">轻提示</option>
+                  <option value="balanced">平衡提示</option>
+                  <option value="strong">强提示</option>
+                </select>
+              </label>
+              <label className="block space-y-2">
+                <span className="text-xs font-medium text-slate-600 dark:text-slate-300">
+                  复习频率
+                </span>
+                <select
+                  value={store.preferences.reviewFrequency}
+                  onChange={(event) =>
+                    store.setReviewFrequency(
+                      event.target.value as
+                        | "daily"
+                        | "twice-weekly"
+                        | "weekly",
+                    )
+                  }
+                  className="form-input"
+                >
+                  <option value="daily">每天</option>
+                  <option value="twice-weekly">每周两次</option>
+                  <option value="weekly">每周一次</option>
                 </select>
               </label>
             </div>

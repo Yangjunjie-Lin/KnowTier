@@ -35,3 +35,15 @@ html[data-reduce-motion="true"] *::after {
   scroll-behavior: auto !important;
   transition-duration: 0.01ms !important;
 }
+
+html[data-font-size="small"] {
+  font-size: 15px;
+}
+
+html[data-font-size="medium"] {
+  font-size: 16px;
+}
+
+html[data-font-size="large"] {
+  font-size: 18px;
+}

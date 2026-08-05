@@ -214,8 +214,7 @@ class Settings(BaseSettings):
                     continue
                 if origin == "*":
                     raise ValueError(
-                        "cors_allowed_origins must list exact Origins; "
-                        "wildcards are not allowed"
+                        "cors_allowed_origins must list exact Origins; wildcards are not allowed"
                     )
                 if "://" not in origin:
                     raise ValueError(f"cors origin must include a scheme: {origin}")

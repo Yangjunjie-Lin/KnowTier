@@ -149,9 +149,11 @@ export function StudentGraphPage() {
       </div>
       <GraphCanvas
         graph={graph.data}
+        selectedId={selectedNode?.id ?? selectedEdge?.id ?? null}
         search={search}
         nodeTypes={typeFilter}
         density={preferences.graphDensity}
+        labelDensity={preferences.graphLabelDensity}
         onNodeSelect={onNode}
         onEdgeSelect={onEdge}
       />

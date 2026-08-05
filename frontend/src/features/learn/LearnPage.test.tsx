@@ -1,0 +1,270 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from "@testing-library/react";
+import { MemoryRouter } from "react-router-dom";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { AppProvider } from "@/stores/AppContext";
+import { api } from "@/services/api";
+import type { ChatResponse, DocumentRecord, IngestionReport } from "@/types/api";
+import {
+  LearnPage,
+  TeachingTurn,
+  learningTargetDraft,
+  learningTargetFromState,
+} from "./LearnPage";
+
+vi.mock("@/services/api", () => ({
+  api: {
+    chat: vi.fn(),
+    uploadDocument: vi.fn(),
+    ingestDocument: vi.fn(),
+  },
+}));
+
+const workspace = {
+  id: "11111111-1111-4111-8111-111111111111",
+  name: "测试空间",
+  slug: "test-space",
+  default_language: "zh-CN",
+  created_at: "2026-08-05T00:00:00Z",
+};
+
+const learner = {
+  id: "22222222-2222-4222-8222-222222222222",
+  workspace_id: workspace.id,
+  display_name: "测试学习者",
+  language: "zh-CN",
+  created_at: "2026-08-05T00:00:00Z",
+};
+
+const uploadedDocument: DocumentRecord = {
+  id: "33333333-3333-4333-8333-333333333333",
+  workspace_id: workspace.id,
+  filename: "lesson.txt",
+  mime_type: "text/plain",
+  byte_size: 12,
+  sha256: "a".repeat(64),
+  status: "UPLOADED",
+  page_count: null,
+  warnings: [],
+  created_at: "2026-08-05T00:00:00Z",
+};
+
+const ingestionReport: IngestionReport = {
+  document_id: uploadedDocument.id,
+  parser: "plain-text",
+  page_count: 1,
+  chunk_count: 1,
+  knowledge_point_count: 1,
+  assertion_count: 1,
+  warning_count: 0,
+  graph_revision_id: "44444444-4444-4444-8444-444444444444",
+  parser_chain: ["plain-text"],
+  ocr_used: false,
+  vision_used: false,
+  detected_language: "zh-CN",
+  low_confidence_blocks: 0,
+};
+
+const chatResponse: ChatResponse = {
+  turn_id: "55555555-5555-4555-8555-555555555555",
+  response: "这是教师讲解。",
+  target_knowledge_point: {
+    id: "66666666-6666-4666-8666-666666666666",
+    name: "梯度下降",
+  },
+  cognitive_level: 2,
+  teaching_action: "DEMONSTRATE",
+  assessment: { type: "REPRODUCE_PROCEDURE", question: "下一步是什么？" },
+  learner_update: {
+    decision: "REQUEST_MORE_EVIDENCE",
+    reason: "还需要一次独立回答。",
+    current_level: 2,
+    mastery_score: 0.56,
+    confidence: 0.7,
+  },
+  graph_update: {
+    revision_id: null,
+    nodes_added: 0,
+    assertions_added: 0,
+    assertions_superseded: 0,
+  },
+  learner_graph_update: null,
+  tool_usage: null,
+  sources: [],
+};
+
+function persistedState() {
+  return {
+    version: 1,
+    currentWorkspace: workspace,
+    currentLearner: learner,
+    currentDocumentId: null,
+    sessionId: "77777777-7777-4777-8777-777777777777",
+    recentWorkspaces: [workspace],
+    recentLearners: [learner],
+    recentDocuments: [],
+    preferences: {
+      apiBaseUrl: "/api",
+      theme: "light",
+      reducedMotion: false,
+      graphDensity: "comfortable",
+      defaultTeachingMode: "practice",
+      explanationDetail: "balanced",
+      prioritizeExamples: true,
+      hintStrength: "balanced",
+      reviewFrequency: "twice-weekly",
+      fontSize: "medium",
+      graphLabelDensity: "balanced",
+    },
+  };
+}
+
+function renderPage(state?: unknown) {
+  localStorage.setItem("knowtier.app-state.v1", JSON.stringify(persistedState()));
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={client}>
+      <AppProvider>
+        <MemoryRouter initialEntries={[{ pathname: "/learn", state }]}>
+          <LearnPage />
+        </MemoryRouter>
+      </AppProvider>
+    </QueryClientProvider>,
+  );
+}
+
+describe("LearnPage", () => {
+  afterEach(cleanup);
+
+  beforeEach(() => {
+    localStorage.clear();
+    vi.clearAllMocks();
+  });
+
+  it("reads a tolerant navigation target and only prefills its confirmation", () => {
+    const target = learningTargetFromState({
+      learningTarget: {
+        name: "  反向传播  ",
+        id: "88888888-8888-4888-8888-888888888888",
+        source: "domain-graph",
+        future_field: { safe: true },
+      },
+    });
+    expect(target).toEqual({
+      name: "反向传播",
+      id: "88888888-8888-4888-8888-888888888888",
+      source: "domain-graph",
+    });
+    expect(learningTargetDraft(target)).toContain("请先和我确认学习目标");
+    renderPage({ learningTarget: target });
+    expect(
+      screen.getByLabelText<HTMLTextAreaElement>("学习消息").value,
+    ).toContain("反向传播");
+    expect(api.chat).not.toHaveBeenCalled();
+    expect(screen.getByText("等待你确认")).toBeInTheDocument();
+    expect(screen.getByText("每周两次")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "给我一个提示" }));
+    expect(
+      screen.getByLabelText<HTMLTextAreaElement>("学习消息").value,
+    ).toContain("请给我一个分步骤提示");
+    expect(api.chat).not.toHaveBeenCalled();
+  });
+
+  it("uploads, ingests and attaches a material without inventing an API", async () => {
+    vi.mocked(api.uploadDocument).mockResolvedValue(uploadedDocument);
+    vi.mocked(api.ingestDocument).mockResolvedValue(ingestionReport);
+    vi.mocked(api.chat).mockResolvedValue(chatResponse);
+    renderPage();
+
+    const file = new File(["lesson text"], "lesson.txt", {
+      type: "text/plain",
+    });
+    fireEvent.change(screen.getByLabelText("上传学习资料"), {
+      target: { files: [file] },
+    });
+
+    expect(
+      await screen.findByText("lesson.txt 已完成摄取并加入本轮附件"),
+    ).toBeInTheDocument();
+    expect(api.uploadDocument).toHaveBeenCalledWith(workspace.id, file);
+    expect(api.ingestDocument).toHaveBeenCalledWith(uploadedDocument.id);
+    expect(screen.getByText("lesson.txt")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("学习消息"), {
+      target: { value: "请讲解这份资料" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送学习消息" }));
+    await waitFor(() =>
+      expect(api.chat).toHaveBeenCalledWith(
+        expect.objectContaining({
+          attachment_ids: [uploadedDocument.id],
+          requested_mode: "practice",
+        }),
+      ),
+    );
+    expect(await screen.findByText("这是教师讲解。")).toBeInTheDocument();
+    expect(screen.getByText(/唯一掌握检测.*复现步骤/)).toBeInTheDocument();
+  });
+
+  it("keeps the learner draft when ingestion fails", async () => {
+    vi.mocked(api.uploadDocument).mockResolvedValue(uploadedDocument);
+    vi.mocked(api.ingestDocument).mockRejectedValue(
+      new Error("解析器暂时不可用"),
+    );
+    renderPage();
+    fireEvent.change(screen.getByLabelText("学习消息"), {
+      target: { value: "不要清空这段草稿" },
+    });
+    fireEvent.change(screen.getByLabelText("上传学习资料"), {
+      target: {
+        files: [new File(["x"], "broken.txt", { type: "text/plain" })],
+      },
+    });
+    expect(await screen.findByText(/摄取失败.*解析器暂时不可用/)).toBeInTheDocument();
+    expect(screen.getByLabelText("学习消息")).toHaveValue(
+      "不要清空这段草稿",
+    );
+    expect(api.chat).not.toHaveBeenCalled();
+  });
+
+  it("locks session and attachment controls while a turn is in flight", async () => {
+    vi.mocked(api.chat).mockImplementation(
+      () => new Promise<ChatResponse>(() => undefined),
+    );
+    renderPage();
+    fireEvent.change(screen.getByLabelText("学习消息"), {
+      target: { value: "等待这一轮完成" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送学习消息" }));
+
+    await waitFor(() => expect(api.chat).toHaveBeenCalledOnce());
+    expect(screen.getByRole("button", { name: "新建 Session" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /选择已有资料/ })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "上传资料" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "拍照" })).toBeDisabled();
+    expect(screen.getByLabelText("上传学习资料")).toBeDisabled();
+    expect(screen.getByLabelText("拍照上传学习资料")).toBeDisabled();
+  });
+
+  it("renders future response enums safely as product copy", () => {
+    render(
+      <TeachingTurn
+        result={{
+          ...chatResponse,
+          teaching_action: "FUTURE_SCAFFOLD",
+          assessment: { type: "FUTURE_CHECK", question: "未来问题？" },
+        }}
+      />,
+    );
+    expect(screen.getByText("其他教学动作：Future scaffold")).toBeInTheDocument();
+    expect(screen.getByText(/其他掌握检测：Future check/)).toBeInTheDocument();
+  });
+});
