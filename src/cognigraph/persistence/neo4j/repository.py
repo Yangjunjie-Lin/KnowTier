@@ -78,6 +78,14 @@ class Neo4jGraphRepository:
         except (Neo4jError, OSError, TimeoutError):
             return False
 
+    async def get_current_revision(self, workspace_id: str) -> str | None:
+        """Read only the revision token, without scanning graph entities."""
+
+        self._ensure_open()
+        workspace = _clean_identifier(workspace_id, "workspace_id")
+        async with self._driver.session(database=self._database) as session:
+            return await _session_revision(session, workspace)
+
     async def create_schema(self) -> None:
         self._ensure_open()
         try:
@@ -454,6 +462,7 @@ class Neo4jGraphRepository:
         bounded_limit = _bounded_limit(limit)
         normalized_query = query.strip().lower()
         async with self._driver.session(database=self._database) as session:
+            observed_revision_id = await _session_revision(session, workspace)
             result = await session.run(
                 """
                 MATCH (node:GraphNode {
@@ -473,7 +482,11 @@ class Neo4jGraphRepository:
                 limit=bounded_limit,
             )
             records = [decode_neo4j_properties(record["node"]) async for record in result]
-        return await self._versioned(workspace, {"nodes": records})
+        return await self._versioned(
+            workspace,
+            {"nodes": records},
+            observed_revision_id=observed_revision_id,
+        )
 
     async def get_graph_manifest(self, workspace_id: str) -> GraphRecord:
         workspace = _clean_identifier(workspace_id, "workspace_id")
@@ -591,9 +604,15 @@ class Neo4jGraphRepository:
                       workspace_id: $workspace_id,
                       id: $assertion_id
                   })-[:OBJECT_IS]->(object:GraphNode {workspace_id: $workspace_id})
-            OPTIONAL MATCH (assertion)-[:INSTANCE_OF]->(relation_type:RelationType)
-            OPTIONAL MATCH (replacement:RelationAssertion)-[:SUPERSEDES]->(assertion)
-            OPTIONAL MATCH (assertion)-[:SUPERSEDES]->(superseded:RelationAssertion)
+            OPTIONAL MATCH (assertion)-[:INSTANCE_OF]->(relation_type:RelationType {
+                workspace_id: $workspace_id
+            })
+            OPTIONAL MATCH (replacement:RelationAssertion {
+                workspace_id: $workspace_id
+            })-[:SUPERSEDES]->(assertion)
+            OPTIONAL MATCH (assertion)-[:SUPERSEDES]->(superseded:RelationAssertion {
+                workspace_id: $workspace_id
+            })
             OPTIONAL MATCH (conflict:ConflictSet {workspace_id: $workspace_id})
             WHERE $assertion_id IN coalesce(conflict.assertion_ids, [])
             RETURN properties(assertion) AS assertion,
@@ -647,11 +666,14 @@ class Neo4jGraphRepository:
         identifier = _clean_identifier(node_id, "node_id")
         bounded_limit = _bounded_limit(limit)
         async with self._driver.session(database=self._database) as session:
+            observed_revision_id = await _session_revision(session, workspace)
             result = await session.run(
                 """
                 MATCH (focus:GraphNode {workspace_id: $workspace_id, id: $node_id})
-                MATCH (left:GraphNode)-[:SUBJECT_OF]->(assertion:RelationAssertion)
-                      -[:OBJECT_IS]->(right:GraphNode)
+                MATCH (left:GraphNode {workspace_id: $workspace_id})
+                      -[:SUBJECT_OF]->(assertion:RelationAssertion {
+                          workspace_id: $workspace_id
+                      })-[:OBJECT_IS]->(right:GraphNode {workspace_id: $workspace_id})
                 WHERE assertion.workspace_id = $workspace_id
                   AND (left = focus OR right = focus)
                   AND (left.entity_type = 'Theory' OR right.entity_type = 'Theory')
@@ -672,7 +694,11 @@ class Neo4jGraphRepository:
                 }
                 async for record in result
             ]
-        return await self._versioned(workspace, {"theories": theories})
+        return await self._versioned(
+            workspace,
+            {"theories": theories},
+            observed_revision_id=observed_revision_id,
+        )
 
     async def get_learning_path(
         self,
@@ -689,14 +715,18 @@ class Neo4jGraphRepository:
         path["knowledge_point_ids"] = topological_knowledge_points(path)
         if learner_id is not None:
             node_ids = [str(node["id"]) for node in path["nodes"] if "id" in node]
-            path["learner_state"] = (
-                await self.get_learner_state(
-                    workspace_id,
-                    learner_id,
-                    knowledge_point_ids=node_ids,
-                    limit=limit,
+            learner_result = await self.get_learner_state(
+                workspace_id,
+                learner_id,
+                knowledge_point_ids=node_ids,
+                limit=limit,
+            )
+            if learner_result.get("revision_id") != path.get("revision_id"):
+                raise GraphRevisionConflict(
+                    cast(str | None, path.get("revision_id")),
+                    cast(str | None, learner_result.get("revision_id")),
                 )
-            )["states"]
+            path["learner_state"] = learner_result["states"]
         return path
 
     async def get_learner_state(
@@ -714,6 +744,7 @@ class Neo4jGraphRepository:
         ]
         bounded_limit = _bounded_limit(limit)
         async with self._driver.session(database=self._database) as session:
+            observed_revision_id = await _session_revision(session, workspace)
             result = await session.run(
                 """
                 MATCH (state:GraphNode {
@@ -733,7 +764,11 @@ class Neo4jGraphRepository:
                 limit=bounded_limit,
             )
             states = [decode_neo4j_properties(record["state"]) async for record in result]
-        return await self._versioned(workspace, {"learner_id": learner, "states": states})
+        return await self._versioned(
+            workspace,
+            {"learner_id": learner, "states": states},
+            observed_revision_id=observed_revision_id,
+        )
 
     async def get_supporting_sources(
         self, workspace_id: str, entity_id: str, *, limit: int = 20
@@ -742,10 +777,15 @@ class Neo4jGraphRepository:
         identifier = _clean_identifier(entity_id, "entity_id")
         bounded_limit = _bounded_limit(limit)
         async with self._driver.session(database=self._database) as session:
+            observed_revision_id = await _session_revision(session, workspace)
             sources = await session.execute_read(
                 _read_sources, workspace, identifier, bounded_limit
             )
-        return await self._versioned(workspace, {"entity_id": identifier, "sources": sources})
+        return await self._versioned(
+            workspace,
+            {"entity_id": identifier, "sources": sources},
+            observed_revision_id=observed_revision_id,
+        )
 
     async def get_focus_subgraph(
         self,
@@ -779,8 +819,15 @@ class Neo4jGraphRepository:
         bounded_nodes = _bounded_limit(max_nodes)
         roots = list(dict.fromkeys(_clean_identifier(value, "node_id") for value in node_ids))
         if not roots:
-            return await self._versioned(workspace, {"nodes": [], "assertions": []})
+            async with self._driver.session(database=self._database) as session:
+                observed_revision_id = await _session_revision(session, workspace)
+            return await self._versioned(
+                workspace,
+                {"nodes": [], "assertions": []},
+                observed_revision_id=observed_revision_id,
+            )
         async with self._driver.session(database=self._database) as session:
+            observed_revision_id = await _session_revision(session, workspace)
             nodes, assertions = await session.execute_read(
                 _read_walk,
                 workspace,
@@ -790,9 +837,19 @@ class Neo4jGraphRepository:
                 depth,
                 bounded_nodes,
             )
-        return await self._versioned(workspace, {"nodes": nodes, "assertions": assertions})
+        return await self._versioned(
+            workspace,
+            {"nodes": nodes, "assertions": assertions},
+            observed_revision_id=observed_revision_id,
+        )
 
-    async def _versioned(self, workspace_id: str, payload: GraphRecord) -> GraphRecord:
+    async def _versioned(
+        self,
+        workspace_id: str,
+        payload: GraphRecord,
+        *,
+        observed_revision_id: str | None = None,
+    ) -> GraphRecord:
         async with self._driver.session(database=self._database) as session:
             result = await session.run(
                 """
@@ -802,11 +859,29 @@ class Neo4jGraphRepository:
                 workspace_id=workspace_id,
             )
             record = await result.single(strict=True)
-        return {"workspace_id": workspace_id, "revision_id": record["revision_id"], **payload}
+        current_revision_id = record["revision_id"]
+        if observed_revision_id != current_revision_id:
+            raise GraphRevisionConflict(observed_revision_id, current_revision_id)
+        return {"workspace_id": workspace_id, "revision_id": current_revision_id, **payload}
 
     def _ensure_open(self) -> None:
         if self._closed:
             raise GraphUnavailableError("Neo4j repository is closed")
+
+
+async def _session_revision(session: Any, workspace_id: str) -> str | None:
+    """Read a revision token on the same session used for a semantic query."""
+
+    result = await session.run(
+        """
+        OPTIONAL MATCH (state:WorkspaceGraphState {workspace_id: $workspace_id})
+        RETURN state.current_revision_id AS revision_id
+        """,
+        workspace_id=workspace_id,
+    )
+    record = await result.single(strict=True)
+    value = record["revision_id"]
+    return str(value) if value is not None else None
 
 
 async def _validate_existing_node_patches(
@@ -1076,7 +1151,8 @@ async def _read_incident_assertions(
     outgoing_result = await tx.run(
         """
         MATCH (subject:GraphNode {workspace_id: $workspace_id, id: $node_id})
-              -[:SUBJECT_OF]->(assertion:RelationAssertion)-[:OBJECT_IS]->(object:GraphNode)
+              -[:SUBJECT_OF]->(assertion:RelationAssertion {workspace_id: $workspace_id})
+              -[:OBJECT_IS]->(object:GraphNode {workspace_id: $workspace_id})
         RETURN properties(assertion) AS assertion, properties(object) AS other
         ORDER BY assertion.id
         LIMIT $limit
@@ -1094,7 +1170,8 @@ async def _read_incident_assertions(
     ]
     incoming_result = await tx.run(
         """
-        MATCH (subject:GraphNode)-[:SUBJECT_OF]->(assertion:RelationAssertion)
+        MATCH (subject:GraphNode {workspace_id: $workspace_id})
+              -[:SUBJECT_OF]->(assertion:RelationAssertion {workspace_id: $workspace_id})
               -[:OBJECT_IS]->(object:GraphNode {workspace_id: $workspace_id, id: $node_id})
         RETURN properties(assertion) AS assertion, properties(subject) AS other
         ORDER BY assertion.id

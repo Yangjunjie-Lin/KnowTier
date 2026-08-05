@@ -247,6 +247,153 @@ class MasteryEvidence(UUIDPrimaryKeyMixin, Base):
     )
 
 
+class LearnerGraphRevision(UUIDPrimaryKeyMixin, Base):
+    """Immutable version metadata for a learner-specific graph projection."""
+
+    __tablename__ = "learner_graph_revisions"
+    __table_args__ = (
+        UniqueConstraint("learner_id", "sequence_number"),
+        Index("ix_learner_graph_revisions_workspace_learner", "workspace_id", "learner_id"),
+        Index("ix_learner_graph_revisions_learner_created", "learner_id", "created_at"),
+    )
+
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    learner_id: Mapped[UUID] = mapped_column(
+        ForeignKey("learners.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    session_id: Mapped[UUID] = mapped_column(
+        ForeignKey("sessions.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    turn_id: Mapped[UUID] = mapped_column(
+        ForeignKey("turns.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    sequence_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    parent_revision_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("learner_graph_revisions.id", ondelete="RESTRICT"), index=True
+    )
+    change_summary: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+
+    @property
+    def sequence(self) -> int:
+        return self.sequence_number
+
+
+class LearnerGraphChangeEvent(UUIDPrimaryKeyMixin, Base):
+    """Durable change event for replay and audit of learner graph revisions."""
+
+    __tablename__ = "learner_graph_change_events"
+    __table_args__ = (
+        UniqueConstraint("learner_id", "idempotency_key"),
+        Index("ix_learner_graph_events_revision", "learner_graph_revision_id"),
+    )
+
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    learner_id: Mapped[UUID] = mapped_column(
+        ForeignKey("learners.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    learner_graph_revision_id: Mapped[UUID] = mapped_column(
+        ForeignKey("learner_graph_revisions.id", ondelete="CASCADE"), nullable=False
+    )
+    event_type: Mapped[str] = mapped_column(
+        String(100), default="LEARNER_GRAPH_DELTA", nullable=False
+    )
+    idempotency_key: Mapped[str] = mapped_column(String(300), nullable=False)
+    delta: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+
+    @property
+    def revision_id(self) -> UUID:
+        return self.learner_graph_revision_id
+
+
+class LearnerRelationAssertion(UUIDPrimaryKeyMixin, Base):
+    """A temporal, first-class edge in a learner's graph."""
+
+    __tablename__ = "learner_relation_assertions"
+    __table_args__ = (
+        Index(
+            "ix_learner_assertions_active_lookup",
+            "learner_id",
+            "predicate",
+            "subject_id",
+            "object_id",
+        ),
+        Index(
+            "ix_learner_assertions_revision",
+            "learner_graph_revision_id",
+            "created_at",
+        ),
+        CheckConstraint(
+            "confidence >= 0 AND confidence <= 1",
+            name="learner_assertion_confidence_range",
+        ),
+    )
+
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    learner_id: Mapped[UUID] = mapped_column(
+        ForeignKey("learners.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    # Endpoints are polymorphic learner-graph resources (knowledge point,
+    # evidence, learner, or a future learner resource), so they intentionally
+    # do not carry a graph_nodes foreign key.
+    subject_id: Mapped[UUID] = mapped_column(index=True, nullable=False)
+    predicate: Mapped[str] = mapped_column(String(100), nullable=False)
+    object_id: Mapped[UUID] = mapped_column(index=True, nullable=False)
+    natural_language_description: Mapped[str] = mapped_column(Text, nullable=False)
+    confidence: Mapped[float] = mapped_column(nullable=False)
+    valid_from: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+    valid_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+    superseded_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    source_turn_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("turns.id", ondelete="SET NULL"), index=True
+    )
+    mastery_evidence_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("mastery_evidence.id", ondelete="SET NULL"), index=True
+    )
+    learner_graph_revision_id: Mapped[UUID] = mapped_column(
+        ForeignKey("learner_graph_revisions.id", ondelete="RESTRICT"), index=True, nullable=False
+    )
+    supersedes_assertion_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("learner_relation_assertions.id", ondelete="RESTRICT"), index=True
+    )
+
+    @property
+    def relation_type(self) -> str:
+        return self.predicate
+
+
+class LearnerRelationAssertionSource(Base):
+    """Optional source-span links for learner assertions."""
+
+    __tablename__ = "learner_relation_assertion_sources"
+
+    assertion_id: Mapped[UUID] = mapped_column(
+        ForeignKey("learner_relation_assertions.id", ondelete="CASCADE"), primary_key=True
+    )
+    source_span_id: Mapped[UUID] = mapped_column(
+        ForeignKey("source_spans.id", ondelete="RESTRICT"), primary_key=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+
+
 class ModelConfig(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     __tablename__ = "model_configs"
     __table_args__ = (UniqueConstraint("workspace_id", "role"),)
@@ -271,6 +418,30 @@ class ModelRun(UUIDPrimaryKeyMixin, Base):
     workspace_id: Mapped[UUID] = mapped_column(
         ForeignKey("workspaces.id", ondelete="CASCADE"), index=True, nullable=False
     )
+    learner_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("learners.id", ondelete="SET NULL"), index=True
+    )
+    session_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("sessions.id", ondelete="SET NULL"), index=True
+    )
+    turn_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("turns.id", ondelete="SET NULL"), index=True
+    )
+    document_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("documents.id", ondelete="SET NULL"), index=True
+    )
+    graph_revision_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey(
+            "graph_revisions.id",
+            name="fk_model_runs_graph_revision_id",
+            ondelete="SET NULL",
+            use_alter=True,
+        ),
+        index=True,
+    )
+    learner_graph_revision_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("learner_graph_revisions.id", ondelete="SET NULL"), index=True
+    )
     provider: Mapped[str] = mapped_column(String(100), nullable=False)
     model: Mapped[str] = mapped_column(String(200), nullable=False)
     role: Mapped[str] = mapped_column(String(64), nullable=False)
@@ -285,6 +456,41 @@ class ModelRun(UUIDPrimaryKeyMixin, Base):
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     error_type: Mapped[str | None] = mapped_column(String(200))
     request_metadata: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    tool_step_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=utc_now, nullable=False
+    )
+
+
+class GraphModelProposal(UUIDPrimaryKeyMixin, Base):
+    """Auditable, read-only advice emitted by the optional graph model."""
+
+    __tablename__ = "graph_model_proposals"
+    __table_args__ = (
+        CheckConstraint(
+            "status IN ('ACCEPTED', 'REJECTED', 'FALLBACK')",
+            name="graph_model_proposal_status",
+        ),
+        CheckConstraint("rejected_items >= 0", name="graph_model_proposal_rejected_items"),
+        Index("ix_graph_model_proposals_workspace_created", "workspace_id", "created_at"),
+    )
+
+    workspace_id: Mapped[UUID] = mapped_column(
+        ForeignKey("workspaces.id", ondelete="CASCADE"), index=True, nullable=False
+    )
+    document_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("documents.id", ondelete="SET NULL"), index=True
+    )
+    graph_revision_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("graph_revisions.id", ondelete="SET NULL"), index=True
+    )
+    model_run_id: Mapped[UUID | None] = mapped_column(
+        ForeignKey("model_runs.id", ondelete="SET NULL"), index=True
+    )
+    status: Mapped[str] = mapped_column(String(32), nullable=False)
+    proposal: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
+    rejected_items: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    fallback_used: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False
     )
@@ -514,6 +720,7 @@ class GraphConflict(UUIDPrimaryKeyMixin, TimestampMixin, Base):
 
 class ToolCallAudit(UUIDPrimaryKeyMixin, Base):
     __tablename__ = "tool_call_audits"
+    __table_args__ = (Index("ix_tool_call_audits_model_run_step", "model_run_id", "tool_step"),)
 
     workspace_id: Mapped[UUID] = mapped_column(
         ForeignKey("workspaces.id", ondelete="CASCADE"), index=True, nullable=False
@@ -529,11 +736,15 @@ class ToolCallAudit(UUIDPrimaryKeyMixin, Base):
     )
     tool_name: Mapped[str] = mapped_column(String(100), nullable=False)
     arguments: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False)
+    sanitized_arguments: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, nullable=False)
     result_count: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     graph_revision_id: Mapped[UUID | None] = mapped_column(
         ForeignKey("graph_revisions.id", ondelete="SET NULL"), index=True
     )
     latency_ms: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    result_bytes: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
+    truncated: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
+    tool_step: Mapped[int] = mapped_column(Integer, default=0, nullable=False)
     status: Mapped[str] = mapped_column(String(32), nullable=False)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), default=utc_now, nullable=False

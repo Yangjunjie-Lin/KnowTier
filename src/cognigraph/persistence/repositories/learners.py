@@ -67,12 +67,15 @@ class LearnerStateRepository:
         learner_id: UUID,
         knowledge_point_id: UUID,
         *,
+        workspace_id: UUID | None = None,
         for_update: bool = False,
     ) -> LearnerKnowledgeState | None:
         statement = select(LearnerKnowledgeState).where(
             LearnerKnowledgeState.learner_id == learner_id,
             LearnerKnowledgeState.knowledge_point_id == knowledge_point_id,
         )
+        if workspace_id is not None:
+            statement = statement.where(LearnerKnowledgeState.workspace_id == workspace_id)
         if for_update:
             statement = statement.with_for_update()
         result: LearnerKnowledgeState | None = await self.session.scalar(statement)
@@ -81,7 +84,20 @@ class LearnerStateRepository:
     async def get_or_create(
         self, *, workspace_id: UUID, learner_id: UUID, knowledge_point_id: UUID
     ) -> LearnerKnowledgeState:
-        state = await self.get(learner_id, knowledge_point_id, for_update=True)
+        owner_id = await self.session.scalar(
+            select(Learner.id).where(
+                Learner.id == learner_id,
+                Learner.workspace_id == workspace_id,
+            )
+        )
+        if owner_id is None:
+            raise ValueError("learner does not belong to workspace")
+        state = await self.get(
+            learner_id,
+            knowledge_point_id,
+            workspace_id=workspace_id,
+            for_update=True,
+        )
         if state is not None:
             return state
         state = LearnerKnowledgeState(
@@ -104,10 +120,18 @@ class LearnerStateRepository:
         return evidence
 
     async def list_states(self, learner_id: UUID) -> list[LearnerKnowledgeState]:
+        return await self.list_states_for_workspace(learner_id)
+
+    async def list_states_for_workspace(
+        self, learner_id: UUID, *, workspace_id: UUID | None = None
+    ) -> list[LearnerKnowledgeState]:
+        statement = select(LearnerKnowledgeState).where(
+            LearnerKnowledgeState.learner_id == learner_id
+        )
+        if workspace_id is not None:
+            statement = statement.where(LearnerKnowledgeState.workspace_id == workspace_id)
         result = await self.session.scalars(
-            select(LearnerKnowledgeState)
-            .where(LearnerKnowledgeState.learner_id == learner_id)
-            .order_by(LearnerKnowledgeState.updated_at.desc())
+            statement.order_by(LearnerKnowledgeState.updated_at.desc())
         )
         return list(result.all())
 
@@ -118,10 +142,13 @@ class LearnerStateRepository:
         knowledge_point_id: UUID | None = None,
         since: datetime | None = None,
         limit: int = 100,
+        workspace_id: UUID | None = None,
     ) -> list[MasteryEvidence]:
         if not 1 <= limit <= 1000:
             raise ValueError("limit must be between 1 and 1000")
         statement = select(MasteryEvidence).where(MasteryEvidence.learner_id == learner_id)
+        if workspace_id is not None:
+            statement = statement.where(MasteryEvidence.workspace_id == workspace_id)
         if knowledge_point_id is not None:
             statement = statement.where(MasteryEvidence.knowledge_point_id == knowledge_point_id)
         if since is not None:

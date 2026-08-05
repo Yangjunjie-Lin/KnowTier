@@ -13,6 +13,7 @@ from cognigraph.domain.base import utc_now
 from cognigraph.domain.documents import Document, DocumentChunk, IngestionReport, SourceSpan
 from cognigraph.domain.enums import DocumentStatus
 from cognigraph.extraction.schemas import KnowledgeBlueprint
+from cognigraph.graph.comparison import GraphComparisonResult
 from cognigraph.graph.delta import GraphDelta
 from cognigraph.ingestion.models import ParsedDocument
 from cognigraph.ingestion.provenance import input_kind_for
@@ -21,12 +22,21 @@ from cognigraph.llm.observability import ModelRunRecord, ModelRunSink
 from cognigraph.persistence.outbox import OutboxDispatcher
 from cognigraph.persistence.postgres.database import Database, SqlAlchemyUnitOfWork
 from cognigraph.persistence.postgres.models import (
+    ConversationTurn,
+    GraphChangeEvent,
+    GraphModelProposal,
+    GraphRevision,
+    Learner,
+    LearnerGraphRevision,
+    ModelRun,
+    TutoringSession,
+)
+from cognigraph.persistence.postgres.models import (
     Document as DocumentRecord,
 )
 from cognigraph.persistence.postgres.models import (
     DocumentChunk as DocumentChunkRecord,
 )
-from cognigraph.persistence.postgres.models import GraphChangeEvent, GraphRevision, ModelRun
 from cognigraph.persistence.postgres.models import SourceSpan as SourceSpanRecord
 from cognigraph.persistence.repositories.graph import GraphRevisionConflictError
 
@@ -162,6 +172,11 @@ class SqlDocumentRecordSink:
             record.parser_output = {
                 "raw_payload": parsed.raw_payload,
                 "warnings": parsed.warnings,
+                "parser_chain": parsed.parser_chain,
+                "ocr_used": parsed.ocr_used,
+                "vision_used": parsed.vision_used,
+                "detected_language": parsed.detected_language,
+                "low_confidence_blocks": parsed.low_confidence_blocks,
                 "blueprint": blueprint.model_dump(mode="json"),
             }
 
@@ -233,6 +248,9 @@ class SqlDocumentRecordSink:
             blueprint = raw_blueprint if isinstance(raw_blueprint, dict) else {}
             knowledge_points = blueprint.get("knowledge_points", [])
             warnings = parser_output.get("warnings", [])
+            parser_chain = parser_output.get("parser_chain", [])
+            detected_language = parser_output.get("detected_language")
+            low_confidence_blocks = parser_output.get("low_confidence_blocks", [])
             chunks = await unit.documents.list_chunks(record.id)
             return IngestionReport(
                 document_id=record.id,
@@ -245,6 +263,15 @@ class SqlDocumentRecordSink:
                 assertion_count=int(revision.summary.get("assertions_added", 0)),
                 warning_count=len(warnings) if isinstance(warnings, list) else 0,
                 graph_revision_id=revision.id,
+                parser_chain=(
+                    [str(item) for item in parser_chain] if isinstance(parser_chain, list) else []
+                ),
+                ocr_used=bool(parser_output.get("ocr_used", False)),
+                vision_used=bool(parser_output.get("vision_used", False)),
+                detected_language=(str(detected_language) if detected_language else None),
+                low_confidence_blocks=(
+                    len(low_confidence_blocks) if isinstance(low_confidence_blocks, list) else 0
+                ),
             )
         return None
 
@@ -332,10 +359,33 @@ class SqlModelRunSink(ModelRunSink):
             session = unit.session
             if session is None:
                 raise RuntimeError("unit of work did not initialize its SQL session")
+            # Chat and ingestion model calls can occur before the enclosing
+            # use-case transaction creates its session/turn/revision.  Keep
+            # the audit row durable without violating the explicit FK graph:
+            # unresolved references remain in request_metadata and are linked
+            # on a later reconciliation pass if needed.
+            learner_id = await _existing_id(session, Learner, record.context.learner_id)
+            session_id = await _existing_id(session, TutoringSession, record.context.session_id)
+            turn_id = await _existing_id(session, ConversationTurn, record.context.turn_id)
+            document_id = await _existing_id(session, DocumentRecord, record.context.document_id)
+            graph_revision_id = await _existing_id(
+                session, GraphRevision, record.context.graph_revision_id
+            )
+            learner_graph_revision_id = await _existing_id(
+                session,
+                LearnerGraphRevision,
+                record.context.learner_graph_revision_id,
+            )
             session.add(
                 ModelRun(
                     id=record.id,
                     workspace_id=workspace_id,
+                    learner_id=learner_id,
+                    session_id=session_id,
+                    turn_id=turn_id,
+                    document_id=document_id,
+                    graph_revision_id=graph_revision_id,
+                    learner_graph_revision_id=learner_graph_revision_id,
                     provider=record.provider,
                     model=record.model,
                     role=record.role.value,
@@ -355,8 +405,71 @@ class SqlModelRunSink(ModelRunSink):
                         if record.context.session_id
                         else None,
                         "turn_id": str(record.context.turn_id) if record.context.turn_id else None,
+                        "document_id": (
+                            str(record.context.document_id) if record.context.document_id else None
+                        ),
+                        "graph_revision_id": str(record.context.graph_revision_id)
+                        if record.context.graph_revision_id
+                        else None,
+                        "learner_graph_revision_id": (
+                            str(record.context.learner_graph_revision_id)
+                            if record.context.learner_graph_revision_id
+                            else None
+                        ),
+                        "tool_step_count": record.tool_step_count,
+                        "tool_calling_fallback": record.tool_calling_fallback,
+                        "context_truncated": record.context.context_truncated,
                     },
+                    tool_step_count=record.tool_step_count,
                     created_at=record.created_at,
+                )
+            )
+            await unit.commit()
+
+
+async def _existing_id(session: object, model: object, value: UUID | None) -> UUID | None:
+    """Return a referenced ID only when it already exists in the SQL store."""
+
+    if value is None:
+        return None
+    getter = getattr(session, "get", None)
+    if not callable(getter):
+        return None
+    record = await getter(model, value)
+    return value if record is not None else None
+
+
+class SqlGraphModelProposalSink:
+    """Persist graph-model advice separately from canonical graph changes."""
+
+    def __init__(self, database: Database) -> None:
+        self.database = database
+
+    async def record(
+        self,
+        *,
+        workspace_id: UUID,
+        document_id: UUID,
+        graph_revision_id: UUID | None,
+        result: GraphComparisonResult,
+    ) -> None:
+        async with self.database.unit_of_work() as unit:
+            session = unit.session
+            if session is None:
+                raise RuntimeError("unit of work did not initialize its SQL session")
+            session.add(
+                GraphModelProposal(
+                    workspace_id=workspace_id,
+                    document_id=document_id,
+                    graph_revision_id=graph_revision_id,
+                    model_run_id=result.model_run_id,
+                    status="FALLBACK" if result.fallback_used else "ACCEPTED",
+                    proposal={
+                        **result.proposal.model_dump(mode="json"),
+                        "_audit": {"context_truncated": result.context_truncated},
+                    },
+                    rejected_items=result.rejected_items,
+                    fallback_used=result.fallback_used,
                 )
             )
             await unit.commit()

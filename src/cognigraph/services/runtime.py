@@ -18,17 +18,21 @@ from cognigraph.graph.applier import (
     GraphSnapshot,
     InMemoryGraphApplier,
 )
+from cognigraph.graph.comparison import GraphComparisonService
 from cognigraph.graph.exporters import GraphExporter
 from cognigraph.graph.manifest import GraphManifestService
 from cognigraph.graph.query_tools import (
     AsyncControlledGraphQueryTools,
     BufferedToolAuditSink,
     ControlledGraphQueryTools,
+    LearnerStateParams,
     ToolCallRecord,
 )
 from cognigraph.ingestion.chunking import HierarchicalChunker
 from cognigraph.ingestion.docling_adapter import DocumentParser
+from cognigraph.ingestion.ocr_adapter import PaddleOCRAdapter
 from cognigraph.ingestion.service import IngestionService, InMemoryDocumentRegistry
+from cognigraph.ingestion.vision_adapter import LiteLLMVisionParser
 from cognigraph.llm.embedding import (
     DeterministicEmbeddingProvider,
     LiteLLMEmbeddingProvider,
@@ -49,6 +53,8 @@ from cognigraph.persistence.postgres.models import (
     GraphNodeSource,
     GraphRevision,
     Learner,
+    LearnerGraphRevision,
+    LearnerKnowledgeState,
     ModelRun,
     RelationAssertionRecord,
     ToolCallAudit,
@@ -60,6 +66,7 @@ from cognigraph.prompts import PromptManager
 from cognigraph.services.persistence_adapters import (
     SqlDocumentRecordSink,
     SqlGraphDeltaRecorder,
+    SqlGraphModelProposalSink,
     SqlModelRunSink,
 )
 
@@ -83,6 +90,7 @@ class ApplicationRuntime:
         self.semantic_queries = AsyncControlledGraphQueryTools(
             self.semantic_graph,
             audit_sink=self.tool_audit_sink,
+            learner_state_loader=self._load_tool_learner_state,
         )
         self.outbox_dispatcher = OutboxDispatcher(
             self.database.session_factory,
@@ -95,7 +103,21 @@ class ApplicationRuntime:
             self.settings,
             provider,
             sink=SqlModelRunSink(self.database),
+            tool_audit_sink=self.tool_audit_sink,
         )
+        vision_parser = (
+            LiteLLMVisionParser(self.model_gateway, settings=self.settings)
+            if self.settings.vision_enabled and self.settings.vision_fallback_enabled
+            else None
+        )
+        ocr_adapter: PaddleOCRAdapter | None = None
+        if self.settings.ocr_enabled:
+            PaddleOCRAdapter.require_runtime()
+            ocr_adapter = PaddleOCRAdapter(
+                pdf_dpi=self.settings.ocr_pdf_dpi,
+                min_confidence=0.0,
+                low_confidence_threshold=self.settings.ocr_low_confidence_threshold,
+            )
         embedding_provider = (
             DeterministicEmbeddingProvider(dimensions=1536)
             if self.settings.use_mock_llm
@@ -109,11 +131,17 @@ class ApplicationRuntime:
             )
         )
         self.document_sink = SqlDocumentRecordSink(self.database)
+        self.graph_proposal_sink = SqlGraphModelProposalSink(self.database)
         self.document_registry = InMemoryDocumentRegistry(loader=self.document_sink)
         self.ingestion = IngestionService(
             settings=self.settings,
             registry=self.document_registry,
-            parser=DocumentParser(),
+            parser=DocumentParser(
+                ocr=ocr_adapter,
+                vision=vision_parser,
+                min_text_quality=self.settings.ocr_min_text_quality,
+                ocr_enabled=self.settings.ocr_enabled,
+            ),
             chunker=HierarchicalChunker(),
             embedding_provider=embedding_provider,
             extractor=KnowledgeExtractor(self.model_gateway),
@@ -125,6 +153,11 @@ class ApplicationRuntime:
             ),
             document_sink=self.document_sink,
             graph_snapshot_loader=self.ensure_graph_loaded,
+            graph_comparison=GraphComparisonService(
+                gateway=self.model_gateway,
+                enabled=self.settings.graph_model_enabled,
+            ),
+            graph_proposal_sink=self.graph_proposal_sink,
         )
         self.prompts = PromptManager()
         self._graph_load_locks: dict[UUID, asyncio.Lock] = {}
@@ -239,25 +272,38 @@ class ApplicationRuntime:
                             id=record.id,
                             workspace_id=record.workspace_id,
                             learner_id=(
-                                record.learner_id if record.learner_id in valid_learners else None
+                                record.learner_id
+                                if record.learner_id is not None
+                                and (record.workspace_id, record.learner_id) in valid_learners
+                                else None
                             ),
                             session_id=(
-                                record.session_id if record.session_id in valid_sessions else None
+                                record.session_id
+                                if record.session_id is not None
+                                and (record.workspace_id, record.session_id) in valid_sessions
+                                else None
                             ),
                             model_run_id=(
                                 record.model_run_id
-                                if record.model_run_id in valid_model_runs
+                                if record.model_run_id is not None
+                                and (record.workspace_id, record.model_run_id) in valid_model_runs
                                 else None
                             ),
                             tool_name=record.tool_name,
                             arguments=record.parameters,
+                            sanitized_arguments=record.parameters,
                             result_count=record.result_count,
                             graph_revision_id=(
                                 record.graph_revision_id
-                                if record.graph_revision_id in valid_revisions
+                                if record.graph_revision_id is not None
+                                and (record.workspace_id, record.graph_revision_id)
+                                in valid_revisions
                                 else None
                             ),
                             latency_ms=record.latency_ms,
+                            result_bytes=record.result_bytes,
+                            truncated=record.truncated,
+                            tool_step=record.tool_step,
                             status=record.status,
                             created_at=record.created_at,
                         )
@@ -274,7 +320,12 @@ class ApplicationRuntime:
 
     async def _valid_tool_audit_references(
         self, batch: list[ToolCallRecord]
-    ) -> tuple[set[UUID], set[UUID], set[UUID], set[UUID]]:
+    ) -> tuple[
+        set[tuple[UUID, UUID]],
+        set[tuple[UUID, UUID]],
+        set[tuple[UUID, UUID]],
+        set[tuple[UUID, UUID]],
+    ]:
         learner_ids = {record.learner_id for record in batch if record.learner_id is not None}
         session_ids = {record.session_id for record in batch if record.session_id is not None}
         model_run_ids = {record.model_run_id for record in batch if record.model_run_id is not None}
@@ -282,28 +333,44 @@ class ApplicationRuntime:
             record.graph_revision_id for record in batch if record.graph_revision_id is not None
         }
         async with self.database.session() as session:
-            valid_learners = set(
-                (await session.scalars(select(Learner.id).where(Learner.id.in_(learner_ids)))).all()
-            )
-            valid_sessions = set(
-                (
-                    await session.scalars(
-                        select(TutoringSession.id).where(TutoringSession.id.in_(session_ids))
+            valid_learners = {
+                (row.workspace_id, row.id)
+                for row in (
+                    await session.execute(
+                        select(Learner.workspace_id, Learner.id).where(Learner.id.in_(learner_ids))
                     )
                 ).all()
-            )
-            valid_model_runs = set(
-                (
-                    await session.scalars(select(ModelRun.id).where(ModelRun.id.in_(model_run_ids)))
-                ).all()
-            )
-            valid_revisions = set(
-                (
-                    await session.scalars(
-                        select(GraphRevision.id).where(GraphRevision.id.in_(revision_ids))
+            }
+            valid_sessions = {
+                (row.workspace_id, row.id)
+                for row in (
+                    await session.execute(
+                        select(TutoringSession.workspace_id, TutoringSession.id).where(
+                            TutoringSession.id.in_(session_ids)
+                        )
                     )
                 ).all()
-            )
+            }
+            valid_model_runs = {
+                (row.workspace_id, row.id)
+                for row in (
+                    await session.execute(
+                        select(ModelRun.workspace_id, ModelRun.id).where(
+                            ModelRun.id.in_(model_run_ids)
+                        )
+                    )
+                ).all()
+            }
+            valid_revisions = {
+                (row.workspace_id, row.id)
+                for row in (
+                    await session.execute(
+                        select(GraphRevision.workspace_id, GraphRevision.id).where(
+                            GraphRevision.id.in_(revision_ids)
+                        )
+                    )
+                ).all()
+            }
         return valid_learners, valid_sessions, valid_model_runs, valid_revisions
 
     async def _rehydrate_in_memory_semantic_graph(self) -> None:
@@ -334,6 +401,127 @@ class ApplicationRuntime:
             "neo4j": neo4j_ready,
             "ready": postgres_ready and neo4j_ready,
         }
+
+    async def _load_tool_learner_state(
+        self,
+        params: LearnerStateParams,
+    ) -> dict[str, object]:
+        """Read learner-owned state from SQL for the controlled model tool.
+
+        Learner graph state is intentionally not projected as authoritative
+        domain knowledge in Neo4j. This bounded SQL adapter keeps the tool
+        complete in production while preserving tenant and revision checks.
+        """
+
+        async with self.database.session() as session:
+            owner_id = await session.scalar(
+                select(Learner.id).where(
+                    Learner.id == params.learner_id,
+                    Learner.workspace_id == params.workspace_id,
+                )
+            )
+            if owner_id is None:
+                raise LookupError("learner does not belong to workspace")
+            domain_revision_id = await session.scalar(
+                select(GraphRevision.id)
+                .where(GraphRevision.workspace_id == params.workspace_id)
+                .order_by(GraphRevision.sequence_number.desc())
+                .limit(1)
+            )
+            learner_revision_id = await session.scalar(
+                select(LearnerGraphRevision.id)
+                .where(
+                    LearnerGraphRevision.workspace_id == params.workspace_id,
+                    LearnerGraphRevision.learner_id == params.learner_id,
+                )
+                .order_by(LearnerGraphRevision.sequence_number.desc())
+                .limit(1)
+            )
+            statement = select(LearnerKnowledgeState).where(
+                LearnerKnowledgeState.workspace_id == params.workspace_id,
+                LearnerKnowledgeState.learner_id == params.learner_id,
+            )
+            if params.knowledge_point_id is not None:
+                statement = statement.where(
+                    LearnerKnowledgeState.knowledge_point_id == params.knowledge_point_id
+                )
+            records = list(
+                (
+                    await session.scalars(
+                        statement.order_by(
+                            LearnerKnowledgeState.updated_at.desc(),
+                            LearnerKnowledgeState.knowledge_point_id,
+                        ).limit(params.limit)
+                    )
+                ).all()
+            )
+        return {
+            "workspace_id": str(params.workspace_id),
+            "revision_id": str(domain_revision_id) if domain_revision_id is not None else None,
+            "learner_id": str(params.learner_id),
+            "learner_graph_revision_id": (
+                str(learner_revision_id) if learner_revision_id is not None else None
+            ),
+            "items": [
+                {
+                    "id": str(record.id),
+                    "knowledge_point_id": str(record.knowledge_point_id),
+                    "current_level": record.current_level,
+                    "mastery_score": record.mastery_score,
+                    "confidence": record.confidence,
+                    "evidence_count": record.evidence_count,
+                    "independent_success_count": record.independent_success_count,
+                    "reasoning_success_count": record.reasoning_success_count,
+                    "transfer_success_count": record.transfer_success_count,
+                    "critical_misconceptions": list(record.critical_misconceptions),
+                    "last_interaction_at": (
+                        record.last_interaction_at.isoformat()
+                        if record.last_interaction_at is not None
+                        else None
+                    ),
+                    "next_review_at": (
+                        record.next_review_at.isoformat()
+                        if record.next_review_at is not None
+                        else None
+                    ),
+                    "version": record.version,
+                }
+                for record in records
+            ],
+        }
+
+    async def ensure_semantic_projection(
+        self,
+        workspace_id: UUID,
+        *,
+        attempts: int = 2,
+    ) -> UUID | None:
+        """Synchronize the bounded semantic-read path without loading SQL nodes.
+
+        Detail and focus-subgraph endpoints should read Neo4j (or its bounded
+        in-memory equivalent) directly.  They only need the projected revision
+        identity, so loading every node and assertion into ``graph_applier``
+        would defeat the graph-size budget.  A short, deterministic Outbox
+        drain closes the normal commit-to-read race; callers still receive the
+        repository's own revision envelope when projection is asynchronous.
+        """
+
+        if attempts < 1:
+            raise ValueError("attempts must be positive")
+        latest_revision_id = await self._latest_graph_revision_id(workspace_id)
+        observed_revision_id: UUID | None = None
+        for attempt in range(attempts):
+            observed_raw = await self.semantic_graph.get_current_revision(str(workspace_id))
+            observed_revision_id = _optional_property_uuid(observed_raw)
+            if observed_revision_id == latest_revision_id:
+                return observed_revision_id
+            if latest_revision_id is None:
+                return observed_revision_id
+            if attempt + 1 < attempts:
+                await self.outbox_dispatcher.dispatch_once(
+                    batch_size=self.settings.outbox_batch_size
+                )
+        return observed_revision_id
 
     async def ensure_graph_loaded(
         self,

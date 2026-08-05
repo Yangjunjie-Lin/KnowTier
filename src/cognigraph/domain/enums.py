@@ -44,6 +44,26 @@ class RelationTypeKey(StrEnum):
     CONFLICTS_WITH = "CONFLICTS_WITH"
 
 
+class LearnerRelationType(StrEnum):
+    """Application-owned predicates for the learner knowledge graph.
+
+    These predicates describe observations about one learner.  They are kept
+    separate from the authoritative domain ontology so an answer or a model
+    suggestion can never silently become a domain fact.
+    """
+
+    HAS_KNOWLEDGE_STATE = "HAS_KNOWLEDGE_STATE"
+    HAS_MASTERY_EVIDENCE = "HAS_MASTERY_EVIDENCE"
+    HAS_MISCONCEPTION = "HAS_MISCONCEPTION"
+    REQUIRES_REVIEW = "REQUIRES_REVIEW"
+    BLOCKED_BY_PREREQUISITE = "BLOCKED_BY_PREREQUISITE"
+    READY_FOR_PROMOTION = "READY_FOR_PROMOTION"
+    LEARNING_GOAL = "LEARNING_GOAL"
+    RECENTLY_PRACTICED = "RECENTLY_PRACTICED"
+    NEEDS_TRANSFER_EVIDENCE = "NEEDS_TRANSFER_EVIDENCE"
+    USER_SUPPLIED = "USER_SUPPLIED"
+
+
 class NodeType(StrEnum):
     ENTITY_TYPE = "EntityType"
     RELATION_TYPE = "RelationType"

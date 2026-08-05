@@ -60,6 +60,8 @@ services:
         uv run uvicorn cognigraph.main:app --host 0.0.0.0 --port 8000
     environment:
       COGNIGRAPH_ENVIRONMENT: ${COGNIGRAPH_ENVIRONMENT:-development}
+      COGNIGRAPH_WORKSPACE_SCOPE_REQUIRED: ${COGNIGRAPH_WORKSPACE_SCOPE_REQUIRED:-false}
+      COGNIGRAPH_WORKSPACE_PROVISIONING_TOKEN: ${COGNIGRAPH_WORKSPACE_PROVISIONING_TOKEN:-}
       COGNIGRAPH_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-cognigraph}:${POSTGRES_PASSWORD:-cognigraph-local-password}@postgres:5432/${POSTGRES_DB:-cognigraph}
       COGNIGRAPH_NEO4J_URI: bolt://neo4j:7687
       COGNIGRAPH_NEO4J_USER: ${NEO4J_USER:-neo4j}
@@ -67,7 +69,40 @@ services:
       COGNIGRAPH_NEO4J_REQUIRED: "true"
       COGNIGRAPH_STORAGE_PATH: /app/data/uploads
       COGNIGRAPH_USE_MOCK_LLM: ${COGNIGRAPH_USE_MOCK_LLM:-true}
+      COGNIGRAPH_TEACHER_MODEL: ${COGNIGRAPH_TEACHER_MODEL:-openai/gpt-4.1-mini}
+      COGNIGRAPH_EXTRACTOR_MODEL: ${COGNIGRAPH_EXTRACTOR_MODEL:-openai/gpt-4.1-mini}
+      COGNIGRAPH_GRADER_MODEL: ${COGNIGRAPH_GRADER_MODEL:-openai/gpt-4.1-mini}
+      COGNIGRAPH_GRAPH_MODEL: ${COGNIGRAPH_GRAPH_MODEL:-openai/gpt-4.1-mini}
+      COGNIGRAPH_EMBEDDING_MODEL: ${COGNIGRAPH_EMBEDDING_MODEL:-openai/text-embedding-3-small}
+      COGNIGRAPH_FALLBACK_MODELS: ${COGNIGRAPH_FALLBACK_MODELS:-[]}
       COGNIGRAPH_API_KEY: ${COGNIGRAPH_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      AZURE_API_KEY: ${AZURE_API_KEY:-}
+      AZURE_API_BASE: ${AZURE_API_BASE:-}
+      AZURE_API_VERSION: ${AZURE_API_VERSION:-}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN:-}
+      AWS_REGION_NAME: ${AWS_REGION_NAME:-}
+      COGNIGRAPH_LLM_TIMEOUT_SECONDS: ${COGNIGRAPH_LLM_TIMEOUT_SECONDS:-30}
+      COGNIGRAPH_LLM_MAX_RETRIES: ${COGNIGRAPH_LLM_MAX_RETRIES:-2}
+      COGNIGRAPH_LLM_MAX_CONCURRENCY: ${COGNIGRAPH_LLM_MAX_CONCURRENCY:-4}
+      COGNIGRAPH_GRAPH_MODEL_ENABLED: ${COGNIGRAPH_GRAPH_MODEL_ENABLED:-true}
+      COGNIGRAPH_TOOL_CALLING_ENABLED: ${COGNIGRAPH_TOOL_CALLING_ENABLED:-true}
+      COGNIGRAPH_MAX_TOOL_STEPS: ${COGNIGRAPH_MAX_TOOL_STEPS:-4}
+      COGNIGRAPH_MAX_TOOL_RESULT_BYTES: ${COGNIGRAPH_MAX_TOOL_RESULT_BYTES:-30000}
+      COGNIGRAPH_TOOL_TIMEOUT_SECONDS: ${COGNIGRAPH_TOOL_TIMEOUT_SECONDS:-10}
+      COGNIGRAPH_MAX_CONTEXT_TOKENS: ${COGNIGRAPH_MAX_CONTEXT_TOKENS:-4000}
+      COGNIGRAPH_MAX_RECENT_TURNS: ${COGNIGRAPH_MAX_RECENT_TURNS:-6}
+      COGNIGRAPH_MAX_GRAPH_DEPTH: ${COGNIGRAPH_MAX_GRAPH_DEPTH:-3}
+      COGNIGRAPH_MAX_GRAPH_NODES: ${COGNIGRAPH_MAX_GRAPH_NODES:-100}
+      COGNIGRAPH_OCR_ENABLED: "false"
+      COGNIGRAPH_VISION_MODEL: ${COGNIGRAPH_VISION_MODEL:-openai/gpt-4.1-mini}
+      COGNIGRAPH_VISION_ENABLED: ${COGNIGRAPH_VISION_ENABLED:-true}
+      COGNIGRAPH_VISION_FALLBACK_ENABLED: ${COGNIGRAPH_VISION_FALLBACK_ENABLED:-true}
     ports:
       - "${API_PORT:-8000}:8000"
     volumes:
@@ -87,11 +122,106 @@ services:
         - -c
         - >-
           import urllib.request;
-          urllib.request.urlopen('http://localhost:8000/health', timeout=3)
+          urllib.request.urlopen('http://localhost:8000/ready', timeout=3)
       interval: 10s
       timeout: 5s
       retries: 20
-      start_period: 30s
+      # A clean documents-extra install can download the Docling/PyTorch
+      # runtime before Uvicorn starts. Do not mark a healthy cold bootstrap as
+      # failed while the frozen environment is still being materialized.
+      start_period: 600s
+
+  # The default API image intentionally stays small.  Start this profile when
+  # PaddleOCR and scanned-PDF rendering are required:
+  #   docker compose --profile ocr up api-ocr
+  api-ocr:
+    image: ghcr.io/astral-sh/uv:python3.12-bookworm-slim
+    profiles: ["ocr"]
+    restart: unless-stopped
+    working_dir: /app
+    command:
+      - sh
+      - -c
+      - >-
+        uv sync --frozen --no-dev --extra documents --extra ocr &&
+        uv run python -c "import paddle; paddle.utils.run_check()" &&
+        uv run alembic upgrade head &&
+        uv run uvicorn cognigraph.main:app --host 0.0.0.0 --port 8000
+    environment:
+      COGNIGRAPH_ENVIRONMENT: ${COGNIGRAPH_ENVIRONMENT:-development}
+      COGNIGRAPH_WORKSPACE_SCOPE_REQUIRED: ${COGNIGRAPH_WORKSPACE_SCOPE_REQUIRED:-false}
+      COGNIGRAPH_WORKSPACE_PROVISIONING_TOKEN: ${COGNIGRAPH_WORKSPACE_PROVISIONING_TOKEN:-}
+      COGNIGRAPH_DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-cognigraph}:${POSTGRES_PASSWORD:-cognigraph-local-password}@postgres:5432/${POSTGRES_DB:-cognigraph}
+      COGNIGRAPH_NEO4J_URI: bolt://neo4j:7687
+      COGNIGRAPH_NEO4J_USER: ${NEO4J_USER:-neo4j}
+      COGNIGRAPH_NEO4J_PASSWORD: ${NEO4J_PASSWORD:-cognigraph-local-password}
+      COGNIGRAPH_NEO4J_REQUIRED: "true"
+      COGNIGRAPH_OCR_ENABLED: "true"
+      COGNIGRAPH_STORAGE_PATH: /app/data/uploads
+      COGNIGRAPH_USE_MOCK_LLM: ${COGNIGRAPH_USE_MOCK_LLM:-true}
+      COGNIGRAPH_TEACHER_MODEL: ${COGNIGRAPH_TEACHER_MODEL:-openai/gpt-4.1-mini}
+      COGNIGRAPH_EXTRACTOR_MODEL: ${COGNIGRAPH_EXTRACTOR_MODEL:-openai/gpt-4.1-mini}
+      COGNIGRAPH_GRADER_MODEL: ${COGNIGRAPH_GRADER_MODEL:-openai/gpt-4.1-mini}
+      COGNIGRAPH_GRAPH_MODEL: ${COGNIGRAPH_GRAPH_MODEL:-openai/gpt-4.1-mini}
+      COGNIGRAPH_EMBEDDING_MODEL: ${COGNIGRAPH_EMBEDDING_MODEL:-openai/text-embedding-3-small}
+      COGNIGRAPH_FALLBACK_MODELS: ${COGNIGRAPH_FALLBACK_MODELS:-[]}
+      COGNIGRAPH_API_KEY: ${COGNIGRAPH_API_KEY:-}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      GEMINI_API_KEY: ${GEMINI_API_KEY:-}
+      OPENROUTER_API_KEY: ${OPENROUTER_API_KEY:-}
+      AZURE_API_KEY: ${AZURE_API_KEY:-}
+      AZURE_API_BASE: ${AZURE_API_BASE:-}
+      AZURE_API_VERSION: ${AZURE_API_VERSION:-}
+      AWS_ACCESS_KEY_ID: ${AWS_ACCESS_KEY_ID:-}
+      AWS_SECRET_ACCESS_KEY: ${AWS_SECRET_ACCESS_KEY:-}
+      AWS_SESSION_TOKEN: ${AWS_SESSION_TOKEN:-}
+      AWS_REGION_NAME: ${AWS_REGION_NAME:-}
+      COGNIGRAPH_LLM_TIMEOUT_SECONDS: ${COGNIGRAPH_LLM_TIMEOUT_SECONDS:-30}
+      COGNIGRAPH_LLM_MAX_RETRIES: ${COGNIGRAPH_LLM_MAX_RETRIES:-2}
+      COGNIGRAPH_LLM_MAX_CONCURRENCY: ${COGNIGRAPH_LLM_MAX_CONCURRENCY:-4}
+      COGNIGRAPH_GRAPH_MODEL_ENABLED: ${COGNIGRAPH_GRAPH_MODEL_ENABLED:-true}
+      COGNIGRAPH_TOOL_CALLING_ENABLED: ${COGNIGRAPH_TOOL_CALLING_ENABLED:-true}
+      COGNIGRAPH_MAX_TOOL_STEPS: ${COGNIGRAPH_MAX_TOOL_STEPS:-4}
+      COGNIGRAPH_MAX_TOOL_RESULT_BYTES: ${COGNIGRAPH_MAX_TOOL_RESULT_BYTES:-30000}
+      COGNIGRAPH_TOOL_TIMEOUT_SECONDS: ${COGNIGRAPH_TOOL_TIMEOUT_SECONDS:-10}
+      COGNIGRAPH_MAX_CONTEXT_TOKENS: ${COGNIGRAPH_MAX_CONTEXT_TOKENS:-4000}
+      COGNIGRAPH_MAX_RECENT_TURNS: ${COGNIGRAPH_MAX_RECENT_TURNS:-6}
+      COGNIGRAPH_MAX_GRAPH_DEPTH: ${COGNIGRAPH_MAX_GRAPH_DEPTH:-3}
+      COGNIGRAPH_MAX_GRAPH_NODES: ${COGNIGRAPH_MAX_GRAPH_NODES:-100}
+      COGNIGRAPH_VISION_MODEL: ${COGNIGRAPH_VISION_MODEL:-openai/gpt-4.1-mini}
+      COGNIGRAPH_VISION_ENABLED: ${COGNIGRAPH_VISION_ENABLED:-true}
+      COGNIGRAPH_VISION_FALLBACK_ENABLED: ${COGNIGRAPH_VISION_FALLBACK_ENABLED:-true}
+      COGNIGRAPH_OCR_LOW_CONFIDENCE_THRESHOLD: ${COGNIGRAPH_OCR_LOW_CONFIDENCE_THRESHOLD:-0.6}
+      COGNIGRAPH_OCR_MIN_TEXT_QUALITY: ${COGNIGRAPH_OCR_MIN_TEXT_QUALITY:-0.2}
+      COGNIGRAPH_VISION_MAX_IMAGE_BYTES: ${COGNIGRAPH_VISION_MAX_IMAGE_BYTES:-12582912}
+      COGNIGRAPH_VISION_MAX_OUTPUT_BLOCKS: ${COGNIGRAPH_VISION_MAX_OUTPUT_BLOCKS:-500}
+      COGNIGRAPH_OCR_PDF_DPI: ${COGNIGRAPH_OCR_PDF_DPI:-200}
+    ports:
+      - "${API_OCR_PORT:-8001}:8000"
+    volumes:
+      - .:/app
+      - venv_ocr_data:/app/.venv
+      - uv_cache:/root/.cache/uv
+      - upload_data:/app/data/uploads
+    depends_on:
+      postgres:
+        condition: service_healthy
+      neo4j:
+        condition: service_healthy
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - >-
+          import urllib.request;
+          urllib.request.urlopen('http://localhost:8000/ready', timeout=3)
+      interval: 10s
+      timeout: 5s
+      retries: 20
+      # OCR adds PaddlePaddle and model tooling on top of the document stack.
+      start_period: 900s
 
 volumes:
   postgres_data:
@@ -100,3 +230,4 @@ volumes:
   upload_data:
   venv_data:
   uv_cache:
+  venv_ocr_data:

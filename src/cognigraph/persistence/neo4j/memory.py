@@ -49,6 +49,10 @@ class InMemoryGraphRepository:
     async def is_ready(self) -> bool:
         return not self._closed
 
+    async def get_current_revision(self, workspace_id: str) -> str | None:
+        workspace = _clean_identifier(workspace_id, "workspace_id")
+        return self._revisions.get(workspace)
+
     async def close(self) -> None:
         self._closed = True
 

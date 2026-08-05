@@ -9,7 +9,7 @@ from typing import Any
 from pydantic import BaseModel
 
 from cognigraph.llm.gateway import ModelProvider
-from cognigraph.llm.schemas import ChatMessage, ProviderResponse
+from cognigraph.llm.schemas import ChatMessage, ProviderResponse, ToolDefinition
 
 
 class FakeProvider(ModelProvider):
@@ -19,13 +19,16 @@ class FakeProvider(ModelProvider):
 
     def __init__(
         self,
-        responses: list[str | BaseModel | Exception] | None = None,
+        responses: list[str | BaseModel | ProviderResponse | Exception] | None = None,
         *,
         delay_seconds: float = 0.0,
     ) -> None:
-        self._responses: deque[str | BaseModel | Exception] = deque(responses or [])
+        self._responses: deque[str | BaseModel | ProviderResponse | Exception] = deque(
+            responses or []
+        )
         self.delay_seconds = delay_seconds
         self.calls: list[tuple[str, list[ChatMessage], dict[str, Any]]] = []
+        self.tool_calls: list[list[ToolDefinition]] = []
 
     async def complete(
         self,
@@ -33,17 +36,27 @@ class FakeProvider(ModelProvider):
         model: str,
         messages: list[ChatMessage],
         response_schema: dict[str, Any],
+        tools: list[ToolDefinition] | None = None,
+        tool_choice: str | dict[str, object] | None = None,
     ) -> ProviderResponse:
         self.calls.append((model, messages, response_schema))
+        self.tool_calls.append(list(tools or ()))
         if self.delay_seconds:
             await asyncio.sleep(self.delay_seconds)
-        item: str | BaseModel | Exception
+        item: str | BaseModel | ProviderResponse | Exception
         if self._responses:
             item = self._responses.popleft()
         else:
             item = self._default_payload(response_schema, messages)
         if isinstance(item, Exception):
             raise item
+        if isinstance(item, ProviderResponse):
+            return item.model_copy(
+                update={
+                    "provider": item.provider or self.provider_name,
+                    "model": item.model or model,
+                }
+            )
         if isinstance(item, BaseModel):
             content = item.model_dump_json()
         else:
@@ -86,7 +99,7 @@ class FakeProvider(ModelProvider):
                 }
             )
         if "knowledge_points" in properties:
-            joined = "\n".join(message.content for message in messages)
+            joined = "\n".join(_message_text(message) for message in messages)
             source_match = re.search(
                 r"source_span(?:_id)?[=:\"'\s]+([0-9a-fA-F-]{36})",
                 joined,
@@ -161,3 +174,16 @@ class FakeProvider(ModelProvider):
                 }
             )
         return "{}"
+
+
+def _message_text(message: ChatMessage) -> str:
+    if isinstance(message.content, str):
+        return message.content
+    if not isinstance(message.content, list):
+        return ""
+    text_parts: list[str] = []
+    for part in message.content:
+        value = part.get("text")
+        if isinstance(value, str):
+            text_parts.append(value)
+    return "\n".join(text_parts)

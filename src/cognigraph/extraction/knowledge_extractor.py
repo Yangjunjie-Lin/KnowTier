@@ -25,6 +25,10 @@ class KnowledgeExtractor:
     ) -> tuple[KnowledgeBlueprint, StructuredCallResult]:
         if not spans:
             raise ValueError("knowledge extraction requires at least one source span")
+        document_ids = {span.document_id for span in spans}
+        if len(document_ids) != 1:
+            raise ValueError("knowledge extraction spans must belong to one document")
+        document_id = next(iter(document_ids))
         prompt = self.prompts.load("knowledge_extractor")
         span_by_id = {span.id: span for span in spans}
         selected_ids: list[UUID] = []
@@ -38,6 +42,7 @@ class KnowledgeExtractor:
         for batch in batches:
             blueprint, call = await self._extract_batch(
                 workspace_id=workspace_id,
+                document_id=document_id,
                 prompt_name=prompt.name,
                 prompt_version=prompt.version,
                 prompt_content=prompt.content,
@@ -53,6 +58,7 @@ class KnowledgeExtractor:
         self,
         *,
         workspace_id: UUID,
+        document_id: UUID,
         prompt_name: str,
         prompt_version: str,
         prompt_content: str,
@@ -87,6 +93,7 @@ class KnowledgeExtractor:
             response_model=KnowledgeBlueprint,
             context=ModelCallContext(
                 workspace_id=workspace_id,
+                document_id=document_id,
                 prompt_name=prompt_name,
                 prompt_version=prompt_version,
             ),
@@ -101,7 +108,7 @@ class KnowledgeExtractor:
         # avoids ever placing a whole large upload into one model request.
         payload_budget = max(
             1_024,
-            (self.gateway.settings.context_token_budget - 1_000) * 4,
+            (self.gateway.settings.max_context_tokens - 1_000) * 4,
         )
         batches: list[list[SourceSpan]] = []
         current: list[SourceSpan] = []

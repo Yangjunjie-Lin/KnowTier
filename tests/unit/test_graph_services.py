@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 from uuid import UUID, uuid4
 
+import pytest
 from rdflib import Graph
 
 from cognigraph.domain.documents import SourceSpan
@@ -24,6 +25,7 @@ from cognigraph.graph.manifest import GraphManifestService
 from cognigraph.graph.query_tools import (
     ControlledGraphQueryTools,
     InMemoryToolAuditSink,
+    LearningPathParams,
     NodeDetailParams,
     PrerequisiteChainParams,
     SearchKnowledgePointsParams,
@@ -219,6 +221,98 @@ def test_controlled_query_tools_are_bounded_versioned_and_audited() -> None:
         "get_node_detail",
     ]
     assert not hasattr(tools, "execute_cypher")
+
+
+def test_multilevel_learning_path_is_stable_and_prerequisites_first() -> None:
+    workspace_id = UUID(int=101)
+    revision_id = UUID(int=102)
+    target_id = UUID(int=110)
+    direct_a_id = UUID(int=111)
+    direct_b_id = UUID(int=112)
+    foundation_id = UUID(int=113)
+    node_ids = [target_id, direct_a_id, direct_b_id, foundation_id]
+    nodes = [
+        GraphNode(
+            id=node_id,
+            workspace_id=workspace_id,
+            node_type=NodeType.KNOWLEDGE_POINT,
+            properties={"canonical_name": f"point-{node_id.int}"},
+            epistemic_status=EpistemicStatus.CONFIRMED,
+            graph_revision_id=revision_id,
+        )
+        for node_id in node_ids
+    ]
+
+    def requires(assertion_id: int, subject_id: UUID, object_id: UUID) -> RelationAssertion:
+        return RelationAssertion(
+            id=UUID(int=assertion_id),
+            workspace_id=workspace_id,
+            subject_id=subject_id,
+            predicate_key=RelationTypeKey.REQUIRES,
+            object_id=object_id,
+            natural_language_description="A deterministic prerequisite edge.",
+            confidence=1.0,
+            epistemic_status=EpistemicStatus.UNVERIFIED,
+            created_by="test",
+            graph_revision_id=revision_id,
+        )
+
+    assertions = [
+        requires(201, target_id, direct_b_id),
+        requires(202, target_id, direct_a_id),
+        requires(203, direct_a_id, foundation_id),
+    ]
+    snapshot = GraphSnapshot(
+        workspace_id=workspace_id,
+        revision_id=revision_id,
+        nodes=nodes,
+        assertions=assertions,
+    )
+    store = InMemoryGraphStore()
+    store.set_snapshot(snapshot)
+    tools = ControlledGraphQueryTools(store)
+
+    first = tools.get_learning_path(
+        LearningPathParams(
+            workspace_id=workspace_id,
+            target_knowledge_point_id=target_id,
+            max_depth=3,
+            max_nodes=10,
+        )
+    )
+    second = tools.get_learning_path(
+        LearningPathParams(
+            workspace_id=workspace_id,
+            target_knowledge_point_id=target_id,
+            max_depth=3,
+            max_nodes=10,
+        )
+    )
+
+    ordered = first.data["knowledge_point_ids"]
+    assert ordered == second.data["knowledge_point_ids"]
+    assert ordered.index(str(foundation_id)) < ordered.index(str(direct_a_id))
+    assert ordered.index(str(direct_a_id)) < ordered.index(str(target_id))
+    assert ordered.index(str(direct_b_id)) < ordered.index(str(target_id))
+
+    cyclic_snapshot = snapshot.model_copy(
+        update={
+            "assertions": [
+                *assertions,
+                requires(204, foundation_id, target_id),
+            ]
+        }
+    )
+    store.set_snapshot(cyclic_snapshot)
+    with pytest.raises(ValueError, match="cycle"):
+        tools.get_learning_path(
+            LearningPathParams(
+                workspace_id=workspace_id,
+                target_knowledge_point_id=target_id,
+                max_depth=5,
+                max_nodes=10,
+            )
+        )
 
 
 def test_cytoscape_and_jsonld_exports_preserve_assertion_identity() -> None:

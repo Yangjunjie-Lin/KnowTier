@@ -3,7 +3,7 @@
 ## PostgreSQL
 
 PostgreSQL owns operational state, audit history, version sequencing, and Outbox delivery.
-The initial Alembic migration creates these tables:
+Alembic migrations `0001` through `0005` create these tables:
 
 | Table | Purpose |
 | --- | --- |
@@ -28,6 +28,11 @@ The initial Alembic migration creates these tables:
 | `assertion_sources` | Assertion-to-SourceSpan provenance |
 | `graph_conflicts` | Competing assertion review records |
 | `tool_call_audits` | Controlled graph tool parameters and result metadata |
+| `learner_graph_revisions` | Immutable per-turn learner graph versions |
+| `learner_graph_change_events` | Idempotent learner graph deltas |
+| `learner_relation_assertions` | First-class learner relations and validity history |
+| `learner_relation_assertion_sources` | Learner assertion provenance links |
+| `graph_model_proposals` | Read-only graph-model comparison advice and fallback audit |
 | `audit_events` | General security and mutation audit stream |
 | `stored_blobs` | Content-addressed blob metadata |
 
@@ -46,8 +51,9 @@ the same migration to PostgreSQL and enables the `vector` extension before API s
 Ontology and content labels include `EntityType`, `RelationType`, `Constraint`, `Theory`,
 `Domain`, `EpistemicStatus`, `KnowledgePoint`, `Definition`, `Method`, `Example`,
 `Counterexample`, `Misconception`, `Question`, `LearningStage`, `SourceDocument`, and
-`SourceSpan`. Learner projection labels include `Learner`, `LearnerKnowledgeState`,
-`MasteryEvidence`, `ErrorPattern`, `LearningGoal`, and `Session`.
+`SourceSpan`. The ontology can name learner-oriented types such as `LearnerKnowledgeState`, but
+the versioned learner graph and its first-class assertions remain PostgreSQL system records;
+they are queried independently and are not authoritative Neo4j state.
 
 Semantic relations are not opaque Neo4j edges. Each is a `RelationAssertion` node connected by
 fixed projection edges:
@@ -73,4 +79,5 @@ and optional superseded assertion. Assertions are independently addressable and 
 Cytoscape export flattens each active assertion to a visual edge but keeps `assertion_id`,
 predicate, description, confidence, and source count. JSON-LD and Turtle preserve assertions as
 resources rather than losing provenance in direct RDF predicates. Learner graph export contains
-only learner-state projection nodes; it does not duplicate the domain graph.
+learner state nodes and first-class learner assertion edges with revision and evidence metadata;
+it does not duplicate or mutate the domain graph.

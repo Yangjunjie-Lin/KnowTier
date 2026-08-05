@@ -38,7 +38,9 @@ dependencies = [
 
 [project.optional-dependencies]
 documents = ["docling>=2.25,<3"]
-ocr = ["paddleocr>=2.9,<4"]
+# Production OCR follows the PaddleOCR/PaddlePaddle 3.x prediction API. Both
+# packages are explicit because PaddleOCR does not install the inference engine.
+ocr = ["paddleocr>=3.7,<4", "paddlepaddle>=3.3.1,<4", "pymupdf>=1.24,<2"]
 
 [dependency-groups]
 dev = [
@@ -71,6 +73,12 @@ markers = [
   "integration: integration tests that exercise repository boundaries",
   "contract: provider contract tests",
   "e2e: end-to-end workflow tests",
+  "unit: isolated offline unit tests",
+  "postgres: tests requiring PostgreSQL",
+  "neo4j: tests requiring Neo4j",
+  "ocr: tests requiring an OCR runtime",
+  "performance: opt-in large-graph and bounded-query performance tests",
+  "live_model: tests requiring external model credentials",
 ]
 
 [tool.ruff]

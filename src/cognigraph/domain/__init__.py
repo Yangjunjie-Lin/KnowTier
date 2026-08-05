@@ -8,6 +8,7 @@ from cognigraph.domain.enums import (
     EpistemicStatus,
     EvidenceType,
     HintLevel,
+    LearnerRelationType,
     MasteryDecision,
     NodeType,
     RelationTypeKey,
@@ -30,7 +31,11 @@ from cognigraph.domain.knowledge import (
 )
 from cognigraph.domain.learner import (
     Learner,
+    LearnerGraphChangeEvent,
+    LearnerGraphDelta,
+    LearnerGraphRevision,
     LearnerKnowledgeState,
+    LearnerRelationAssertion,
     MasteryEvidence,
     MasteryUpdate,
 )
@@ -57,7 +62,12 @@ __all__ = [
     "KnowledgePoint",
     "KnowledgePointCandidate",
     "Learner",
+    "LearnerGraphChangeEvent",
+    "LearnerGraphDelta",
+    "LearnerGraphRevision",
     "LearnerKnowledgeState",
+    "LearnerRelationAssertion",
+    "LearnerRelationType",
     "LearningStage",
     "LearningStagePlan",
     "MasteryDecision",

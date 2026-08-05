@@ -6,10 +6,12 @@ from uuid import uuid4
 import pytest
 
 from cognigraph.config import Settings
+from cognigraph.domain.enums import DocumentStatus
 from cognigraph.extraction.knowledge_extractor import KnowledgeExtractor
 from cognigraph.graph.applier import InMemoryGraphApplier
 from cognigraph.ingestion.chunking import HierarchicalChunker
 from cognigraph.ingestion.docling_adapter import DocumentParser
+from cognigraph.ingestion.models import ParsedDocument
 from cognigraph.ingestion.service import IngestionService, InMemoryDocumentRegistry
 from cognigraph.llm.embedding import DeterministicEmbeddingProvider
 from cognigraph.llm.fake_provider import FakeProvider
@@ -120,3 +122,36 @@ async def test_path_traversal_upload_is_rejected(tmp_path: Path) -> None:
             mime_type="application/pdf",
             content=minimal_text_pdf("content"),
         )
+
+
+@pytest.mark.integration
+async def test_failed_parse_exposes_and_persists_safe_parser_diagnostics(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    service, _registry, _graph = make_service(tmp_path)
+
+    async def no_text(*args: object, **kwargs: object) -> ParsedDocument:
+        return ParsedDocument(
+            parser_name="paddleocr",
+            parser_version="unavailable",
+            page_count=1,
+            blocks=[],
+            warnings=["PaddleOCR optional dependency is unavailable; use the OCR profile"],
+            parser_chain=["paddleocr"],
+        )
+
+    monkeypatch.setattr(service.parser, "parse_async", no_text)
+    upload = await service.upload(
+        workspace_id=uuid4(),
+        filename="notes.txt",
+        mime_type="text/plain",
+        content=b"source",
+    )
+
+    with pytest.raises(ValueError, match=r"Parser diagnostics: PaddleOCR.*OCR profile"):
+        await service.ingest(upload.document_id)
+
+    failed = await service.get_document(upload.document_id)
+    assert failed.status is DocumentStatus.FAILED
+    assert any("PaddleOCR optional dependency" in warning for warning in failed.warnings)

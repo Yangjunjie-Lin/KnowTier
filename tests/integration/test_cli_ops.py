@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 import subprocess
@@ -82,6 +83,15 @@ def test_seed_demo_is_persistent_and_idempotent(
         )
     assert workspace_count == 1
     assert learner_count == 1
+
+
+def test_demo_uses_transaction_safe_temporary_sqlite_database() -> None:
+    result = CliRunner().invoke(app, ["demo"])
+
+    assert result.exit_code == 0, result.output
+    responses = json.loads(result.output)
+    assert len(responses) == 3
+    assert all(item["learner_graph_update"]["revision_id"] for item in responses)
 
 
 @pytest.mark.parametrize(

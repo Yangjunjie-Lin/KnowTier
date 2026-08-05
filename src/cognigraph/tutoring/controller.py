@@ -24,10 +24,19 @@ class TeachingController:
         current_knowledge_point_id: UUID,
         latest_update: MasteryUpdate | None,
         prerequisite_status: Mapping[UUID, bool],
+        prerequisite_priorities: Mapping[UUID, tuple[int, float, int, int]] | None = None,
         session_goal: SessionGoal,
         previous_hint_level: HintLevel | None = None,
     ) -> TeachingDirective:
-        unmet = [item for item, mastered in prerequisite_status.items() if not mastered]
+        unmet = sorted(
+            (item for item, mastered in prerequisite_status.items() if not mastered),
+            key=lambda item: (
+                prerequisite_priorities[item]
+                if prerequisite_priorities is not None and item in prerequisite_priorities
+                else (0, 0.0, 0, 0),
+                str(item),
+            ),
+        )
         if unmet:
             target_id = unmet[0]
             return TeachingDirective(

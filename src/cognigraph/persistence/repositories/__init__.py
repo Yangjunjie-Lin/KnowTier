@@ -7,6 +7,13 @@ from cognigraph.persistence.repositories.graph import (
     GraphNodeDetailRecord,
     GraphPersistenceResult,
 )
+from cognigraph.persistence.repositories.learner_graph import (
+    LearnerAssertionDetailRecord,
+    LearnerGraphPersistenceResult,
+    LearnerGraphRecordValidationError,
+    LearnerGraphRepository,
+    LearnerGraphRevisionConflictError,
+)
 from cognigraph.persistence.repositories.learners import LearnerRepository, LearnerStateRepository
 from cognigraph.persistence.repositories.operations import (
     AuditRepository,
@@ -24,6 +31,11 @@ __all__ = [
     "GraphDeltaRepository",
     "GraphNodeDetailRecord",
     "GraphPersistenceResult",
+    "LearnerAssertionDetailRecord",
+    "LearnerGraphPersistenceResult",
+    "LearnerGraphRecordValidationError",
+    "LearnerGraphRepository",
+    "LearnerGraphRevisionConflictError",
     "LearnerRepository",
     "LearnerStateRepository",
     "ModelConfigRepository",

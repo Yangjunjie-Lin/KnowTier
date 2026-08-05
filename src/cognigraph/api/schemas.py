@@ -60,6 +60,11 @@ class IngestionResponse(BaseModel):
     assertion_count: int
     warning_count: int
     graph_revision_id: UUID | None
+    parser_chain: list[str] = Field(default_factory=list)
+    ocr_used: bool = False
+    vision_used: bool = False
+    detected_language: str | None = None
+    low_confidence_blocks: int = 0
 
 
 class ChatRequest(BaseModel):
@@ -96,6 +101,21 @@ class GraphUpdateResponse(BaseModel):
     assertions_superseded: int = 0
 
 
+class ToolUsageResponse(BaseModel):
+    enabled: bool
+    steps: int = Field(ge=0)
+    tools: list[str] = Field(default_factory=list)
+    fallback: bool = False
+
+
+class LearnerGraphUpdateResponse(BaseModel):
+    """Summary of the learner graph revision created by a tutoring turn."""
+
+    revision_id: UUID
+    assertions_added: int = 0
+    assertions_superseded: int = 0
+
+
 class ChatResponse(BaseModel):
     turn_id: UUID
     response: str
@@ -105,6 +125,8 @@ class ChatResponse(BaseModel):
     assessment: AssessmentResponse
     learner_update: LearnerUpdateResponse
     graph_update: GraphUpdateResponse
+    learner_graph_update: LearnerGraphUpdateResponse | None = None
+    tool_usage: ToolUsageResponse | None = None
     sources: list[dict[str, object]] = Field(default_factory=list)
 
 

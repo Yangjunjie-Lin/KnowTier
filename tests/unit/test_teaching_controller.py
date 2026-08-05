@@ -37,6 +37,48 @@ def test_unmet_prerequisite_is_selected_before_current_point() -> None:
     assert directive.target_knowledge_point_id == prerequisite
 
 
+def test_multiple_prerequisites_use_the_deterministic_learner_priority() -> None:
+    learner = uuid4()
+    current = uuid4()
+    unlearned = uuid4()
+    low_mastery = uuid4()
+    state = LearnerKnowledgeState(learner_id=learner, knowledge_point_id=current)
+    directive = TeachingController().decide(
+        learner_state=state,
+        current_knowledge_point_id=current,
+        latest_update=None,
+        prerequisite_status={low_mastery: False, unlearned: False},
+        prerequisite_priorities={
+            # Existing but weak knowledge sorts after a never-studied prerequisite.
+            low_mastery: (1, 0.1, 1, 0),
+            unlearned: (0, 0.0, 1, 1),
+        },
+        session_goal=SessionGoal(knowledge_point_id=current),
+    )
+    assert directive.teaching_action is TeachingAction.REVIEW_PREREQUISITE
+    assert directive.target_knowledge_point_id == unlearned
+
+
+def test_lowest_mastery_breaks_tie_between_studied_prerequisites() -> None:
+    learner = uuid4()
+    current = uuid4()
+    higher = uuid4()
+    lower = uuid4()
+    state = LearnerKnowledgeState(learner_id=learner, knowledge_point_id=current)
+    directive = TeachingController().decide(
+        learner_state=state,
+        current_knowledge_point_id=current,
+        latest_update=None,
+        prerequisite_status={higher: False, lower: False},
+        prerequisite_priorities={
+            higher: (1, 0.6, 1, 0),
+            lower: (1, 0.2, 1, 1),
+        },
+        session_goal=SessionGoal(knowledge_point_id=current),
+    )
+    assert directive.target_knowledge_point_id == lower
+
+
 def test_hold_increases_hint_one_level() -> None:
     learner = uuid4()
     point = uuid4()

@@ -1,0 +1,32 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  checks:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+      - run: uv lock --check
+      - run: uv sync --frozen --dev
+      - run: uv run ruff format --check src tests scripts
+      - run: uv run ruff check src tests scripts
+      - run: uv run mypy src/cognigraph
+      - run: >-
+          uv run pytest tests/unit tests/contract
+          -m "not postgres and not neo4j and not ocr and not live_model"
+      - run: >-
+          uv run pytest tests/integration tests/e2e
+          -m "not postgres and not neo4j and not ocr and not live_model"

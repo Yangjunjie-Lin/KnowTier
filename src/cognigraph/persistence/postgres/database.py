@@ -14,6 +14,7 @@ from sqlalchemy.ext.asyncio import (
 from cognigraph.persistence.postgres.base import Base
 from cognigraph.persistence.repositories.documents import DocumentRepository
 from cognigraph.persistence.repositories.graph import GraphDeltaRepository
+from cognigraph.persistence.repositories.learner_graph import LearnerGraphRepository
 from cognigraph.persistence.repositories.learners import LearnerRepository, LearnerStateRepository
 from cognigraph.persistence.repositories.operations import (
     AuditRepository,
@@ -40,6 +41,11 @@ class Database:
             "echo": echo,
             "pool_pre_ping": pool_pre_ping,
         }
+        if self.url.startswith("sqlite"):
+            # SQLite serializes writers.  A short default busy timeout makes
+            # concurrent repository tests fail nondeterministically before the
+            # repository's bounded unique-conflict retry can run.
+            engine_options["connect_args"] = {"timeout": 30}
         self.engine: AsyncEngine = create_async_engine(self.url, **engine_options)
         if self.url.startswith("sqlite"):
             self._enable_sqlite_foreign_keys()
@@ -56,6 +62,7 @@ class Database:
             cursor = dbapi_connection.cursor()
             try:
                 cursor.execute("PRAGMA foreign_keys=ON")
+                cursor.execute("PRAGMA busy_timeout=30000")
             finally:
                 cursor.close()
 
@@ -104,6 +111,7 @@ class SqlAlchemyUnitOfWork:
         self.workspaces: WorkspaceRepository
         self.learners: LearnerRepository
         self.learner_states: LearnerStateRepository
+        self.learner_graph: LearnerGraphRepository
         self.sessions: SessionRepository
         self.turns: TurnRepository
         self.documents: DocumentRepository
@@ -122,6 +130,7 @@ class SqlAlchemyUnitOfWork:
         self.workspaces = WorkspaceRepository(self.session)
         self.learners = LearnerRepository(self.session)
         self.learner_states = LearnerStateRepository(self.session)
+        self.learner_graph = LearnerGraphRepository(self.session)
         self.sessions = SessionRepository(self.session)
         self.turns = TurnRepository(self.session)
         self.documents = DocumentRepository(self.session)

@@ -15,7 +15,8 @@ the authoritative notice for the resolved version.
 | LiteLLM | MIT |
 | LangGraph | MIT |
 | Docling | MIT |
-| PaddleOCR | Apache-2.0 |
+| PaddleOCR, PaddlePaddle | Apache-2.0 |
+| PyMuPDF | AGPL-3.0-or-later (or commercial license) |
 | Pillow | MIT-CMU |
 | python-docx, python-pptx | MIT |
 | pypdf, RDFLib, Uvicorn | BSD-3-Clause |
@@ -40,7 +41,8 @@ Container and external runtime components are not copied into the Python wheel:
 | pgvector server extension | Included in the PostgreSQL image | PostgreSQL License |
 | Neo4j 5.26 Community Server | `neo4j:5.26-community` semantic projection | GPL-3.0 |
 | uv Python 3.12 Debian image | API build/runtime base | Apache-2.0 OR MIT for uv; bundled Debian components retain their own notices |
-| PaddlePaddle 3 | User-installed optional PaddleOCR runtime | Apache-2.0 |
+| PaddlePaddle 3 | CPU inference engine in the optional OCR profile | Apache-2.0 |
+| PyMuPDF | Optional scanned-PDF renderer in the OCR profile | AGPL-3.0-or-later or commercial license |
 
 The resolved `uv.lock` contains transitive packages whose distribution metadata and license
 files remain authoritative. A redistributed container image should preserve those files and

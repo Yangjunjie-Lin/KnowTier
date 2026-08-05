@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import json
 from collections import deque
 from collections.abc import Awaitable, Callable, Sequence
+from contextvars import ContextVar
 from datetime import datetime
 from threading import Lock, local
 from time import perf_counter
-from typing import Any, Protocol
+from typing import Any, Protocol, cast
 from uuid import UUID, uuid4
 
 from pydantic import Field
@@ -17,6 +19,7 @@ from cognigraph.domain.enums import NodeType, RelationTypeKey
 from cognigraph.domain.graph import RelationAssertion
 from cognigraph.graph.applier import GraphNode, GraphSnapshot
 from cognigraph.graph.manifest import GraphManifestService
+from cognigraph.llm.schemas import ToolCall, ToolDefinition, ToolResult
 
 
 class WorkspaceParams(DomainModel):
@@ -72,6 +75,50 @@ class FocusSubgraphParams(WorkspaceParams):
     max_nodes: int = Field(default=50, ge=1, le=100)
 
 
+# The registry is deliberately static: model output can select only one of
+# these names, and each name is bound to a closed Pydantic parameter model.
+GRAPH_TOOL_PARAMETER_MODELS: dict[str, type[WorkspaceParams]] = {
+    "search_knowledge_points": SearchKnowledgePointsParams,
+    "get_graph_manifest": WorkspaceParams,
+    "get_node_detail": NodeDetailParams,
+    "get_relation_assertion_detail": AssertionDetailParams,
+    "get_prerequisite_chain": PrerequisiteChainParams,
+    "get_related_theories": RelatedTheoriesParams,
+    "get_learning_path": LearningPathParams,
+    "get_learner_state": LearnerStateParams,
+    "get_supporting_sources": SupportingSourcesParams,
+    "get_focus_subgraph": FocusSubgraphParams,
+}
+
+GRAPH_TOOL_DESCRIPTIONS: dict[str, str] = {
+    "search_knowledge_points": "Search bounded, source-backed knowledge points by name or summary.",
+    "get_graph_manifest": "Read the revision-keyed global graph manifest.",
+    "get_node_detail": "Read one knowledge graph node and its bounded relationships.",
+    "get_relation_assertion_detail": (
+        "Read one relation assertion, evidence, and supersession state."
+    ),
+    "get_prerequisite_chain": "Read a bounded prerequisite chain for a knowledge point.",
+    "get_related_theories": "Read theories related to a knowledge point.",
+    "get_learning_path": "Read a bounded deterministic prerequisite learning path.",
+    "get_learner_state": "Read the requesting learner's mastery state.",
+    "get_supporting_sources": "Read source spans supporting a node or assertion.",
+    "get_focus_subgraph": "Read a bounded neighborhood around one graph node.",
+}
+
+
+def graph_tool_definitions() -> list[ToolDefinition]:
+    """Return deterministic provider-neutral declarations for graph reads."""
+
+    return [
+        ToolDefinition(
+            name=name,
+            description=GRAPH_TOOL_DESCRIPTIONS[name],
+            parameters=model.model_json_schema(),
+        )
+        for name, model in GRAPH_TOOL_PARAMETER_MODELS.items()
+    ]
+
+
 class QueryResult(DomainModel):
     workspace_id: UUID
     graph_revision_id: UUID | None
@@ -89,6 +136,9 @@ class ToolCallRecord(DomainModel):
     model_run_id: UUID | None = None
     result_count: int = Field(default=0, ge=0)
     latency_ms: int = Field(default=0, ge=0)
+    result_bytes: int = Field(default=0, ge=0)
+    truncated: bool = False
+    tool_step: int = Field(default=0, ge=0)
     status: str = Field(default="SUCCEEDED", min_length=1, max_length=32)
     created_at: datetime = Field(default_factory=utc_now)
 
@@ -197,6 +247,9 @@ class AsyncGraphQueryProvider(Protocol):
     ) -> dict[str, Any]: ...
 
 
+LearnerStateLoader = Callable[[LearnerStateParams], Awaitable[dict[str, Any]]]
+
+
 class AsyncControlledGraphQueryTools:
     """Async fixed-schema facade over the production semantic graph projection."""
 
@@ -204,9 +257,37 @@ class AsyncControlledGraphQueryTools:
         self,
         provider: AsyncGraphQueryProvider,
         audit_sink: ToolAuditSink | None = None,
+        learner_state_loader: LearnerStateLoader | None = None,
     ) -> None:
         self._provider = provider
         self._audit = audit_sink or InMemoryToolAuditSink()
+        self._learner_state_loader = learner_state_loader
+        self._suppress_audit: ContextVar[bool] = ContextVar(
+            "async_graph_query_suppress_audit", default=False
+        )
+
+    async def execute_tool(self, call: ToolCall, *, context: object | None = None) -> ToolResult:
+        """Execute one registered read using a closed parameter schema.
+
+        The gateway performs request-context authorization and budget checks;
+        this second validation layer protects callers that invoke the facade
+        directly.
+        """
+
+        parameter_model = GRAPH_TOOL_PARAMETER_MODELS.get(call.name)
+        if parameter_model is None:
+            raise KeyError(f"unknown graph tool: {call.name}")
+        params = parameter_model.model_validate(call.arguments)
+        _authorize_query_context(params, context)
+        method = getattr(self, call.name, None)
+        if method is None:
+            raise KeyError(f"graph tool {call.name} is not implemented")
+        token = self._suppress_audit.set(True)
+        try:
+            result = await method(params)
+            return _tool_result(result, call)
+        finally:
+            self._suppress_audit.reset(token)
 
     async def search_knowledge_points(self, params: SearchKnowledgePointsParams) -> QueryResult:
         return await self._execute(
@@ -267,16 +348,17 @@ class AsyncControlledGraphQueryTools:
         return await self._execute(
             "get_learning_path",
             params,
-            lambda: self._provider.get_learning_path(
-                str(params.workspace_id),
-                str(params.target_knowledge_point_id),
-                learner_id=str(params.learner_id) if params.learner_id else None,
-                max_depth=params.max_depth,
-                limit=params.max_nodes,
-            ),
+            lambda: self._learning_path_with_learner_state(params),
         )
 
     async def get_learner_state(self, params: LearnerStateParams) -> QueryResult:
+        loader = self._learner_state_loader
+        if loader is not None:
+            return await self._execute(
+                "get_learner_state",
+                params,
+                lambda: loader(params),
+            )
         knowledge_point_ids = (
             [str(params.knowledge_point_id)] if params.knowledge_point_id is not None else []
         )
@@ -290,6 +372,38 @@ class AsyncControlledGraphQueryTools:
                 limit=params.limit,
             ),
         )
+
+    async def _learning_path_with_learner_state(
+        self,
+        params: LearningPathParams,
+    ) -> dict[str, Any]:
+        path = await self._provider.get_learning_path(
+            str(params.workspace_id),
+            str(params.target_knowledge_point_id),
+            learner_id=str(params.learner_id) if params.learner_id else None,
+            max_depth=params.max_depth,
+            limit=params.max_nodes,
+        )
+        if params.learner_id is None or self._learner_state_loader is None:
+            return path
+        state = await self._learner_state_loader(
+            LearnerStateParams(
+                workspace_id=params.workspace_id,
+                learner_id=params.learner_id,
+                limit=params.max_nodes,
+            )
+        )
+        path_revision = _optional_uuid(path.get("revision_id"))
+        state_revision = _optional_uuid(state.get("revision_id"))
+        if path_revision != state_revision:
+            raise ValueError("learner state and semantic path revisions do not match")
+        result = dict(path)
+        items = state.get("items", [])
+        result["learner_states"] = items if isinstance(items, list) else []
+        learner_revision = state.get("learner_graph_revision_id")
+        if learner_revision is not None:
+            result["learner_graph_revision_id"] = learner_revision
+        return result
 
     async def get_supporting_sources(self, params: SupportingSourcesParams) -> QueryResult:
         return await self._execute(
@@ -341,6 +455,8 @@ class AsyncControlledGraphQueryTools:
                 params,
                 graph_revision_id=None,
                 result_count=0,
+                result_bytes=0,
+                truncated=False,
                 latency_ms=_elapsed_ms(started_at),
                 status="FAILED",
             )
@@ -350,6 +466,8 @@ class AsyncControlledGraphQueryTools:
             params,
             graph_revision_id=result.graph_revision_id,
             result_count=_result_count(result.data),
+            result_bytes=_json_bytes(result.data),
+            truncated=False,
             latency_ms=_elapsed_ms(started_at),
             status="SUCCEEDED",
         )
@@ -362,21 +480,26 @@ class AsyncControlledGraphQueryTools:
         *,
         graph_revision_id: UUID | None,
         result_count: int,
+        result_bytes: int,
+        truncated: bool,
         latency_ms: int,
         status: str,
     ) -> None:
-        self._audit.record(
-            ToolCallRecord(
-                tool_name=name,
-                workspace_id=params.workspace_id,
-                parameters=params.model_dump(mode="json"),
-                graph_revision_id=graph_revision_id,
-                learner_id=_learner_id(params),
-                result_count=result_count,
-                latency_ms=latency_ms,
-                status=status,
+        if not self._suppress_audit.get():
+            self._audit.record(
+                ToolCallRecord(
+                    tool_name=name,
+                    workspace_id=params.workspace_id,
+                    parameters=_sanitized_parameters(params.model_dump(mode="json")),
+                    graph_revision_id=graph_revision_id,
+                    learner_id=_learner_id(params),
+                    result_count=result_count,
+                    result_bytes=result_bytes,
+                    truncated=truncated,
+                    latency_ms=latency_ms,
+                    status=status,
+                )
             )
-        )
 
 
 class GraphSnapshotProvider(Protocol):
@@ -397,6 +520,27 @@ class ControlledGraphQueryTools:
         self._audit = audit_sink or InMemoryToolAuditSink()
         self._manifest = manifest_service or GraphManifestService()
         self._timing = local()
+        self._suppress_audit: ContextVar[bool] = ContextVar(
+            "sync_graph_query_suppress_audit", default=False
+        )
+
+    async def execute_tool(self, call: ToolCall, *, context: object | None = None) -> ToolResult:
+        """Async adapter around the deterministic in-memory query facade."""
+
+        parameter_model = GRAPH_TOOL_PARAMETER_MODELS.get(call.name)
+        if parameter_model is None:
+            raise KeyError(f"unknown graph tool: {call.name}")
+        params = parameter_model.model_validate(call.arguments)
+        _authorize_query_context(params, context)
+        method = getattr(self, call.name, None)
+        if method is None:
+            raise KeyError(f"graph tool {call.name} is not implemented")
+        token = self._suppress_audit.set(True)
+        try:
+            result = method(params)
+            return _tool_result(result, call)
+        finally:
+            self._suppress_audit.reset(token)
 
     def search_knowledge_points(self, params: SearchKnowledgePointsParams) -> QueryResult:
         snapshot = self._snapshot(params.workspace_id)
@@ -659,14 +803,17 @@ class ControlledGraphQueryTools:
         record = ToolCallRecord(
             tool_name=name,
             workspace_id=snapshot.workspace_id,
-            parameters=params.model_dump(mode="json"),
+            parameters=_sanitized_parameters(params.model_dump(mode="json")),
             graph_revision_id=snapshot.revision_id,
             learner_id=_learner_id(params),
             result_count=_result_count(data),
+            result_bytes=_json_bytes(data),
+            truncated=False,
             latency_ms=_elapsed_ms(getattr(self._timing, "started_at", perf_counter())),
             status="SUCCEEDED",
         )
-        self._audit.record(record)
+        if not self._suppress_audit.get():
+            self._audit.record(record)
         return QueryResult(
             workspace_id=snapshot.workspace_id,
             graph_revision_id=snapshot.revision_id,
@@ -677,6 +824,63 @@ class ControlledGraphQueryTools:
 def _learner_id(params: DomainModel) -> UUID | None:
     value = getattr(params, "learner_id", None)
     return value if isinstance(value, UUID) else None
+
+
+def _authorize_query_context(params: DomainModel, context: object | None) -> None:
+    """Apply a second tenant check for callers bypassing ModelGateway."""
+
+    if context is None:
+        return
+    context_workspace = getattr(context, "workspace_id", None)
+    parameter_workspace = getattr(params, "workspace_id", None)
+    if context_workspace is not None and parameter_workspace != context_workspace:
+        raise ValueError("tool workspace does not match request context")
+    context_learner = getattr(context, "learner_id", None)
+    parameter_learner = getattr(params, "learner_id", None)
+    if parameter_learner is not None and context_learner != parameter_learner:
+        raise ValueError("tool learner does not match request context")
+
+
+def _sanitized_parameters(parameters: JsonObject) -> JsonObject:
+    """Bound query text and redact credential-shaped keys before audit storage."""
+
+    sensitive = ("api_key", "password", "secret", "token", "authorization", "cookie")
+
+    def clean(key: str, value: object) -> object:
+        lowered = key.casefold()
+        if any(marker in lowered for marker in sensitive):
+            return "[REDACTED]"
+        if isinstance(value, str):
+            return value[:500]
+        if isinstance(value, dict):
+            return {
+                str(child_key): clean(str(child_key), child_value)
+                for child_key, child_value in list(value.items())[:50]
+            }
+        if isinstance(value, list):
+            return [clean(key, child) for child in value[:50]]
+        return value
+
+    return cast(JsonObject, {str(key): clean(str(key), value) for key, value in parameters.items()})
+
+
+def _tool_result(result: QueryResult, call: ToolCall) -> ToolResult:
+    """Convert a query result to the model-facing envelope without raw SQL."""
+
+    return ToolResult(
+        tool_call_id=call.id,
+        name=call.name,
+        content={
+            "workspace_id": str(result.workspace_id),
+            "graph_revision_id": (
+                str(result.graph_revision_id) if result.graph_revision_id is not None else None
+            ),
+            "tool_name": call.name,
+            "result_count": _result_count(result.data),
+            "truncated": False,
+            "data": result.data,
+        },
+    )
 
 
 def _optional_uuid(value: object) -> UUID | None:
@@ -707,6 +911,10 @@ def _result_count(data: JsonObject) -> int:
     if isinstance(data.get("node"), dict) or isinstance(data.get("assertion"), dict):
         return 1
     return int(bool(data))
+
+
+def _json_bytes(data: JsonObject) -> int:
+    return len(json.dumps(data, ensure_ascii=False, separators=(",", ":"), sort_keys=True).encode())
 
 
 def _property_text(node: GraphNode, key: str) -> str:
