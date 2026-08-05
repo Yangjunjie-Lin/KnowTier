@@ -137,3 +137,8 @@ class IngestionReport(DomainModel):
     assertion_count: int = Field(ge=0)
     warning_count: int = Field(ge=0)
     graph_revision_id: UUID | None = None
+    parser_chain: list[str] = Field(default_factory=list)
+    ocr_used: bool = False
+    vision_used: bool = False
+    detected_language: str | None = None
+    low_confidence_blocks: int = Field(default=0, ge=0)

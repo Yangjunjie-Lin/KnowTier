@@ -9,7 +9,7 @@ from cognigraph.domain.enums import EpistemicStatus, NodeType, RelationTypeKey
 from cognigraph.graph.delta import AssertionCreate, GraphDelta, NodeCreate
 from cognigraph.persistence.neo4j import Neo4jGraphRepository
 
-pytestmark = pytest.mark.integration
+pytestmark = [pytest.mark.integration, pytest.mark.neo4j]
 
 
 @pytest.mark.asyncio

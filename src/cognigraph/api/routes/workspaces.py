@@ -1,6 +1,8 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, HTTPException, status
+import secrets
+
+from fastapi import APIRouter, HTTPException, Request, status
 from sqlalchemy.exc import IntegrityError
 
 from cognigraph.api.dependencies import RuntimeDependency
@@ -16,8 +18,21 @@ router = APIRouter(tags=["workspaces"])
 )
 async def create_workspace(
     request: WorkspaceCreateRequest,
+    http_request: Request,
     runtime: RuntimeDependency,
 ) -> WorkspaceResponse:
+    if runtime.settings.environment.casefold() in {"prod", "production"}:
+        configured = runtime.settings.workspace_provisioning_token
+        supplied = http_request.headers.get("x-workspace-provisioning-token")
+        if (
+            configured is None
+            or supplied is None
+            or not secrets.compare_digest(supplied, configured.get_secret_value())
+        ):
+            raise HTTPException(
+                status_code=401,
+                detail="workspace provisioning credentials are required",
+            )
     try:
         async with runtime.database.unit_of_work() as unit:
             workspace = await unit.workspaces.create(

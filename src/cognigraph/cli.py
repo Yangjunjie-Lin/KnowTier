@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import tempfile
 from pathlib import Path
 from typing import Any, Literal, cast
 from uuid import UUID, uuid4
@@ -284,49 +285,55 @@ def seed_demo(
 @app.command("demo")
 def demo() -> None:
     async def operation() -> str:
-        settings = Settings(
-            database_url="sqlite+aiosqlite:///:memory:",
-            use_mock_llm=True,
-            neo4j_required=False,
-        )
-        runtime = ApplicationRuntime(settings)
-        await runtime.startup()
-        try:
-            workspace_id = uuid4()
-            learner_id = uuid4()
-            session_id = uuid4()
-            async with runtime.database.unit_of_work() as unit:
-                await unit.workspaces.create(
-                    workspace_id=workspace_id,
-                    name="Cognigraph Demo",
-                    slug=f"demo-{workspace_id.hex[:8]}",
-                )
-                await unit.learners.create(
-                    workspace_id=workspace_id,
-                    learner_id=learner_id,
-                    display_name="Demo Learner",
-                )
-                await unit.commit()
-            service = ChatService(runtime)
-            messages = [
-                "Teach me prerequisite knowledge.",
-                "It is something needed first, but I am not sure why.",
-                "It is needed because the later idea depends on it.",
-            ]
-            responses = []
-            for message in messages:
-                response = await service.chat(
-                    ChatRequest(
+        # Concurrent model/audit transactions cannot safely share SQLite's
+        # single ``:memory:`` connection. A temporary file preserves the
+        # credential-free demo while exercising the real transaction layout.
+        with tempfile.TemporaryDirectory(prefix="cognigraph-demo-") as directory:
+            demo_root = Path(directory)
+            settings = Settings(
+                database_url=f"sqlite+aiosqlite:///{(demo_root / 'demo.db').as_posix()}",
+                storage_path=demo_root / "uploads",
+                use_mock_llm=True,
+                neo4j_required=False,
+            )
+            runtime = ApplicationRuntime(settings)
+            await runtime.startup()
+            try:
+                workspace_id = uuid4()
+                learner_id = uuid4()
+                session_id = uuid4()
+                async with runtime.database.unit_of_work() as unit:
+                    await unit.workspaces.create(
+                        workspace_id=workspace_id,
+                        name="Cognigraph Demo",
+                        slug=f"demo-{workspace_id.hex[:8]}",
+                    )
+                    await unit.learners.create(
                         workspace_id=workspace_id,
                         learner_id=learner_id,
-                        session_id=session_id,
-                        message=message,
+                        display_name="Demo Learner",
                     )
-                )
-                responses.append(response.model_dump(mode="json"))
-            return json.dumps(responses, ensure_ascii=False, indent=2)
-        finally:
-            await runtime.shutdown()
+                    await unit.commit()
+                service = ChatService(runtime)
+                messages = [
+                    "Teach me prerequisite knowledge.",
+                    "It is something needed first, but I am not sure why.",
+                    "It is needed because the later idea depends on it.",
+                ]
+                responses = []
+                for message in messages:
+                    response = await service.chat(
+                        ChatRequest(
+                            workspace_id=workspace_id,
+                            learner_id=learner_id,
+                            session_id=session_id,
+                            message=message,
+                        )
+                    )
+                    responses.append(response.model_dump(mode="json"))
+                return json.dumps(responses, ensure_ascii=False, indent=2)
+            finally:
+                await runtime.shutdown()
 
     typer.echo(_run(operation()))
 

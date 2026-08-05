@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import sqlite3
 import subprocess
@@ -9,6 +10,7 @@ from pathlib import Path
 from typing import Any
 
 import pytest
+from click import unstyle
 from typer.testing import CliRunner
 
 from cognigraph.cli import app
@@ -84,6 +86,15 @@ def test_seed_demo_is_persistent_and_idempotent(
     assert learner_count == 1
 
 
+def test_demo_uses_transaction_safe_temporary_sqlite_database() -> None:
+    result = CliRunner().invoke(app, ["demo"])
+
+    assert result.exit_code == 0, result.output
+    responses = json.loads(result.output)
+    assert len(responses) == 3
+    assert all(item["learner_graph_update"]["revision_id"] for item in responses)
+
+
 @pytest.mark.parametrize(
     ("module", "script_name", "expected_prefix"),
     [
@@ -118,6 +129,10 @@ def test_export_script_is_an_executable_typer_wrapper() -> None:
     environment["PYTHONPATH"] = (
         f"{source_path}{os.pathsep}{existing_path}" if existing_path else source_path
     )
+    # Rich truncates option names when captured output inherits a narrow CI
+    # terminal. Fix the width so this subprocess assertion tests the wrapper's
+    # command surface rather than the runner's presentation settings.
+    environment["COLUMNS"] = "200"
 
     result = subprocess.run(
         [sys.executable, "scripts/export_graph.py", "--help"],
@@ -130,8 +145,9 @@ def test_export_script_is_an_executable_typer_wrapper() -> None:
     )
 
     assert result.returncode == 0, result.stderr
-    assert "--workspace" in result.stdout
-    assert "--format" in result.stdout
+    help_output = unstyle(result.stdout)
+    assert "--workspace" in help_output
+    assert "--format" in help_output
 
 
 def test_dependency_and_compose_profiles_are_reproducible() -> None:
@@ -152,3 +168,16 @@ def test_dependency_and_compose_profiles_are_reproducible() -> None:
     assert "uv lock --check" in makefile
     assert "ruff format --check src tests scripts" in makefile
     assert "check: lock-check format-check lint typecheck test" in makefile
+
+
+def test_production_workflow_tracks_the_uvicorn_process_for_restarts() -> None:
+    workflow = (REPOSITORY_ROOT / ".github" / "workflows" / "integration.yml").read_text(
+        encoding="utf-8"
+    )
+
+    assert workflow.count(".venv/bin/uvicorn cognigraph.main:app") == 2
+    assert "uv run uvicorn cognigraph.main:app" not in workflow
+    assert workflow.count('kill -0 "$(cat api.pid)"') == 2
+    assert 'old_pid="$(cat api.pid)"' in workflow
+    assert 'if ! kill -0 "$old_pid"' in workflow
+    assert 'wait "$(cat api.pid)"' not in workflow

@@ -8,7 +8,7 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from cognigraph.persistence.postgres.models import ConversationTurn, TutoringSession
+from cognigraph.persistence.postgres.models import ConversationTurn, Learner, TutoringSession
 
 
 class SessionRepository:
@@ -29,6 +29,14 @@ class SessionRepository:
         session_id: UUID | None = None,
         goal: dict[str, Any] | None = None,
     ) -> TutoringSession:
+        owner_id = await self.session.scalar(
+            select(Learner.id).where(
+                Learner.id == learner_id,
+                Learner.workspace_id == workspace_id,
+            )
+        )
+        if owner_id is None:
+            raise ValueError("learner does not belong to workspace")
         values: dict[str, Any] = {
             "workspace_id": workspace_id,
             "learner_id": learner_id,
@@ -55,9 +63,16 @@ class SessionRepository:
         conflicting insert waits for the winner, then the follow-up SELECT observes it.
         """
 
-        existing = await self.get(session_id)
+        existing = await self.get(
+            session_id,
+            workspace_id=workspace_id,
+            learner_id=learner_id,
+        )
         if existing is not None:
             return existing
+        conflicting = await self.get(session_id)
+        if conflicting is not None:
+            raise ValueError("session does not belong to learner workspace")
         try:
             async with self.session.begin_nested():
                 return await self.create(
@@ -68,13 +83,29 @@ class SessionRepository:
                     goal=goal,
                 )
         except IntegrityError:
-            existing = await self.get(session_id)
+            existing = await self.get(
+                session_id,
+                workspace_id=workspace_id,
+                learner_id=learner_id,
+            )
             if existing is None:
                 raise
             return existing
 
-    async def get(self, session_id: UUID) -> TutoringSession | None:
-        return await self.session.get(TutoringSession, session_id)
+    async def get(
+        self,
+        session_id: UUID,
+        *,
+        workspace_id: UUID | None = None,
+        learner_id: UUID | None = None,
+    ) -> TutoringSession | None:
+        statement = select(TutoringSession).where(TutoringSession.id == session_id)
+        if workspace_id is not None:
+            statement = statement.where(TutoringSession.workspace_id == workspace_id)
+        if learner_id is not None:
+            statement = statement.where(TutoringSession.learner_id == learner_id)
+        result: TutoringSession | None = await self.session.scalar(statement)
+        return result
 
 
 class TurnRepository:

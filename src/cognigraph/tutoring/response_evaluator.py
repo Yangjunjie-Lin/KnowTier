@@ -36,6 +36,7 @@ class ResponseEvaluator:
         hint_level: HintLevel,
         supporting_sources: list[JsonObject],
         graph_revision_id: UUID | None = None,
+        learner_graph_revision_id: UUID | None = None,
     ) -> MasteryEvidence:
         if evidence_type is EvidenceType.SELF_REPORT:
             return MasteryEvidence(
@@ -101,6 +102,7 @@ class ResponseEvaluator:
                 session_id=session_id,
                 turn_id=turn_id,
                 graph_revision_id=graph_revision_id,
+                learner_graph_revision_id=learner_graph_revision_id,
                 prompt_name=prompt.name,
                 prompt_version=prompt.version,
             ),

@@ -1,0 +1,159 @@
+name: Production integration
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  services:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_DB: cognigraph
+          POSTGRES_USER: cognigraph
+          POSTGRES_PASSWORD: cognigraph-ci-password
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd "pg_isready -U cognigraph -d cognigraph"
+          --health-interval 5s --health-timeout 5s --health-retries 20
+      neo4j:
+        image: neo4j:5.26-community
+        env:
+          NEO4J_AUTH: neo4j/cognigraph-ci-password
+        ports: ["7687:7687", "7474:7474"]
+        options: >-
+          --health-cmd "cypher-shell -a bolt://localhost:7687 -u neo4j -p cognigraph-ci-password 'RETURN 1' >/dev/null 2>&1 || exit 1"
+          --health-interval 10s --health-timeout 10s --health-retries 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+      - run: uv sync --frozen --dev
+      - name: Apply PostgreSQL migrations
+        env:
+          COGNIGRAPH_DATABASE_URL: postgresql+asyncpg://cognigraph:cognigraph-ci-password@localhost:5432/cognigraph
+        run: uv run alembic upgrade head
+      - name: Start API and verify readiness
+        env:
+          COGNIGRAPH_ENVIRONMENT: production
+          COGNIGRAPH_WORKSPACE_SCOPE_REQUIRED: "true"
+          COGNIGRAPH_WORKSPACE_PROVISIONING_TOKEN: cognigraph-ci-provisioning-token
+          COGNIGRAPH_DATABASE_URL: postgresql+asyncpg://cognigraph:cognigraph-ci-password@localhost:5432/cognigraph
+          COGNIGRAPH_NEO4J_URI: bolt://localhost:7687
+          COGNIGRAPH_NEO4J_USER: neo4j
+          COGNIGRAPH_NEO4J_PASSWORD: cognigraph-ci-password
+          COGNIGRAPH_NEO4J_REQUIRED: "true"
+          COGNIGRAPH_USE_MOCK_LLM: "true"
+          COGNIGRAPH_GRAPH_MODEL_ENABLED: "true"
+          COGNIGRAPH_TOOL_CALLING_ENABLED: "true"
+          COGNIGRAPH_STORAGE_PATH: ${{ runner.temp }}/cognigraph-uploads
+        run: |
+          .venv/bin/uvicorn cognigraph.main:app --host 127.0.0.1 --port 8000 > api.log 2>&1 &
+          echo $! > api.pid
+          for attempt in $(seq 1 60); do
+            if ! kill -0 "$(cat api.pid)" 2>/dev/null; then
+              cat api.log
+              exit 1
+            fi
+            if curl --fail --silent http://127.0.0.1:8000/ready; then
+              exit 0
+            fi
+            sleep 2
+          done
+          cat api.log
+          exit 1
+      - name: Run production-boundary tests
+        env:
+          COGNIGRAPH_DATABASE_URL: postgresql+asyncpg://cognigraph:cognigraph-ci-password@localhost:5432/cognigraph
+          COGNIGRAPH_RUN_POSTGRES_TESTS: "1"
+          COGNIGRAPH_TEST_NEO4J_URI: bolt://localhost:7687
+          COGNIGRAPH_TEST_NEO4J_USER: neo4j
+          COGNIGRAPH_TEST_NEO4J_PASSWORD: cognigraph-ci-password
+        run: >-
+          uv run pytest tests/integration
+          -m "integration and not postgres and not ocr and not live_model"
+      - name: Run explicit PostgreSQL and pgvector acceptance
+        env:
+          COGNIGRAPH_DATABASE_URL: postgresql+asyncpg://cognigraph:cognigraph-ci-password@localhost:5432/cognigraph
+          COGNIGRAPH_RUN_POSTGRES_TESTS: "1"
+        run: uv run pytest tests/integration/test_postgres_production.py -m postgres -q
+      - name: Run HTTP production smoke
+        env:
+          COGNIGRAPH_RUN_PRODUCTION_E2E: "1"
+          COGNIGRAPH_E2E_BASE_URL: http://127.0.0.1:8000
+          COGNIGRAPH_E2E_STATE_PATH: production-e2e-state.json
+          COGNIGRAPH_E2E_PROVISIONING_TOKEN: cognigraph-ci-provisioning-token
+          COGNIGRAPH_DATABASE_URL: postgresql+asyncpg://cognigraph:cognigraph-ci-password@localhost:5432/cognigraph
+          COGNIGRAPH_TEST_NEO4J_URI: bolt://localhost:7687
+          COGNIGRAPH_TEST_NEO4J_USER: neo4j
+          COGNIGRAPH_TEST_NEO4J_PASSWORD: cognigraph-ci-password
+        run: uv run pytest tests/e2e/test_production_smoke.py -m "e2e and postgres and neo4j"
+      - name: Restart API and verify recovery
+        env:
+          COGNIGRAPH_ENVIRONMENT: production
+          COGNIGRAPH_WORKSPACE_SCOPE_REQUIRED: "true"
+          COGNIGRAPH_WORKSPACE_PROVISIONING_TOKEN: cognigraph-ci-provisioning-token
+          COGNIGRAPH_DATABASE_URL: postgresql+asyncpg://cognigraph:cognigraph-ci-password@localhost:5432/cognigraph
+          COGNIGRAPH_NEO4J_URI: bolt://localhost:7687
+          COGNIGRAPH_NEO4J_USER: neo4j
+          COGNIGRAPH_NEO4J_PASSWORD: cognigraph-ci-password
+          COGNIGRAPH_NEO4J_REQUIRED: "true"
+          COGNIGRAPH_USE_MOCK_LLM: "true"
+          COGNIGRAPH_STORAGE_PATH: ${{ runner.temp }}/cognigraph-uploads
+        run: |
+          old_pid="$(cat api.pid)"
+          kill "$old_pid"
+          for attempt in $(seq 1 60); do
+            if ! kill -0 "$old_pid" 2>/dev/null; then
+              break
+            fi
+            sleep 1
+          done
+          if kill -0 "$old_pid" 2>/dev/null; then
+            cat api.log
+            exit 1
+          fi
+          .venv/bin/uvicorn cognigraph.main:app --host 127.0.0.1 --port 8000 > api-restart.log 2>&1 &
+          echo $! > api.pid
+          for attempt in $(seq 1 60); do
+            if ! kill -0 "$(cat api.pid)" 2>/dev/null; then
+              cat api-restart.log
+              exit 1
+            fi
+            if curl --fail --silent http://127.0.0.1:8000/ready; then
+              exit 0
+            fi
+            sleep 2
+          done
+          cat api-restart.log
+          exit 1
+      - name: Verify persisted graph and learner state after restart
+        env:
+          COGNIGRAPH_VERIFY_PRODUCTION_RECOVERY: "1"
+          COGNIGRAPH_E2E_BASE_URL: http://127.0.0.1:8000
+          COGNIGRAPH_E2E_STATE_PATH: production-e2e-state.json
+        run: >-
+          uv run pytest
+          tests/e2e/test_production_smoke.py::test_production_api_recovery_after_restart
+          -m "e2e and postgres and neo4j"
+      - name: Upload API logs on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-api-logs
+          path: |
+            api.log
+            api-restart.log

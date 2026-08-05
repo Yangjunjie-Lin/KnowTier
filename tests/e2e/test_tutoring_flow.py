@@ -10,6 +10,7 @@ from cognigraph.api.schemas import ChatRequest
 from cognigraph.config import Settings
 from cognigraph.domain.enums import CognitiveLevel, NodeType, RelationTypeKey
 from cognigraph.graph.delta import AssertionCreate, GraphDelta, NodeCreate
+from cognigraph.graph.query_tools import QueryResult
 from cognigraph.persistence.postgres.models import (
     ConversationTurn,
     GraphRevision,
@@ -17,6 +18,72 @@ from cognigraph.persistence.postgres.models import (
 )
 from cognigraph.services.chat import ChatService
 from cognigraph.services.runtime import ApplicationRuntime
+
+
+@pytest.mark.e2e
+async def test_chat_uses_revision_safe_local_reads_when_semantic_projection_lags(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = Settings(
+        database_url=f"sqlite+aiosqlite:///{(tmp_path / 'projection-lag.db').as_posix()}",
+        storage_path=tmp_path / "uploads-projection-lag",
+        use_mock_llm=True,
+        neo4j_required=False,
+        outbox_worker_enabled=False,
+    )
+    runtime = ApplicationRuntime(settings)
+    await runtime.startup()
+    try:
+        workspace_id = uuid4()
+        learner_id = uuid4()
+        session_id = uuid4()
+        async with runtime.database.unit_of_work() as unit:
+            await unit.workspaces.create(
+                workspace_id=workspace_id,
+                name="Projection lag",
+                slug=f"projection-lag-{workspace_id.hex[:8]}",
+            )
+            await unit.learners.create(
+                workspace_id=workspace_id,
+                learner_id=learner_id,
+                display_name="Fallback learner",
+            )
+            await unit.commit()
+
+        chat = ChatService(runtime)
+        first = await chat.chat(
+            ChatRequest(
+                workspace_id=workspace_id,
+                learner_id=learner_id,
+                session_id=session_id,
+                message="Teach me prerequisite knowledge.",
+            )
+        )
+        assert first.graph_update.revision_id is not None
+
+        async def stale_focus(_params: object) -> QueryResult:
+            return QueryResult(
+                workspace_id=workspace_id,
+                graph_revision_id=uuid4(),
+                data={"nodes": [], "assertions": []},
+            )
+
+        monkeypatch.setattr(runtime.semantic_queries, "get_focus_subgraph", stale_focus)
+        second = await chat.chat(
+            ChatRequest(
+                workspace_id=workspace_id,
+                learner_id=learner_id,
+                session_id=session_id,
+                message="It is needed first because the later step depends on it.",
+            )
+        )
+
+        assert second.turn_id is not None
+        assert second.learner_graph_update is not None
+        assert second.graph_update.revision_id == first.graph_update.revision_id
+    finally:
+        await runtime.shutdown()
 
 
 @pytest.mark.e2e

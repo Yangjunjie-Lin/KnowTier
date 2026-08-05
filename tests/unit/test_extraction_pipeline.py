@@ -5,16 +5,22 @@ from uuid import uuid4
 import pytest
 from pydantic import ValidationError
 
+from cognigraph.config import Settings
+from cognigraph.domain.documents import DocumentChunk
 from cognigraph.domain.enums import ConflictType, EpistemicStatus, NodeType, RelationTypeKey
 from cognigraph.domain.graph import RelationAssertion
 from cognigraph.extraction.blueprint_builder import BlueprintGraphDeltaBuilder
 from cognigraph.extraction.canonicalizer import canonical_text
 from cognigraph.extraction.conflict_detector import ConflictDetector
 from cognigraph.extraction.deduplicator import EntityDeduplicator
+from cognigraph.extraction.knowledge_extractor import KnowledgeExtractor
 from cognigraph.extraction.schemas import KnowledgeBlueprint, KnowledgePointCandidate
 from cognigraph.graph.applier import GraphNode, GraphSnapshot, InMemoryGraphApplier
 from cognigraph.graph.delta import AssertionCreate
 from cognigraph.graph.validator import GraphDeltaValidator
+from cognigraph.llm.fake_provider import FakeProvider
+from cognigraph.llm.gateway import ModelGateway
+from cognigraph.llm.observability import InMemoryModelRunSink
 from tests.fixtures.factories import blueprint, six_stages, source_document
 
 
@@ -65,6 +71,34 @@ async def test_blueprint_builds_source_grounded_delta_and_applies() -> None:
     applied = await InMemoryGraphApplier().apply(delta)
     assert applied.revision.sequence == 1
     assert applied.snapshot.source_spans[0].id == span.id
+
+
+@pytest.mark.asyncio
+async def test_extractor_audit_records_source_document_context() -> None:
+    workspace_id = uuid4()
+    document, span = source_document(workspace_id)
+    chunk = DocumentChunk(
+        document_id=document.id,
+        sequence=0,
+        text=span.text,
+        normalized_text=span.normalized_text,
+        page_start=span.page_number,
+        page_end=span.page_number,
+        source_span_ids=[span.id],
+        token_count=8,
+    )
+    sink = InMemoryModelRunSink()
+    gateway = ModelGateway(Settings(use_mock_llm=True), FakeProvider(), sink=sink)
+
+    await KnowledgeExtractor(gateway).extract(
+        workspace_id=workspace_id,
+        chunks=[chunk],
+        spans=[span],
+    )
+
+    assert len(sink.records) == 1
+    assert sink.records[0].context.workspace_id == workspace_id
+    assert sink.records[0].context.document_id == document.id
 
 
 def test_canonicalization_and_deduplication_normalize_unicode() -> None:

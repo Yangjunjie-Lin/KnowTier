@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 import re
 import threading
 import weakref
@@ -18,8 +19,10 @@ from cognigraph.api.schemas import (
     ChatRequest,
     ChatResponse,
     GraphUpdateResponse,
+    LearnerGraphUpdateResponse,
     LearnerUpdateResponse,
     TargetKnowledgePointResponse,
+    ToolUsageResponse,
 )
 from cognigraph.domain.base import JsonObject
 from cognigraph.domain.documents import IngestionReport
@@ -27,6 +30,7 @@ from cognigraph.domain.enums import (
     CognitiveLevel,
     EvidenceType,
     HintLevel,
+    LearnerRelationType,
     MasteryDecision,
     NodeType,
 )
@@ -49,8 +53,11 @@ from cognigraph.graph.context_compiler import (
     ContextCompilationRequest,
     GraphContextCompiler,
 )
-from cognigraph.graph.manifest import GraphManifestService
-from cognigraph.graph.query_tools import FocusSubgraphParams, SearchKnowledgePointsParams
+from cognigraph.graph.query_tools import (
+    FocusSubgraphParams,
+    SearchKnowledgePointsParams,
+    graph_tool_definitions,
+)
 from cognigraph.learner.rule_estimator import EvidenceRuleEstimator
 from cognigraph.llm.schemas import ChatMessage, ModelCallContext, ModelRole, TeacherOutput
 from cognigraph.persistence.postgres.models import ConversationTurn
@@ -60,6 +67,7 @@ from cognigraph.persistence.postgres.models import (
 from cognigraph.persistence.postgres.models import (
     MasteryEvidence as EvidenceRecord,
 )
+from cognigraph.services.learner_graph import LearnerGraphService
 from cognigraph.services.runtime import ApplicationRuntime
 from cognigraph.tutoring.controller import TeachingController
 from cognigraph.tutoring.response_evaluator import ResponseEvaluator
@@ -79,6 +87,7 @@ _PURE_SELF_REPORT_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _SEARCH_TOKEN_PATTERN = re.compile(r"[\w\u3400-\u9fff]+", re.UNICODE)
+logger = logging.getLogger(__name__)
 _SEARCH_STOP_WORDS = frozenset(
     {
         "about",
@@ -204,6 +213,10 @@ class ChatTurnContext:
     is_assessment_response: bool = False
     previous_hint_level: HintLevel | None = None
     learner_state_record: LearnerStateRecord | None = None
+    # The revision that was current when this turn began. Model-run audits
+    # point to this immutable input state; the newly created revision is
+    # returned after persistence below.
+    learner_graph_revision_id: UUID | None = None
     learner_state: LearnerKnowledgeState | None = None
     evidence_history: list[MasteryEvidence] = field(default_factory=list)
     evidence: MasteryEvidence | None = None
@@ -214,6 +227,9 @@ class ChatTurnContext:
     assistant_turn: ConversationTurn | None = None
     graph_report: IngestionReport | None = None
     graph_update: GraphUpdateResponse | None = None
+    learner_graph_update: LearnerGraphUpdateResponse | None = None
+    tool_usage: ToolUsageResponse | None = None
+    semantic_projection_fallback: bool = False
     sources: list[dict[str, object]] = field(default_factory=list)
     response: ChatResponse | None = None
 
@@ -223,8 +239,11 @@ class ChatService:
         self.runtime = runtime
         self.controller = TeachingController()
         self.compiler = GraphContextCompiler()
-        self.manifest_service = GraphManifestService()
+        # Runtime ownership makes the revision-keyed manifest cache effective
+        # across the short-lived ChatService instances created by API requests.
+        self.manifest_service = runtime.manifest_service
         self.evaluator = ResponseEvaluator(runtime.model_gateway)
+        self.learner_graph_service = LearnerGraphService()
         self._session_locks = _session_locks_for(runtime)
         self.workflow = TutoringWorkflow(
             {
@@ -271,7 +290,7 @@ class ChatService:
                 raise ValueError("session does not belong to the requested workspace and learner")
             context.recent_turns = await unit.turns.recent(
                 session.id,
-                limit=self.runtime.settings.recent_turn_limit,
+                limit=self.runtime.settings.max_recent_turns,
             )
             context.prior_assistant = next(
                 (turn for turn in reversed(context.recent_turns) if turn.role == "assistant"),
@@ -383,6 +402,7 @@ class ChatService:
             hint_level=context.previous_hint_level or HintLevel.LEVEL_1_DIRECTION,
             supporting_sources=source_context,
             graph_revision_id=snapshot.revision_id,
+            learner_graph_revision_id=context.learner_graph_revision_id,
         )
         context.evidence = evidence
         update = await EvidenceRuleEstimator(context.evidence_history).update(
@@ -412,16 +432,13 @@ class ChatService:
         if context.learner_state is None or context.target_node is None:
             raise RuntimeError("learner state and target are required before action selection")
         snapshot = self.runtime.graph_applier.store.get_snapshot(context.request.workspace_id)
-        prerequisites = {
-            assertion.object_id: await self._is_mastered(
-                context.request.learner_id,
-                assertion.object_id,
-            )
-            for assertion in snapshot.assertions
-            if assertion.is_active
-            and assertion.subject_id == context.target_node.id
-            and assertion.predicate_key.value == "REQUIRES"
-        }
+        prerequisites, prerequisite_priorities = await self._ordered_prerequisite_status(
+            learner_id=context.request.learner_id,
+            workspace_id=context.request.workspace_id,
+            target_id=context.target_node.id,
+            assertions=snapshot.assertions,
+            max_depth=min(self.runtime.settings.max_graph_depth, 3),
+        )
         goal = SessionGoal(
             knowledge_point_id=context.target_node.id,
             requested_mode=context.request.requested_mode,
@@ -434,6 +451,7 @@ class ChatService:
             current_knowledge_point_id=context.target_node.id,
             latest_update=context.mastery_update,
             prerequisite_status=prerequisites,
+            prerequisite_priorities=prerequisite_priorities,
             session_goal=goal,
             previous_hint_level=(
                 context.previous_hint_level if context.is_assessment_response else None
@@ -468,8 +486,8 @@ class ChatService:
             FocusSubgraphParams(
                 workspace_id=context.request.workspace_id,
                 node_id=target_id,
-                max_depth=min(self.runtime.settings.graph_max_depth, 3),
-                max_nodes=min(self.runtime.settings.graph_max_nodes, 100),
+                max_depth=min(self.runtime.settings.max_graph_depth, 3),
+                max_nodes=min(self.runtime.settings.max_graph_nodes, 100),
             )
         )
         if semantic_focus.graph_revision_id != snapshot.revision_id:
@@ -480,12 +498,33 @@ class ChatService:
                 FocusSubgraphParams(
                     workspace_id=context.request.workspace_id,
                     node_id=target_id,
-                    max_depth=min(self.runtime.settings.graph_max_depth, 3),
-                    max_nodes=min(self.runtime.settings.graph_max_nodes, 100),
+                    max_depth=min(self.runtime.settings.max_graph_depth, 3),
+                    max_nodes=min(self.runtime.settings.max_graph_nodes, 100),
                 )
             )
         if semantic_focus.graph_revision_id != snapshot.revision_id:
-            raise RuntimeError("semantic graph projection is behind the committed graph revision")
+            logger.warning(
+                "semantic graph projection behind; using SQL-rehydrated bounded graph reads",
+                extra={
+                    "semantic_projection_fallback": True,
+                    "workspace_id": str(context.request.workspace_id),
+                    "expected_graph_revision_id": str(snapshot.revision_id),
+                    "observed_graph_revision_id": (
+                        str(semantic_focus.graph_revision_id)
+                        if semantic_focus.graph_revision_id is not None
+                        else None
+                    ),
+                },
+            )
+            semantic_focus = self.runtime.graph_queries.get_focus_subgraph(
+                FocusSubgraphParams(
+                    workspace_id=context.request.workspace_id,
+                    node_id=target_id,
+                    max_depth=min(self.runtime.settings.max_graph_depth, 3),
+                    max_nodes=min(self.runtime.settings.max_graph_nodes, 100),
+                )
+            )
+            context.semantic_projection_fallback = True
 
         semantic_node_ids = _uuid_ids_from_records(semantic_focus.data.get("nodes"))
         semantic_assertion_ids = _uuid_ids_from_records(semantic_focus.data.get("assertions"))
@@ -514,7 +553,7 @@ class ChatService:
         prerequisite_ids = _ordered_prerequisite_ids(
             target_id,
             focus_assertions,
-            max_depth=min(self.runtime.settings.graph_max_depth, 3),
+            max_depth=min(self.runtime.settings.max_graph_depth, 3),
         )
         prerequisites = [
             nodes[node_id]
@@ -606,7 +645,7 @@ class ChatService:
                 session_id=context.request.session_id,
                 user_message=context.request.message,
                 target_knowledge_point_id=target_id,
-                token_budget=self.runtime.settings.context_token_budget,
+                token_budget=self.runtime.settings.max_context_tokens,
             ),
             manifest,
             candidates,
@@ -629,7 +668,7 @@ class ChatService:
             "directive": context.directive.model_dump(mode="json"),
             "untrusted_learner_message": context.request.message,
         }
-        teacher, _result = await self.runtime.model_gateway.generate_structured(
+        teacher, result = await self.runtime.model_gateway.generate_structured(
             role=ModelRole.TEACHER,
             messages=[
                 ChatMessage(role="system", content=prompt.content),
@@ -650,12 +689,21 @@ class ChatService:
                 session_id=context.request.session_id,
                 turn_id=context.user_turn.id if context.user_turn is not None else None,
                 graph_revision_id=context.bundle.graph_revision,
+                learner_graph_revision_id=context.learner_graph_revision_id,
+                context_truncated=context.bundle.truncated,
                 prompt_name=prompt.name,
                 prompt_version=prompt.version,
+            ),
+            tools=graph_tool_definitions(),
+            tool_executor=(
+                self.runtime.graph_queries
+                if context.semantic_projection_fallback
+                else self.runtime.semantic_queries
             ),
         )
         teacher.assessment.type = context.directive.assessment_type
         context.teacher_output = teacher
+        context.tool_usage = ToolUsageResponse.model_validate(result.tool_usage)
         return state
 
     async def _node_persist(self, state: WorkflowState) -> WorkflowState:
@@ -726,6 +774,35 @@ class ChatService:
             tutoring_session = await unit.sessions.get(context.request.session_id)
             if tutoring_session is not None:
                 tutoring_session.current_knowledge_point_id = context.target_node.id
+            await unit.flush()
+            current_state_for_graph = (
+                context.mastery_update.updated_state
+                if context.mastery_update is not None
+                and context.mastery_update.updated_state.knowledge_point_id
+                == context.target_node.id
+                else context.learner_state
+            )
+            if current_state_for_graph is None:
+                raise RuntimeError("learner state is required for learner graph revision")
+            assertion_drafts, replace_keys, change_summary = self._learner_graph_drafts(
+                context,
+                current_state_for_graph,
+            )
+            learner_graph_result = await self.learner_graph_service.record_turn(
+                unit,
+                workspace_id=context.request.workspace_id,
+                learner_id=context.request.learner_id,
+                session_id=context.request.session_id,
+                turn_id=context.assistant_turn.id,
+                assertions=assertion_drafts,
+                replace_keys=replace_keys,
+                change_summary=change_summary,
+            )
+            context.learner_graph_update = LearnerGraphUpdateResponse(
+                revision_id=learner_graph_result.revision_id,
+                assertions_added=learner_graph_result.assertions_added,
+                assertions_superseded=learner_graph_result.assertions_superseded,
+            )
             await unit.commit()
         snapshot = self.runtime.graph_applier.store.get_snapshot(context.request.workspace_id)
         revision = (
@@ -772,9 +849,201 @@ class ChatService:
                 confidence=current_state.confidence,
             ),
             graph_update=context.graph_update,
+            learner_graph_update=context.learner_graph_update,
+            tool_usage=context.tool_usage,
             sources=context.sources,
         )
         return state
+
+    @staticmethod
+    def _learner_graph_drafts(
+        context: ChatTurnContext,
+        current_state: LearnerKnowledgeState,
+    ) -> tuple[
+        list[dict[str, object]],
+        list[tuple[str, UUID, UUID]],
+        dict[str, object],
+    ]:
+        """Build constrained learner-graph edges from deterministic state.
+
+        The teacher model never supplies these edges.  They are derived from
+        the persisted state/evidence and therefore cannot contaminate the
+        authoritative domain graph.
+        """
+
+        if context.user_turn is None or context.assistant_turn is None:
+            raise RuntimeError("learner graph assertions require persisted turn ids")
+        learner_id = context.request.learner_id
+        target_id = (
+            context.target_node.id
+            if context.target_node is not None
+            else current_state.knowledge_point_id
+        )
+        goal_target_id = context.session_goal_knowledge_point_id or target_id
+        turn_id = context.user_turn.id
+        confidence = max(0.0, min(1.0, current_state.confidence))
+        drafts: list[dict[str, object]] = [
+            {
+                "subject_id": learner_id,
+                "predicate": LearnerRelationType.HAS_KNOWLEDGE_STATE.value,
+                "object_id": current_state.knowledge_point_id,
+                "natural_language_description": (
+                    f"Learner state for {current_state.knowledge_point_id}: level "
+                    f"{int(current_state.current_level)}, "
+                    f"mastery {current_state.mastery_score:.3f}."
+                ),
+                "confidence": confidence,
+                "source_turn_id": turn_id,
+            },
+            {
+                "subject_id": learner_id,
+                "predicate": LearnerRelationType.LEARNING_GOAL.value,
+                "object_id": goal_target_id,
+                "natural_language_description": "The learner's current tutoring goal.",
+                "confidence": 1.0,
+                "source_turn_id": turn_id,
+            },
+            {
+                "subject_id": learner_id,
+                "predicate": LearnerRelationType.RECENTLY_PRACTICED.value,
+                "object_id": target_id,
+                "natural_language_description": (
+                    "The learner practiced this knowledge point in the latest turn."
+                ),
+                "confidence": 1.0,
+                "source_turn_id": turn_id,
+            },
+        ]
+        replace_keys = [
+            (
+                LearnerRelationType.HAS_KNOWLEDGE_STATE.value,
+                learner_id,
+                current_state.knowledge_point_id,
+            ),
+            (LearnerRelationType.LEARNING_GOAL.value, learner_id, goal_target_id),
+            (LearnerRelationType.RECENTLY_PRACTICED.value, learner_id, target_id),
+            (LearnerRelationType.READY_FOR_PROMOTION.value, learner_id, target_id),
+            (LearnerRelationType.REQUIRES_REVIEW.value, learner_id, target_id),
+            (LearnerRelationType.NEEDS_TRANSFER_EVIDENCE.value, learner_id, target_id),
+            (LearnerRelationType.HAS_MISCONCEPTION.value, learner_id, target_id),
+        ]
+        if context.graph_report is not None:
+            # ``graph_report`` is set here only when a new topic had to be
+            # extracted from the learner's raw chat message. Keep an explicit
+            # learner-side candidate marker; the corresponding domain nodes
+            # remain UNVERIFIED and are never promoted by this relationship.
+            drafts.append(
+                {
+                    "subject_id": learner_id,
+                    "predicate": LearnerRelationType.USER_SUPPLIED.value,
+                    "object_id": target_id,
+                    "natural_language_description": (
+                        "The learner supplied this topic; it remains an unverified candidate."
+                    ),
+                    "confidence": 1.0,
+                    "source_turn_id": turn_id,
+                }
+            )
+            replace_keys.append((LearnerRelationType.USER_SUPPLIED.value, learner_id, target_id))
+        if goal_target_id != target_id:
+            drafts.append(
+                {
+                    "subject_id": goal_target_id,
+                    "predicate": LearnerRelationType.BLOCKED_BY_PREREQUISITE.value,
+                    "object_id": target_id,
+                    "natural_language_description": (
+                        "The learner's goal is blocked by this prerequisite."
+                    ),
+                    "confidence": 1.0,
+                    "source_turn_id": turn_id,
+                }
+            )
+            replace_keys.append(
+                (
+                    LearnerRelationType.BLOCKED_BY_PREREQUISITE.value,
+                    goal_target_id,
+                    target_id,
+                )
+            )
+        if context.evidence is not None:
+            drafts.append(
+                {
+                    "subject_id": learner_id,
+                    "predicate": LearnerRelationType.HAS_MASTERY_EVIDENCE.value,
+                    "object_id": context.evidence.id,
+                    "natural_language_description": context.evidence.grader_explanation,
+                    "confidence": context.evidence.grader_confidence,
+                    "source_turn_id": turn_id,
+                    "mastery_evidence_id": context.evidence.id,
+                }
+            )
+            for misconception in context.evidence.observed_misconceptions:
+                drafts.append(
+                    {
+                        "subject_id": learner_id,
+                        "predicate": LearnerRelationType.HAS_MISCONCEPTION.value,
+                        "object_id": target_id,
+                        "natural_language_description": misconception,
+                        "confidence": context.evidence.grader_confidence,
+                        "source_turn_id": turn_id,
+                        "mastery_evidence_id": context.evidence.id,
+                    }
+                )
+        update = context.mastery_update
+        if update is not None:
+            if update.promotion_eligible:
+                drafts.append(
+                    {
+                        "subject_id": learner_id,
+                        "predicate": LearnerRelationType.READY_FOR_PROMOTION.value,
+                        "object_id": target_id,
+                        "natural_language_description": (
+                            "Evidence satisfies the deterministic promotion policy."
+                        ),
+                        "confidence": confidence,
+                        "source_turn_id": turn_id,
+                    }
+                )
+            if update.decision is MasteryDecision.REVIEW_PREREQUISITE:
+                drafts.append(
+                    {
+                        "subject_id": learner_id,
+                        "predicate": LearnerRelationType.REQUIRES_REVIEW.value,
+                        "object_id": target_id,
+                        "natural_language_description": (
+                            "The learner needs prerequisite review before continuing."
+                        ),
+                        "confidence": confidence,
+                        "source_turn_id": turn_id,
+                    }
+                )
+            if update.decision in {
+                MasteryDecision.REQUEST_MORE_EVIDENCE,
+                MasteryDecision.REMEDIATE,
+                MasteryDecision.CHANGE_EXPLANATION,
+            }:
+                drafts.append(
+                    {
+                        "subject_id": learner_id,
+                        "predicate": LearnerRelationType.NEEDS_TRANSFER_EVIDENCE.value,
+                        "object_id": target_id,
+                        "natural_language_description": (
+                            "Additional independent evidence is required."
+                        ),
+                        "confidence": confidence,
+                        "source_turn_id": turn_id,
+                    }
+                )
+        summary: dict[str, object] = {
+            "target_knowledge_point_id": str(target_id),
+            "knowledge_point_id": str(current_state.knowledge_point_id),
+            "assertion_count": len(drafts),
+            "mastery_score": current_state.mastery_score,
+            "current_level": int(current_state.current_level),
+            "decision": update.decision.value if update is not None else MasteryDecision.HOLD.value,
+            "turn_id": str(turn_id),
+        }
+        return drafts, replace_keys, summary
 
     async def _is_mastered(self, learner_id: UUID, knowledge_point_id: UUID) -> bool:
         async with self.runtime.database.session() as session:
@@ -785,6 +1054,86 @@ class ChatService:
                 )
             )
         return record is not None and record.mastery_score >= 0.75 and record.current_level >= 2
+
+    async def _ordered_prerequisite_status(
+        self,
+        *,
+        learner_id: UUID,
+        workspace_id: UUID,
+        target_id: UUID,
+        assertions: list[RelationAssertion],
+        max_depth: int,
+    ) -> tuple[dict[UUID, bool], dict[UUID, tuple[int, float, int, int]]]:
+        """Return a bounded prerequisite chain in a stable, learner-aware order.
+
+        The old implementation used a UUID-to-UUID dictionary comprehension,
+        silently dropping all but one ``REQUIRES`` edge.  We retain a mapping
+        for the controller API, but construct it from a list and sort by the
+        deterministic policy: unmastered first, lowest mastery, shortest
+        prerequisite distance, graph definition order, then UUID.
+        """
+
+        chain: list[tuple[int, UUID]] = []
+        seen: set[UUID] = set()
+        seen.add(target_id)
+        frontier = {target_id}
+        for _depth in range(max_depth):
+            next_frontier: set[UUID] = set()
+            for definition_index, assertion in enumerate(assertions):
+                if (
+                    assertion.is_active
+                    and assertion.subject_id in frontier
+                    and assertion.predicate_key.value == "REQUIRES"
+                    and assertion.object_id not in seen
+                ):
+                    seen.add(assertion.object_id)
+                    next_frontier.add(assertion.object_id)
+                    chain.append((definition_index, assertion.object_id))
+            if not next_frontier:
+                break
+            frontier = next_frontier
+        if not chain:
+            return {}, {}
+        ids = [item[1] for item in chain]
+        async with self.runtime.database.session() as session:
+            records = list(
+                (
+                    await session.scalars(
+                        select(LearnerStateRecord).where(
+                            LearnerStateRecord.learner_id == learner_id,
+                            LearnerStateRecord.workspace_id == workspace_id,
+                            LearnerStateRecord.knowledge_point_id.in_(ids),
+                        )
+                    )
+                ).all()
+            )
+        state_by_id = {record.knowledge_point_id: record for record in records}
+        distances = _prerequisite_distances(target_id, assertions, max_depth=max_depth)
+        priorities = {
+            knowledge_point_id: (
+                0 if knowledge_point_id not in state_by_id else 1,
+                state_by_id[knowledge_point_id].mastery_score
+                if knowledge_point_id in state_by_id
+                else 0.0,
+                distances.get(knowledge_point_id, max_depth + 1),
+                definition_index,
+            )
+            for definition_index, knowledge_point_id in chain
+        }
+        ordered = sorted(
+            chain,
+            key=lambda item: (
+                priorities[item[1]],
+                str(item[1]),
+            ),
+        )
+        return (
+            {
+                knowledge_point_id: _record_is_mastered(state_by_id.get(knowledge_point_id))
+                for _, knowledge_point_id in ordered
+            },
+            priorities,
+        )
 
     async def _load_learner_context(
         self,
@@ -801,8 +1150,16 @@ class ChatService:
                 context.request.learner_id,
                 knowledge_point_id=knowledge_point_id,
                 limit=1000,
+                workspace_id=context.request.workspace_id,
             )
             context.learner_state_record = record
+            latest_learner_revision = await unit.learner_graph.latest_revision(
+                context.request.learner_id,
+                workspace_id=context.request.workspace_id,
+            )
+            context.learner_graph_revision_id = (
+                latest_learner_revision.id if latest_learner_revision is not None else None
+            )
             context.learner_state = _state_from_record(record)
             context.evidence_history = [
                 _evidence_from_record(item) for item in reversed(history_records)
@@ -1092,6 +1449,40 @@ def _ordered_prerequisite_ids(
             break
         frontier = next_frontier
     return ordered
+
+
+def _record_is_mastered(record: LearnerStateRecord | None) -> bool:
+    return record is not None and record.mastery_score >= 0.75 and record.current_level >= 2
+
+
+def _prerequisite_distances(
+    target_id: UUID,
+    assertions: list[RelationAssertion],
+    *,
+    max_depth: int,
+) -> dict[UUID, int]:
+    """Compute shortest prerequisite distance without loading another graph."""
+
+    requires_by_subject: dict[UUID, list[UUID]] = {}
+    for assertion in sorted(
+        (item for item in assertions if item.is_active and item.predicate_key.value == "REQUIRES"),
+        key=lambda item: str(item.id),
+    ):
+        requires_by_subject.setdefault(assertion.subject_id, []).append(assertion.object_id)
+    distances: dict[UUID, int] = {}
+    frontier = [target_id]
+    for depth in range(1, max_depth + 1):
+        next_frontier: list[UUID] = []
+        for subject_id in frontier:
+            for prerequisite_id in requires_by_subject.get(subject_id, []):
+                if prerequisite_id in distances or prerequisite_id == target_id:
+                    continue
+                distances[prerequisite_id] = depth
+                next_frontier.append(prerequisite_id)
+        if not next_frontier:
+            break
+        frontier = next_frontier
+    return distances
 
 
 def _context_node(node: GraphNode, *, relevance: float) -> ContextNode:

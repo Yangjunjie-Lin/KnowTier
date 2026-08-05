@@ -39,12 +39,13 @@ async def test_structured_teacher_output() -> None:
         role=ModelRole.TEACHER,
         messages=[ChatMessage(role="user", content="What is a prerequisite?")],
         response_model=TeacherOutput,
-        context=ModelCallContext(prompt_name="teacher_system"),
+        context=ModelCallContext(prompt_name="teacher_system", context_truncated=True),
     )
 
     assert value.assessment.question.endswith("?")
     assert result.provider == "mock"
     assert not result.repaired
+    assert result.context_truncated is True
     assert len(provider.calls) == 1
 
 

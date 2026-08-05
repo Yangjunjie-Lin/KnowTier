@@ -1,0 +1,117 @@
+name: Release checks
+
+on:
+  workflow_dispatch:
+    inputs:
+      run_ocr:
+        description: Run the real PaddleOCR acceptance suite
+        required: false
+        default: false
+        type: boolean
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  compose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    env:
+      COMPOSE_PROJECT_NAME: knowtier-release-check
+      COGNIGRAPH_USE_MOCK_LLM: "true"
+      COGNIGRAPH_ENVIRONMENT: production
+      COGNIGRAPH_NEO4J_REQUIRED: "true"
+      COGNIGRAPH_WORKSPACE_SCOPE_REQUIRED: "true"
+      COGNIGRAPH_WORKSPACE_PROVISIONING_TOKEN: release-check-provisioning-token
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Validate Compose manifests
+        run: docker compose config --quiet
+      - name: Validate OCR profile
+        run: docker compose --profile ocr config --quiet
+      - name: Start production-shaped Compose stack
+        run: docker compose up --detach --wait --wait-timeout 1200 postgres neo4j api
+      - name: Verify Compose health endpoints
+        run: |
+          curl --fail --silent --show-error http://127.0.0.1:8000/health
+          curl --fail --silent --show-error http://127.0.0.1:8000/ready
+          docker compose ps
+      - name: Capture Compose logs on failure
+        if: failure()
+        run: docker compose logs --no-color
+      - name: Stop Compose stack
+        if: always()
+        run: docker compose down --volumes --remove-orphans
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+      - run: uv lock --check
+      - name: Install frozen development environment
+        run: uv sync --frozen --dev
+      - name: Run production-size budget checks
+        env:
+          COGNIGRAPH_RUN_PERFORMANCE: "1"
+        run: uv run pytest tests/performance -m performance -q
+
+  live-model:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      COGNIGRAPH_RUN_LIVE_MODEL: "1"
+      COGNIGRAPH_LIVE_MODEL_API_KEY: ${{ secrets.COGNIGRAPH_API_KEY }}
+      COGNIGRAPH_LIVE_MODEL: ${{ vars.COGNIGRAPH_LIVE_MODEL || 'openai/gpt-4.1-mini' }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+      - name: Install frozen development environment
+        run: uv sync --frozen --dev
+      - name: Run optional live-model smoke
+        if: env.COGNIGRAPH_LIVE_MODEL_API_KEY != ''
+        run: uv run pytest tests/integration/test_live_model.py -m live_model -q
+      - name: Report that live-model smoke is disabled
+        if: env.COGNIGRAPH_LIVE_MODEL_API_KEY == ''
+        run: echo "No COGNIGRAPH_API_KEY secret configured; live-model smoke was not run."
+
+  ocr:
+    if: github.event_name == 'release' || inputs.run_ocr == true
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: "latest"
+      - name: Install reproducible OCR fonts
+        run: sudo apt-get update && sudo apt-get install --yes fonts-noto-cjk
+      - name: Install frozen OCR runtime
+        run: uv sync --frozen --dev --extra ocr
+      - name: Verify OCR runtime and PaddlePaddle CPU inference engine
+        run: |
+          uv run python -c "from cognigraph.ingestion.ocr_adapter import PaddleOCRAdapter; PaddleOCRAdapter.require_runtime()"
+          uv run python -c "import paddle; paddle.utils.run_check()"
+      - name: Generate OCR fixtures
+        run: uv run python scripts/generate_ocr_fixtures.py --output "${RUNNER_TEMP}/ocr-fixtures"
+      - name: Run real OCR and scanned-PDF acceptance
+        env:
+          COGNIGRAPH_RUN_OCR_TESTS: "1"
+          COGNIGRAPH_OCR_EN_IMAGE: ${{ runner.temp }}/ocr-fixtures/english.png
+          COGNIGRAPH_OCR_ZH_IMAGE: ${{ runner.temp }}/ocr-fixtures/chinese.png
+          COGNIGRAPH_OCR_ROTATED_IMAGE: ${{ runner.temp }}/ocr-fixtures/rotated.png
+          COGNIGRAPH_OCR_LOW_CONTRAST_IMAGE: ${{ runner.temp }}/ocr-fixtures/low-contrast.png
+          COGNIGRAPH_OCR_MULTICOLUMN_IMAGE: ${{ runner.temp }}/ocr-fixtures/multicolumn.png
+          COGNIGRAPH_OCR_SCANNED_PDF: ${{ runner.temp }}/ocr-fixtures/scanned.pdf
+        run: uv run pytest tests/integration/test_ocr_live.py -m ocr -q

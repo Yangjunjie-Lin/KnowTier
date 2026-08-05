@@ -9,7 +9,7 @@ repositories, migrations, and Outbox. `ingestion`, `extraction`, `graph`, `learn
 delivery layers.
 
 The LLM is intentionally not the state machine. It may propose a `KnowledgeBlueprint`, grade
-four independent response dimensions, and generate bounded prose. Pydantic validation,
+the seven response dimensions defined by `GraderOutput`, and generate bounded prose. Pydantic validation,
 `GraphDeltaValidator`, SHACL validation, `EvidenceRuleEstimator`, and `TeachingController`
 decide what can be persisted and whether a learner changes level.
 
@@ -18,7 +18,7 @@ decide what can be persisted and whether a learner changes level.
 ```text
 upload validation and SHA-256 deduplication
   -> immutable local blob
-  -> Docling-first parsing / format fallback / optional OCR
+  -> Docling-first parsing / per-page PDF completion / optional OCR and Vision
   -> SourceSpan and hierarchical chunk creation
   -> embedding
   -> strict KnowledgeBlueprint extraction
@@ -44,6 +44,10 @@ Duplicate triples add provenance. Temporal competing objects close the old valid
 and add `SUPERSEDES`; non-temporal competing objects remain active in a reviewable conflict
 set. User claims and authoritative material remain separate assertions with distinct epistemic
 status and evidence.
+
+When enabled, a graph model receives only the candidate blueprint and a bounded lexical subgraph.
+It returns a `GraphComparisonProposal`; deterministic canonicalization and validation convert only
+review artifacts into `GraphDelta`. The model never chooses canonical IDs or writes a repository.
 
 ## Tutoring turn
 
@@ -80,11 +84,18 @@ re-summarized on every call.
 
 Models with tool calling may use only the named fixed-schema query tools. Depth and result
 limits are validated by Pydantic, every call records its graph revision, and no raw Cypher API
-exists. Production tools and Context Bundle prefetch read the Neo4j semantic projection through
-the same asynchronous facade; a revision check prevents stale projection data from entering a
-teaching prompt. Models without tool calling receive equivalent prefetched context. Sanitized
-tool-call audits are buffered, written to PostgreSQL in bounded batches, retried on failure, and
-flushed during graceful shutdown.
+exists. Production domain reads use the Neo4j semantic projection, while learner mastery reads
+come from a bounded PostgreSQL ownership query because learner state is a SQL system record. A
+revision check prevents stale projection data from entering a teaching prompt. If a bounded
+Outbox dispatch retry still leaves Neo4j behind, that turn uses the fixed-schema SQL-rehydrated
+graph snapshot at the requested revision and records `semantic_projection_fallback=true`.
+Models without tool calling receive equivalent prefetched context. Sanitized tool-call audits
+are buffered, written to PostgreSQL in bounded batches, retried on failure, and flushed during
+graceful shutdown.
+
+Each completed turn also creates a `LearnerGraphRevision` and first-class learner assertions in the
+same SQL unit of work. This student projection can be queried and exported independently without
+changing the domain `GraphRevision`.
 
 ## Runtime and restart behavior
 
@@ -107,10 +118,12 @@ tests and the mock demo. Production remains PostgreSQL plus Neo4j. A release che
 exercise migrations, readiness, and Outbox projection against the Compose services as well as
 the default offline suite.
 
-Docling is the rich layout parser. The core format adapters retain offline PDF, DOCX, PPTX,
-Markdown, and text paths. PaddleOCR is an optional fallback whose PaddlePaddle runtime is
-selected outside the project dependency lock because the correct wheel and package index are
-platform-specific.
+Docling is the rich layout parser. For mixed PDFs, page-bound Docling blocks and the PDF text
+layer are checked page by page; only unresolved pages are rendered for OCR and then Vision.
+The core format adapters retain offline PDF, DOCX, PPTX, Markdown, and text paths. The `ocr`
+extra resolves PaddleOCR and the CPU PaddlePaddle runtime in the committed lock file against
+their supported 3.x APIs. Wheel availability remains platform-specific, which is why OCR has a
+separate Compose profile and release acceptance job.
 
 ## Security
 

@@ -134,7 +134,10 @@ class GraphDeltaRepository:
                 await self.session.scalars(
                     select(SourceSpan)
                     .join(GraphNodeSource, GraphNodeSource.source_span_id == SourceSpan.id)
-                    .where(GraphNodeSource.node_id == node_id)
+                    .where(
+                        GraphNodeSource.node_id == node_id,
+                        SourceSpan.workspace_id == workspace_id,
+                    )
                     .order_by(SourceSpan.created_at)
                 )
             ).all()
@@ -181,7 +184,10 @@ class GraphDeltaRepository:
                 await self.session.scalars(
                     select(SourceSpan)
                     .join(AssertionSource, AssertionSource.source_span_id == SourceSpan.id)
-                    .where(AssertionSource.assertion_id == assertion_id)
+                    .where(
+                        AssertionSource.assertion_id == assertion_id,
+                        SourceSpan.workspace_id == workspace_id,
+                    )
                     .order_by(SourceSpan.created_at)
                 )
             ).all()

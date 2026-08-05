@@ -5,7 +5,7 @@ from pathlib import Path
 from uuid import UUID, uuid4
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import event, select
 
 from cognigraph.api.schemas import ChatRequest
 from cognigraph.config import Settings
@@ -22,6 +22,20 @@ from cognigraph.services.runtime import ApplicationRuntime
 @pytest.mark.integration
 async def test_repository_races_recover_session_and_turn_allocation(tmp_path: Path) -> None:
     database = Database(f"sqlite+aiosqlite:///{(tmp_path / 'repository-races.db').as_posix()}")
+    transaction_starts: list[str] = []
+
+    @event.listens_for(database.engine.sync_engine, "before_cursor_execute")
+    def capture_transaction_start(
+        _connection: object,
+        _cursor: object,
+        statement: str,
+        _parameters: object,
+        _context: object,
+        _executemany: bool,
+    ) -> None:
+        if statement == "BEGIN IMMEDIATE":
+            transaction_starts.append(statement)
+
     await database.create_schema()
     try:
         async with database.unit_of_work() as unit:
@@ -64,6 +78,7 @@ async def test_repository_races_recover_session_and_turn_allocation(tmp_path: Pa
 
         sequences = await asyncio.gather(add_turn("first"), add_turn("second"))
         assert sorted(sequences) == [1, 2]
+        assert len(transaction_starts) >= 5
     finally:
         await database.dispose()
 

@@ -20,6 +20,8 @@ class ModelRunRecord:
     latency_ms: int
     status: str
     error_type: str | None
+    tool_step_count: int
+    tool_calling_fallback: bool
     created_at: datetime
 
 
@@ -46,6 +48,8 @@ def model_run_record(
     latency_ms: int,
     status: str,
     error_type: str | None = None,
+    tool_step_count: int = 0,
+    tool_calling_fallback: bool = False,
 ) -> ModelRunRecord:
     return ModelRunRecord(
         id=run_id,
@@ -57,5 +61,7 @@ def model_run_record(
         latency_ms=latency_ms,
         status=status,
         error_type=error_type,
+        tool_step_count=tool_step_count,
+        tool_calling_fallback=tool_calling_fallback,
         created_at=utc_now(),
     )

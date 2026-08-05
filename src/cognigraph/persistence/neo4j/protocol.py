@@ -15,6 +15,8 @@ class GraphRepository(Protocol):
 
     async def close(self) -> None: ...
 
+    async def get_current_revision(self, workspace_id: str) -> str | None: ...
+
     async def apply_delta(
         self,
         delta: GraphDeltaInput,

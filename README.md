@@ -56,11 +56,13 @@ uv sync --dev --extra documents --extra ocr
 ```
 
 Docling is attempted first. The core install also includes real fallbacks for text, Markdown,
-PDF, DOCX, and PPTX. Image ingestion uses Docling and can fall back to PaddleOCR when the
-`ocr` extra is installed. PaddleOCR also requires a platform-compatible PaddlePaddle 3 runtime;
-install it by following the
-[official PaddlePaddle instructions](https://www.paddlepaddle.org.cn/install/quick) because its
-wheel/index choice is platform-specific and is intentionally not forced by this project.
+PDF, DOCX, and PPTX. Image ingestion uses Docling and can fall back to the pinned PaddleOCR 3.x
+adapter when the `ocr` extra is installed. The extra explicitly installs the matching CPU
+PaddlePaddle 3.x runtime and PyMuPDF for rendering scanned PDF pages. The adapter uses the
+current `predict` API and does not silently span PaddleOCR major versions. Platform-specific
+wheel availability is documented in [VISION_PIPELINE.md](VISION_PIPELINE.md).
+For mixed PDFs, text-bearing pages are retained and only unresolved scanned pages are rendered
+for OCR or Vision, preserving page and bounding-box provenance without reprocessing the full file.
 
 ## Docker Compose
 
@@ -75,6 +77,15 @@ the API only after both databases are healthy. Database data, uploads, the Linux
 environment, and the uv cache use separate named volumes, so a host Windows `.venv` is never
 overwritten. Re-run `uv lock` whenever `pyproject.toml` dependencies change before starting the
 frozen container install.
+
+For OCR and scanned-PDF support, start the explicit profile instead of the lightweight API:
+
+```bash
+docker compose --profile ocr up api-ocr
+```
+
+The OCR API listens on `${API_OCR_PORT:-8001}`. The image/Vision pipeline is documented in
+[VISION_PIPELINE.md](VISION_PIPELINE.md).
 
 ## First mock flow
 
@@ -119,14 +130,33 @@ COGNIGRAPH_GRAPH_MODEL=openrouter/openai/gpt-4.1-mini
 COGNIGRAPH_VISION_MODEL=azure/gpt-4.1
 COGNIGRAPH_EMBEDDING_MODEL=openai/text-embedding-3-small
 COGNIGRAPH_FALLBACK_MODELS='["ollama/qwen2.5:7b"]'
+COGNIGRAPH_TOOL_CALLING_ENABLED=true
+COGNIGRAPH_MAX_TOOL_STEPS=4
+COGNIGRAPH_MAX_TOOL_RESULT_BYTES=30000
+COGNIGRAPH_TOOL_TIMEOUT_SECONDS=10
+COGNIGRAPH_MAX_CONTEXT_TOKENS=4000
+COGNIGRAPH_MAX_RECENT_TURNS=6
+COGNIGRAPH_MAX_GRAPH_DEPTH=3
+COGNIGRAPH_MAX_GRAPH_NODES=100
+COGNIGRAPH_GRAPH_MODEL_ENABLED=true
+COGNIGRAPH_VISION_ENABLED=true
+COGNIGRAPH_VISION_FALLBACK_ENABLED=true
 OPENAI_API_KEY=<provider-key>
 ```
+
+The four context/graph budget variables above are the canonical names. The
+older `COGNIGRAPH_CONTEXT_TOKEN_BUDGET`, `COGNIGRAPH_RECENT_TURN_LIMIT`,
+`COGNIGRAPH_GRAPH_MAX_DEPTH`, and `COGNIGRAPH_GRAPH_MAX_NODES` names remain
+accepted as migration aliases.
 
 `COGNIGRAPH_API_KEY` is passed to LiteLLM as an explicit key and is convenient when all configured
 roles share one credential. For mixed providers or separate credentials, use the provider-specific
 environment variables recognized by LiteLLM, such as `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, or the
 corresponding Azure/Bedrock variables. Application secret settings use `SecretStr`, are excluded
 from model representations, and are never placed in prompts or logs.
+The Compose services forward the configured role-model names plus common OpenAI, Anthropic,
+Gemini, OpenRouter, Azure, and AWS/Bedrock credential variables from `.env`; unset provider
+variables remain empty and are not required in mock mode.
 
 ## API outline
 
@@ -138,10 +168,17 @@ from model representations, and are never placed in prompts or logs.
 - `GET /v1/graph/manifest`, `/subgraph`, `/nodes/{id}`, `/assertions/{id}`
 - `GET /v1/graph/revisions`, `/revisions/{id}`, `/export`
 - `GET /v1/learners/{id}/model`, `/model.csv`, `/knowledge-graph`, `/learning-path`, `/evidence`
+- `GET /v1/learners/{id}/graph/revisions`, `/graph/assertions/{assertion_id}`, `/graph/nodes/{node_id}`
 
 Every graph edge exposed to Cytoscape carries its first-class `assertion_id`, relation type,
 description, confidence, and source count. Node and assertion detail endpoints return source
 spans and graph revision identity.
+
+In development, a workspace ID may be supplied in the request body/query as before. In
+production, the authenticated gateway must inject `X-Workspace-ID` on every tenant-scoped
+request; the API rejects requests without it and does not trust a client-provided tenant header.
+Workspace provisioning is a separate bootstrap operation and requires
+`COGNIGRAPH_WORKSPACE_PROVISIONING_TOKEN` plus `X-Workspace-Provisioning-Token`.
 
 ## Verification
 
@@ -152,11 +189,47 @@ uv run ruff format --check src tests scripts
 uv run ruff check src tests scripts
 uv run mypy src/cognigraph
 uv run pytest
+
+# Opt-in production-sized synthetic budget checks
+COGNIGRAPH_RUN_PERFORMANCE=1 uv run pytest tests/performance -m performance
+
+# Opt-in live PostgreSQL + pgvector + Neo4j smoke flow
+COGNIGRAPH_RUN_PRODUCTION_E2E=1 uv run pytest tests/e2e -m "postgres and neo4j"
+
+# Opt-in live PostgreSQL + pgvector boundary checks (after migrations)
+COGNIGRAPH_RUN_POSTGRES_TESTS=1 uv run pytest tests/integration/test_postgres_production.py -m postgres
+
+# Opt-in real OCR acceptance (use the OCR profile or uv --extra ocr)
+COGNIGRAPH_RUN_OCR_TESTS=1 uv run pytest tests/integration/test_ocr_live.py -m ocr
+
+# Opt-in paid/provider-backed model smoke
+COGNIGRAPH_RUN_LIVE_MODEL=1 COGNIGRAPH_LIVE_MODEL_API_KEY=<provider-key> \
+  uv run pytest tests/integration/test_live_model.py -m live_model
 ```
 
-Live Neo4j tests are opt-in and remain skipped unless their explicit test environment is
-configured. All default unit, contract, integration, API, PDF, and end-to-end tests are
-offline.
+On PowerShell, set each environment variable with `$env:NAME="1"` before running the command.
+Live Neo4j, OCR, production E2E, performance, and paid-model tests are opt-in and remain skipped
+unless their explicit environment is configured. The default unit, contract, repository, API,
+and PDF tests are offline.
 
-See [ARCHITECTURE.md](ARCHITECTURE.md), [DATA_MODEL.md](DATA_MODEL.md), and
-[PROMPTS.md](PROMPTS.md) for implementation details.
+GitHub Actions separates these boundaries: `ci.yml` runs frozen lock/static/default offline
+checks, `integration.yml` provisions PostgreSQL 16 with pgvector and Neo4j 5.26 and exercises the
+production workflow, and `release-check.yml` starts the production-shaped Compose stack, runs the
+production-size synthetic budget suite, and runs the OCR acceptance job. The live-model job is
+present but executes only when the `COGNIGRAPH_API_KEY` repository secret is configured. OCR is
+mandatory for published releases and opt-in through `run_ocr` for a manual release-check dispatch.
+
+See [ARCHITECTURE.md](ARCHITECTURE.md), [DATA_MODEL.md](DATA_MODEL.md),
+[PROMPTS.md](PROMPTS.md), [TOOL_CALLING.md](TOOL_CALLING.md),
+[VISION_PIPELINE.md](VISION_PIPELINE.md), [LEARNER_GRAPH.md](LEARNER_GRAPH.md),
+[MIGRATION_GUIDE.md](MIGRATION_GUIDE.md), and [PRODUCTION_TESTING.md](PRODUCTION_TESTING.md)
+for implementation details.
+
+## Known limits
+
+Tool calls, graph-model comparison, OCR, and Vision are bounded optional steps. A provider without
+tool support falls back to the pre-fetched Context Bundle. OCR remains an explicit optional
+runtime because PaddlePaddle wheels are platform-specific and substantially increase image size;
+the OCR lock resolution and Compose profile are complete when that path is enabled. Production
+PostgreSQL/Neo4j and paid-model smoke tests run only in environments that provide those services
+and credentials.

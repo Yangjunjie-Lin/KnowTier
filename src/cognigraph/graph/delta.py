@@ -13,6 +13,7 @@ from pydantic import Field, field_validator, model_validator
 from cognigraph.domain.base import DomainModel, JsonObject, utc_now
 from cognigraph.domain.enums import ConflictType, EpistemicStatus, NodeType, RelationTypeKey
 from cognigraph.domain.graph import RelationAssertion
+from cognigraph.domain.learner import LearnerGraphDelta  # noqa: F401
 
 _FORBIDDEN_PATCH_KEYS = frozenset(
     {

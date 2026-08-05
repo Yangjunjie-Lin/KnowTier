@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import logging
 from pathlib import Path
 from typing import Protocol
 from uuid import UUID, uuid4
@@ -18,6 +19,7 @@ from cognigraph.graph.applier import (
     InMemoryGraphApplier,
     InMemoryGraphStore,
 )
+from cognigraph.graph.comparison import GraphComparisonResult, GraphComparisonService
 from cognigraph.graph.delta import GraphDelta
 from cognigraph.graph.validator import GraphDeltaValidator, ShaclGraphValidator
 from cognigraph.ingestion.chunking import HierarchicalChunker, create_source_spans
@@ -29,6 +31,9 @@ from cognigraph.ingestion.provenance import (
     validate_upload,
 )
 from cognigraph.llm.embedding import EmbeddingProvider
+from cognigraph.llm.schemas import ModelCallContext
+
+logger = logging.getLogger(__name__)
 
 
 class DocumentLoader(Protocol):
@@ -111,6 +116,17 @@ class GraphSnapshotLoader(Protocol):
     async def __call__(self, workspace_id: UUID, *, force: bool = False) -> GraphSnapshot: ...
 
 
+class GraphProposalSink(Protocol):
+    async def record(
+        self,
+        *,
+        workspace_id: UUID,
+        document_id: UUID,
+        graph_revision_id: UUID | None,
+        result: GraphComparisonResult,
+    ) -> None: ...
+
+
 class DocumentRecordSink(DocumentLoader, Protocol):
     async def uploaded(self, document: Document) -> Document: ...
 
@@ -147,6 +163,8 @@ class IngestionService:
         shacl_validator: ShaclGraphValidator | None = None,
         delta_builder: BlueprintGraphDeltaBuilder | None = None,
         graph_snapshot_loader: GraphSnapshotLoader | None = None,
+        graph_comparison: GraphComparisonService | None = None,
+        graph_proposal_sink: GraphProposalSink | None = None,
         graph_retry_attempts: int = 3,
     ) -> None:
         if graph_retry_attempts < 1:
@@ -164,6 +182,8 @@ class IngestionService:
         self.shacl_validator = shacl_validator or ShaclGraphValidator()
         self.delta_builder = delta_builder or BlueprintGraphDeltaBuilder()
         self.graph_snapshot_loader = graph_snapshot_loader
+        self.graph_comparison = graph_comparison or GraphComparisonService(enabled=False)
+        self.graph_proposal_sink = graph_proposal_sink
         self.graph_retry_attempts = graph_retry_attempts
         self._ingest_locks: dict[UUID, asyncio.Lock] = {}
         self._workspace_ingest_locks: dict[UUID, asyncio.Lock] = {}
@@ -241,16 +261,20 @@ class IngestionService:
                     update={"status": DocumentStatus.PARSING, "updated_at": utc_now()}
                 )
             )
+            parsed: ParsedDocument | None = None
             try:
-                parsed = await asyncio.to_thread(
-                    self.parser.parse,
+                parsed = await self.parser.parse_async(
                     document.storage_path,
                     document.mime_type,
+                    workspace_id=document.workspace_id,
+                    document_id=document.id,
                 )
                 if not parsed.blocks:
-                    raise ValueError(
-                        "document produced no text blocks; enable OCR or vision parsing"
-                    )
+                    diagnostics = "; ".join(dict.fromkeys(parsed.warnings))[:1_000]
+                    message = "document produced no text blocks; enable OCR or vision parsing"
+                    if diagnostics:
+                        message = f"{message}. Parser diagnostics: {diagnostics}"
+                    raise ValueError(message)
                 payload_path = document.storage_path.with_suffix(
                     f"{document.storage_path.suffix}.docling.json"
                 )
@@ -311,6 +335,11 @@ class IngestionService:
                     assertion_count=len(delta.add_assertions),
                     warning_count=len(parsed.warnings),
                     graph_revision_id=applied.revision.id,
+                    parser_chain=parsed.parser_chain,
+                    ocr_used=parsed.ocr_used,
+                    vision_used=parsed.vision_used,
+                    detected_language=parsed.detected_language,
+                    low_confidence_blocks=len(parsed.low_confidence_blocks),
                 )
                 self.registry.parsed[document.id] = parsed
                 self.registry.spans[document.id] = spans
@@ -322,10 +351,14 @@ class IngestionService:
                     await self.document_sink.completed(updated_document, report)
                 return report
             except Exception as exc:
+                failure_warnings = list(document.warnings)
+                if parsed is not None:
+                    failure_warnings.extend(parsed.warnings)
+                failure_warnings.append(f"{type(exc).__name__}: {exc}")
                 failed = document.model_copy(
                     update={
                         "status": DocumentStatus.FAILED,
-                        "warnings": [*document.warnings, f"{type(exc).__name__}: {exc}"],
+                        "warnings": list(dict.fromkeys(failure_warnings)),
                         "updated_at": utc_now(),
                     }
                 )
@@ -351,6 +384,33 @@ class IngestionService:
                     document.workspace_id,
                     force=attempt > 0,
                 )
+            comparison = await self.graph_comparison.compare(
+                workspace_id=document.workspace_id,
+                candidate=blueprint,
+                snapshot=snapshot,
+                context=ModelCallContext(
+                    workspace_id=document.workspace_id,
+                    document_id=document.id,
+                    graph_revision_id=snapshot.revision_id,
+                    prompt_name="graph_delta_builder",
+                    prompt_version="1",
+                ),
+            )
+            if self.graph_proposal_sink is not None:
+                try:
+                    await self.graph_proposal_sink.record(
+                        workspace_id=document.workspace_id,
+                        document_id=document.id,
+                        graph_revision_id=snapshot.revision_id,
+                        result=comparison,
+                    )
+                except Exception as exc:
+                    # Proposal persistence is audit-only; it must not prevent
+                    # the deterministic, source-grounded graph path.
+                    logger.warning(
+                        "graph model proposal audit persistence failed",
+                        extra={"error_type": type(exc).__name__},
+                    )
             delta = self.delta_builder.build(
                 workspace_id=document.workspace_id,
                 document=document,
@@ -358,6 +418,7 @@ class IngestionService:
                 blueprint=blueprint,
                 snapshot=snapshot,
                 model_run_id=model_run_id,
+                graph_proposal=comparison.proposal,
             )
             self.validator.require_valid(delta, snapshot)
             await self._require_shacl_valid(delta, snapshot)

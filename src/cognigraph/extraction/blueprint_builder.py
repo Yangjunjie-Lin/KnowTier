@@ -24,9 +24,11 @@ from cognigraph.graph.delta import (
     AssertionSupersede,
     ConflictCandidate,
     GraphDelta,
+    MergeCandidate,
     NodeCreate,
     ProvenanceLink,
 )
+from cognigraph.graph.proposals import GraphComparisonProposal
 
 
 class _PointContentCandidate(Protocol):
@@ -50,6 +52,7 @@ class BlueprintGraphDeltaBuilder:
         blueprint: KnowledgeBlueprint,
         snapshot: GraphSnapshot,
         model_run_id: UUID | None = None,
+        graph_proposal: GraphComparisonProposal | None = None,
     ) -> GraphDelta:
         if document.workspace_id != workspace_id or snapshot.workspace_id != workspace_id:
             raise ValueError("document and snapshot must belong to the target workspace")
@@ -140,6 +143,10 @@ class BlueprintGraphDeltaBuilder:
                             description=item.description,
                         )
                     )
+        proposal_merges, proposal_conflicts = self._review_artifacts_from_proposal(
+            graph_proposal,
+            snapshot,
+        )
         return GraphDelta(
             id=uuid5(document.id, f"graph-delta:{document.content_hash}"),
             workspace_id=workspace_id,
@@ -148,9 +155,76 @@ class BlueprintGraphDeltaBuilder:
             add_assertions=add_assertions,
             supersede_assertions=supersede,
             add_provenance_links=self._unique_provenance(provenance),
-            conflicts=conflicts,
+            merge_candidates=proposal_merges,
+            conflicts=[*conflicts, *proposal_conflicts],
             generated_by_model_run_id=model_run_id,
         )
+
+    @staticmethod
+    def _review_artifacts_from_proposal(
+        proposal: GraphComparisonProposal | None,
+        snapshot: GraphSnapshot,
+    ) -> tuple[list[MergeCandidate], list[ConflictCandidate]]:
+        """Convert validated advice only into review records, never graph writes."""
+
+        if proposal is None:
+            return [], []
+        node_ids = set(snapshot.node_map())
+        assertion_ids = {assertion.id for assertion in snapshot.assertions}
+        merges: list[MergeCandidate] = []
+        seen_merges: set[tuple[UUID, UUID]] = set()
+        for candidate in proposal.merge_candidates:
+            key = (candidate.source_node_id, candidate.target_node_id)
+            if (
+                candidate.source_node_id not in node_ids
+                or candidate.target_node_id not in node_ids
+                or key in seen_merges
+            ):
+                continue
+            seen_merges.add(key)
+            merges.append(
+                MergeCandidate(
+                    source_node_id=candidate.source_node_id,
+                    target_node_id=candidate.target_node_id,
+                    similarity=candidate.similarity,
+                    reason=candidate.reason,
+                    requires_review=True,
+                )
+            )
+
+        conflicts: list[ConflictCandidate] = []
+        seen_conflicts: set[tuple[ConflictType, tuple[UUID, ...]]] = set()
+        for conflict_candidate in proposal.conflict_candidates:
+            try:
+                conflict_type = ConflictType(conflict_candidate.conflict_type)
+            except ValueError:
+                continue
+            ids = tuple(
+                sorted(
+                    {
+                        assertion_id
+                        for assertion_id in conflict_candidate.assertion_ids
+                        if assertion_id in assertion_ids
+                    },
+                    key=str,
+                )
+            )
+            signature = (conflict_type, ids)
+            if len(ids) < 2 or signature in seen_conflicts:
+                continue
+            seen_conflicts.add(signature)
+            conflicts.append(
+                ConflictCandidate(
+                    conflict_type=conflict_type,
+                    assertion_ids=list(ids),
+                    description=(
+                        conflict_candidate.description
+                        or "Graph model identified a possible conflict."
+                    ),
+                    requires_review=True,
+                )
+            )
+        return merges, conflicts
 
     @staticmethod
     def _ontology_nodes(snapshot: GraphSnapshot) -> list[NodeCreate]:
