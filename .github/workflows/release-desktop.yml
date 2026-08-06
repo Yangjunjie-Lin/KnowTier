@@ -1,0 +1,1066 @@
+name: Desktop release
+
+on:
+  push:
+    tags:
+      - "v*"
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Tag for a manually created draft release (must match v<package version>)
+        required: true
+        default: "v1.0.0-rc.1"
+        type: string
+      create_draft_release:
+        description: Create or refresh a GitHub draft release after assembling the artifacts
+        required: false
+        default: false
+        type: boolean
+      run_live_siliconflow:
+        description: Run the strictly budgeted three-call SiliconFlow smoke after the offline gate
+        required: false
+        default: false
+        type: boolean
+
+concurrency:
+  group: desktop-release-${{ inputs.release_tag || github.ref_name }}
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+env:
+  NODE_VERSION: "22"
+  PYTHON_VERSION: "3.12"
+  RELEASE_VERSION: "1.0.0-rc.1"
+  TAURI_CLI_VERSION: "2.11.4"
+  UV_VERSION: "0.12.1"
+
+jobs:
+  quality-gate:
+    name: Offline quality and version gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare quality diagnostics directory
+        run: mkdir -p quality-logs
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy,rustfmt
+
+      - name: Install Tauri Linux build prerequisites
+        run: >-
+          sudo apt-get update && sudo apt-get install --yes
+          build-essential curl file libayatana-appindicator3-dev librsvg2-dev
+          libssl-dev libwebkit2gtk-4.1-dev libxdo-dev wget
+
+      - name: Validate release versions and tag
+        env:
+          CREATE_DRAFT_RELEASE: ${{ inputs.create_draft_release || false }}
+          MANUAL_RELEASE_TAG: ${{ inputs.release_tag || '' }}
+        run: |
+          python - <<'PY'
+          import json
+          import os
+          import re
+          import tomllib
+          from pathlib import Path
+
+          root = Path.cwd()
+          frontend_manifest = json.loads(
+              (root / "frontend/package.json").read_text(encoding="utf-8")
+          )
+          frontend_version = frontend_manifest["version"]
+          npm_lock = json.loads(
+              (root / "frontend/package-lock.json").read_text(encoding="utf-8")
+          )
+          tauri_version = json.loads(
+              (root / "frontend/src-tauri/tauri.conf.json").read_text(encoding="utf-8")
+          )["version"]
+          with (root / "frontend/src-tauri/Cargo.toml").open("rb") as stream:
+              rust_version = tomllib.load(stream)["package"]["version"]
+          with (root / "frontend/src-tauri/Cargo.lock").open("rb") as stream:
+              cargo_lock = tomllib.load(stream)
+          with (root / "pyproject.toml").open("rb") as stream:
+              python_version = tomllib.load(stream)["project"]["version"]
+          with (root / "uv.lock").open("rb") as stream:
+              uv_lock = tomllib.load(stream)
+
+          rust_lock_version = next(
+              package["version"]
+              for package in cargo_lock["package"]
+              if package["name"] == "knowtier-desktop"
+          )
+          python_lock_version = next(
+              package["version"]
+              for package in uv_lock["package"]
+              if package["name"] == "cognigraph-tutor"
+          )
+
+          versions = {
+              "frontend/package.json": frontend_version,
+              "frontend/package-lock.json": npm_lock["version"],
+              "frontend/package-lock.json packages['']": npm_lock["packages"][""]["version"],
+              "frontend/src-tauri/tauri.conf.json": tauri_version,
+              "frontend/src-tauri/Cargo.toml": rust_version,
+              "frontend/src-tauri/Cargo.lock": rust_lock_version,
+              "pyproject.toml": python_version,
+          }
+          if len(set(versions.values())) != 1:
+              raise SystemExit(f"desktop release versions disagree: {versions}")
+          semver = re.fullmatch(
+              r"(0|[1-9]\d*)\."
+              r"(0|[1-9]\d*)\."
+              r"(0|[1-9]\d*)"
+              r"(?:-((?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*)"
+              r"(?:\.(?:0|[1-9]\d*|[0-9A-Za-z-]*[A-Za-z-][0-9A-Za-z-]*))*))?"
+              r"(?:\+([0-9A-Za-z-]+(?:\.[0-9A-Za-z-]+)*))?",
+              frontend_version,
+          )
+          if semver is None:
+              raise SystemExit(f"desktop release version is not valid SemVer: {frontend_version}")
+          if frontend_version != os.environ["RELEASE_VERSION"]:
+              raise SystemExit(
+                  "release manifests must match the workflow candidate "
+                  f"{os.environ['RELEASE_VERSION']!r}, got {frontend_version!r}"
+              )
+
+          # uv serializes the PEP 440 equivalent of an rc SemVer without separators.
+          prerelease = semver.group(4)
+          python_lock_expected = frontend_version
+          if prerelease is not None:
+              identifiers = prerelease.split(".")
+              if len(identifiers) == 2 and identifiers[0] == "rc" and identifiers[1].isdigit():
+                  python_lock_expected = (
+                      f"{semver.group(1)}.{semver.group(2)}.{semver.group(3)}rc{identifiers[1]}"
+                  )
+          if python_lock_version != python_lock_expected:
+              raise SystemExit(
+                  "uv.lock project version does not match the release candidate: "
+                  f"expected {python_lock_expected!r}, got {python_lock_version!r}"
+              )
+
+          event_name = os.environ["GITHUB_EVENT_NAME"]
+          should_release = event_name == "push" or os.environ["CREATE_DRAFT_RELEASE"] == "true"
+          if should_release:
+              tag = (
+                  os.environ["GITHUB_REF_NAME"]
+                  if event_name == "push"
+                  else os.environ["MANUAL_RELEASE_TAG"].strip()
+              )
+              expected = f"v{frontend_version}"
+              if tag != expected:
+                  raise SystemExit(f"release tag {tag!r} must equal {expected!r}")
+          print(f"Validated KnowTier desktop version {frontend_version}")
+          PY
+
+      - name: Validate frozen Python environment
+        run: |
+          uv lock --check
+          uv sync --frozen --dev --extra documents
+
+      - name: Backend format, lint, and typing
+        run: |
+          set -o pipefail
+          {
+            uv run ruff format --check src tests scripts
+            uv run ruff check src tests scripts
+            uv run mypy src/cognigraph
+          } 2>&1 | tee quality-logs/backend-static.log
+
+      - name: Offline backend and desktop tests
+        run: |
+          set -o pipefail
+          uv run pytest tests/unit tests/contract tests/desktop \
+            -m "not postgres and not neo4j and not ocr and not live_model" \
+            2>&1 | tee quality-logs/backend-unit-contract-desktop.log
+
+      - name: Offline integration and API workflow tests
+        run: |
+          set -o pipefail
+          uv run pytest tests/integration tests/e2e \
+            -m "not postgres and not neo4j and not ocr and not live_model" \
+            2>&1 | tee quality-logs/backend-integration-e2e.log
+
+      - name: Install locked frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Frontend static, unit, and production checks
+        working-directory: frontend
+        run: |
+          set -o pipefail
+          {
+            npm run typecheck
+            npm run lint
+            npm run test
+            npm run build
+          } 2>&1 | tee ../quality-logs/frontend-static-unit-build.log
+
+      - name: Frontend API-contract browser smoke
+        working-directory: frontend
+        run: |
+          set -o pipefail
+          npx playwright install --with-deps chromium
+          npm run e2e 2>&1 | tee ../quality-logs/frontend-playwright.log
+
+      - name: Stage compile-only sidecar placeholder
+        run: |
+          install -d frontend/src-tauri/binaries
+          placeholder="frontend/src-tauri/binaries/cognigraph-desktop-sidecar-x86_64-unknown-linux-gnu"
+          install --mode 755 /dev/null "$placeholder"
+
+      - name: Rust formatting, lint, and unit checks
+        working-directory: frontend/src-tauri
+        run: |
+          set -o pipefail
+          cargo fmt --check
+          cargo clippy --locked --all-targets --all-features -- -D warnings
+          cargo test --locked --all-features 2>&1 | tee ../../quality-logs/tauri-rust.log
+
+      - name: Upload quality diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-release-quality-diagnostics
+          path: |
+            quality-logs
+            frontend/playwright-report
+            frontend/test-results
+            frontend/dist
+          if-no-files-found: ignore
+          retention-days: 14
+
+  full-stack-e2e:
+    name: React, FastAPI, PostgreSQL, Neo4j, and Mock LLM
+    needs: quality-gate
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      COMPOSE_PROJECT_NAME: knowtier-desktop-release-full-stack
+      COGNIGRAPH_E2E_FRONTEND_URL: http://127.0.0.1:18080
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install locked browser-test dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Install Chromium and system dependencies
+        working-directory: frontend
+        run: npx playwright install --with-deps chromium
+
+      - name: Validate production and E2E Compose definitions
+        run: |
+          docker compose config --quiet
+          docker compose -f docker-compose.e2e.yml config --quiet
+
+      - name: Start and wait for the real full stack
+        run: >-
+          docker compose -f docker-compose.e2e.yml
+          up --detach --build --wait --wait-timeout 1200
+
+      - name: Run the persistence and restart browser workflow
+        working-directory: frontend
+        run: npx playwright test --config=playwright.full-stack.config.ts
+
+      - name: Collect full-stack diagnostics
+        if: always()
+        run: |
+          set +e
+          mkdir -p full-stack-artifacts
+          docker compose -f docker-compose.e2e.yml ps --all > full-stack-artifacts/compose-ps.txt 2>&1
+          docker compose -f docker-compose.e2e.yml logs --no-color > full-stack-artifacts/compose.log 2>&1
+          docker compose -f docker-compose.e2e.yml logs --no-color api > full-stack-artifacts/api.log 2>&1
+          docker compose -f docker-compose.e2e.yml logs --no-color postgres > full-stack-artifacts/postgresql.log 2>&1
+          docker compose -f docker-compose.e2e.yml logs --no-color neo4j > full-stack-artifacts/neo4j.log 2>&1
+          docker compose -f docker-compose.e2e.yml logs --no-color frontend > full-stack-artifacts/frontend-nginx.log 2>&1
+
+      - name: Upload traces, screenshots, videos, and service logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-release-full-stack-diagnostics
+          path: |
+            frontend/playwright-report-full-stack
+            frontend/test-results/full-stack
+            full-stack-artifacts
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Stop the full stack
+        if: always()
+        run: >-
+          docker compose -f docker-compose.e2e.yml
+          down --volumes --remove-orphans
+
+  siliconflow-live:
+    name: Optional budgeted SiliconFlow smoke
+    needs: quality-gate
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run_live_siliconflow == true }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      COGNIGRAPH_RUN_SILICONFLOW_LIVE: "1"
+      SILICONFLOW_API_KEY: ${{ secrets.SILICONFLOW_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+
+      - name: Require the explicitly configured paid-provider secret
+        run: |
+          if [ -z "$SILICONFLOW_API_KEY" ]; then
+            echo "run_live_siliconflow was requested, but SILICONFLOW_API_KEY is not configured." >&2
+            exit 1
+          fi
+
+      - name: Install the frozen test runtime
+        run: uv sync --frozen --dev
+
+      - name: Run the bounded discovery, chat, and embedding smoke
+        run: >-
+          timeout 110s uv run pytest
+          tests/integration/test_siliconflow_live.py
+          -m live_model -q
+
+  build:
+    name: Build ${{ matrix.platform }} desktop artifacts
+    needs: [quality-gate, full-stack-e2e, siliconflow-live]
+    if: >-
+      ${{ always() && needs.quality-gate.result == 'success' &&
+          needs.full-stack-e2e.result == 'success' &&
+          (needs.siliconflow-live.result == 'success' ||
+           needs.siliconflow-live.result == 'skipped') }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: windows-x64
+            runner: windows-latest
+            target: x86_64-pc-windows-msvc
+          - platform: macos-x64
+            runner: macos-14-large
+            target: x86_64-apple-darwin
+          - platform: linux-x64
+            runner: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Prepare packaging diagnostics directory
+        shell: bash
+        run: mkdir -p packaging-logs
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Install Tauri Linux packaging prerequisites
+        if: runner.os == 'Linux'
+        run: >-
+          sudo apt-get update && sudo apt-get install --yes
+          build-essential curl file libayatana-appindicator3-dev librsvg2-dev
+          libssl-dev libwebkit2gtk-4.1-dev libxdo-dev patchelf wget
+          xvfb
+
+      - name: Install locked application dependencies
+        run: |
+          uv sync --frozen
+          cd frontend
+          npm ci
+
+      - name: Build frontend for the Python sidecar
+        working-directory: frontend
+        run: npm run build
+
+      - name: Build and stage the native Python sidecar
+        shell: bash
+        run: |
+          set -o pipefail
+          uv run --frozen --with pyinstaller==6.21.0 python \
+            scripts/desktop/build_sidecar.py \
+            --target-triple ${{ matrix.target }} \
+            2>&1 | tee "$RUNNER_TEMP/sidecar-build.log"
+
+      - name: Smoke the staged sidecar lifecycle and authentication
+        run: >-
+          uv run --frozen python scripts/desktop/smoke_sidecar.py
+          frontend/src-tauri/binaries/cognigraph-desktop-sidecar-${{ matrix.target }}${{ runner.os == 'Windows' && '.exe' || '' }}
+
+      - name: Verify macOS sidecar architecture
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          sidecar="frontend/src-tauri/binaries/cognigraph-desktop-sidecar-${{ matrix.target }}"
+          file_output="$(file "$sidecar")"
+          echo "$file_output"
+          grep -Eq 'Mach-O 64-bit executable x86_64' <<< "$file_output"
+
+      - name: Configure optional Windows Authenticode signing
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          CERTIFICATE_BASE64: ${{ secrets.WINDOWS_CERTIFICATE_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+        run: |
+          if ([string]::IsNullOrWhiteSpace($env:CERTIFICATE_BASE64) -or
+              [string]::IsNullOrWhiteSpace($env:CERTIFICATE_PASSWORD)) {
+            "WINDOWS_SIGNING_STATE=UNSIGNED" | Out-File -FilePath $env:GITHUB_ENV -Append
+            "WINDOWS_SIGNING_DETAIL=required Authenticode certificate credentials were absent" |
+              Out-File -FilePath $env:GITHUB_ENV -Append
+            exit 0
+          }
+
+          $certificatePath = Join-Path $env:RUNNER_TEMP "knowtier-code-signing.pfx"
+          try {
+            [IO.File]::WriteAllBytes(
+              $certificatePath,
+              [Convert]::FromBase64String($env:CERTIFICATE_BASE64)
+            )
+            $securePassword = ConvertTo-SecureString $env:CERTIFICATE_PASSWORD -AsPlainText -Force
+            $importedCertificates = @(Import-PfxCertificate `
+                -FilePath $certificatePath `
+                -CertStoreLocation Cert:\CurrentUser\My `
+                -Password $securePassword)
+            $certificate = $importedCertificates |
+              Where-Object { $_.HasPrivateKey } |
+              Select-Object -First 1
+            if ($null -eq $certificate) {
+              throw "the imported certificate does not contain a private key"
+            }
+            $configPath = Join-Path $env:RUNNER_TEMP "tauri-windows-signing.json"
+            $config = @{
+              bundle = @{
+                windows = @{
+                  certificateThumbprint = $certificate.Thumbprint
+                  digestAlgorithm = "sha256"
+                  timestampUrl = "http://timestamp.digicert.com"
+                }
+              }
+            } | ConvertTo-Json -Depth 4
+            [IO.File]::WriteAllText($configPath, $config, [Text.UTF8Encoding]::new($false))
+
+            $signTool = Get-ChildItem `
+              -Path "${env:ProgramFiles(x86)}\Windows Kits\10\bin" `
+              -Filter signtool.exe -File -Recurse |
+              Where-Object { $_.FullName -match '\\x64\\signtool\.exe$' } |
+              Sort-Object FullName -Descending |
+              Select-Object -First 1
+            if ($null -eq $signTool) {
+              throw "signtool.exe was not found on the Windows runner"
+            }
+            $sidecarPath = Resolve-Path `
+              "frontend/src-tauri/binaries/cognigraph-desktop-sidecar-${{ matrix.target }}.exe"
+            & $signTool.FullName sign `
+              /sha1 $certificate.Thumbprint `
+              /fd SHA256 `
+              /tr http://timestamp.digicert.com `
+              /td SHA256 `
+              $sidecarPath
+            if ($LASTEXITCODE -ne 0) {
+              throw "Authenticode signing of the portable sidecar failed"
+            }
+            "TAURI_WINDOWS_SIGNING_CONFIG=$configPath" |
+              Out-File -FilePath $env:GITHUB_ENV -Append
+            "WINDOWS_SIGNING_STATE=SIGNED" | Out-File -FilePath $env:GITHUB_ENV -Append
+            "WINDOWS_SIGNING_DETAIL=the NSIS installer and both portable executables use Authenticode" |
+              Out-File -FilePath $env:GITHUB_ENV -Append
+          }
+          finally {
+            Remove-Item -LiteralPath $certificatePath -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Configure optional macOS signing and notarization
+        if: runner.os == 'macOS'
+        shell: bash
+        env:
+          CERTIFICATE_BASE64: ${{ secrets.APPLE_CERTIFICATE_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          NOTARIZATION_APPLE_ID: ${{ secrets.APPLE_ID }}
+          NOTARIZATION_PASSWORD: ${{ secrets.APPLE_APP_SPECIFIC_PASSWORD }}
+          NOTARIZATION_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [[ -z "$CERTIFICATE_BASE64" || -z "$CERTIFICATE_PASSWORD" ]]; then
+            {
+              echo "MACOS_SIGNING_STATE=UNSIGNED"
+              echo "MACOS_SIGNING_DETAIL=required Apple signing certificate credentials were absent"
+            } >> "$GITHUB_ENV"
+            exit 0
+          fi
+
+          certificate_path="$RUNNER_TEMP/knowtier-code-signing.p12"
+          keychain_path="$RUNNER_TEMP/knowtier-build.keychain-db"
+          keychain_password="$(openssl rand -hex 24)"
+          python - <<'PY'
+          import base64
+          import os
+          from pathlib import Path
+
+          encoded = "".join(os.environ["CERTIFICATE_BASE64"].split())
+          Path(os.environ["RUNNER_TEMP"], "knowtier-code-signing.p12").write_bytes(
+              base64.b64decode(encoded, validate=True)
+          )
+          PY
+          security create-keychain -p "$keychain_password" "$keychain_path"
+          security set-keychain-settings -lut 21600 "$keychain_path"
+          security unlock-keychain -p "$keychain_password" "$keychain_path"
+          security import "$certificate_path" -k "$keychain_path" \
+            -P "$CERTIFICATE_PASSWORD" -T /usr/bin/codesign -T /usr/bin/security
+          security list-keychains -d user -s "$keychain_path"
+          security default-keychain -d user -s "$keychain_path"
+          security set-key-partition-list -S apple-tool:,apple: \
+            -s -k "$keychain_password" "$keychain_path"
+          identity="$(security find-identity -v -p codesigning "$keychain_path" | awk -F '"' '/"/ {print $2; exit}')"
+          rm -f "$certificate_path"
+          if [[ -z "$identity" ]]; then
+            echo "The Apple certificate did not provide a code-signing identity." >&2
+            exit 1
+          fi
+          {
+            echo "APPLE_SIGNING_IDENTITY=$identity"
+            echo "MACOS_KEYCHAIN_PATH=$keychain_path"
+          } >> "$GITHUB_ENV"
+
+          if [[ -n "$NOTARIZATION_APPLE_ID" && -n "$NOTARIZATION_PASSWORD" && -n "$NOTARIZATION_TEAM_ID" ]]; then
+            {
+              echo "APPLE_ID=$NOTARIZATION_APPLE_ID"
+              echo "APPLE_PASSWORD=$NOTARIZATION_PASSWORD"
+              echo "APPLE_TEAM_ID=$NOTARIZATION_TEAM_ID"
+              echo "MACOS_SIGNING_STATE=SIGNED_AND_NOTARIZED"
+              echo "MACOS_SIGNING_DETAIL=Apple signing and notarization credentials were supplied"
+            } >> "$GITHUB_ENV"
+          else
+            {
+              echo "MACOS_SIGNING_STATE=SIGNED_NOT_NOTARIZED"
+              echo "MACOS_SIGNING_DETAIL=Apple signing was configured; notarization credentials were incomplete"
+            } >> "$GITHUB_ENV"
+          fi
+
+      - name: Build Windows NSIS bundle
+        if: runner.os == 'Windows'
+        working-directory: frontend
+        shell: pwsh
+        run: |
+          $arguments = @(
+            "build", "--target", "${{ matrix.target }}", "--bundles", "nsis"
+          )
+          if (-not [string]::IsNullOrWhiteSpace($env:TAURI_WINDOWS_SIGNING_CONFIG)) {
+            $arguments += @("--config", $env:TAURI_WINDOWS_SIGNING_CONFIG)
+          }
+          & npx --yes "@tauri-apps/cli@$env:TAURI_CLI_VERSION" @arguments 2>&1 |
+            Tee-Object -FilePath "$env:RUNNER_TEMP/tauri-build.log"
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Smoke installed Windows bundle
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $releaseRoot = "frontend/src-tauri/target/${{ matrix.target }}/release"
+          $installers = @(Get-ChildItem -Path "$releaseRoot/bundle/nsis" -Filter "*.exe" -File)
+          if ($installers.Count -ne 1) {
+            throw "expected exactly one NSIS installer, found $($installers.Count)"
+          }
+          $installDir = Join-Path $env:RUNNER_TEMP "KnowTier-installed-smoke"
+          Remove-Item -LiteralPath $installDir -Recurse -Force -ErrorAction SilentlyContinue
+          New-Item -ItemType Directory -Force -Path $installDir | Out-Null
+          & $installers[0].FullName /S "/D=$installDir"
+          if ($LASTEXITCODE -ne 0) { throw "NSIS silent installation failed: $LASTEXITCODE" }
+          $installedExe = Join-Path $installDir "KnowTier.exe"
+          if (-not (Test-Path -LiteralPath $installedExe)) {
+            $installedExe = Join-Path $installDir "knowtier-desktop.exe"
+          }
+          if (-not (Test-Path -LiteralPath $installedExe)) {
+            throw "installed KnowTier executable was not found under $installDir"
+          }
+          $privacy = @(Get-ChildItem -Path $installDir -Filter "PRIVACY.md" -Recurse -File)
+          if ($privacy.Count -ne 1) { throw "installed bundle does not contain exactly one PRIVACY.md" }
+          uv run --frozen python scripts/desktop/smoke_package.py `
+            --executable $installedExe `
+            --data-dir (Join-Path $env:RUNNER_TEMP "KnowTier-installed-data") `
+            --sidecar-name "cognigraph-desktop-sidecar-${{ matrix.target }}.exe"
+          $uninstallers = @(Get-ChildItem -Path $installDir -Filter "*uninstall*.exe" -Recurse -File)
+          if ($uninstallers.Count -ne 1) {
+            throw "expected exactly one uninstaller, found $($uninstallers.Count)"
+          }
+          & $uninstallers[0].FullName /S
+          if ($LASTEXITCODE -ne 0) { throw "silent uninstall failed: $LASTEXITCODE" }
+          if (-not (Test-Path -LiteralPath (Join-Path $env:RUNNER_TEMP "KnowTier-installed-data"))) {
+            throw "uninstall removed user App Data; the documented retention policy was violated"
+          }
+          & $installers[0].FullName /S "/D=$installDir"
+          if ($LASTEXITCODE -ne 0) { throw "reinstall after uninstall failed: $LASTEXITCODE" }
+          if (-not (Test-Path -LiteralPath $installedExe)) {
+            throw "reinstalled KnowTier executable was not found"
+          }
+
+      - name: Build macOS DMG
+        if: runner.os == 'macOS'
+        working-directory: frontend
+        run: |
+          set -o pipefail
+          npx --yes "@tauri-apps/cli@$TAURI_CLI_VERSION" build \
+            --target ${{ matrix.target }} --bundles dmg \
+            2>&1 | tee "$RUNNER_TEMP/tauri-build.log"
+
+      - name: Smoke mounted macOS DMG
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          dmg="$(find "frontend/src-tauri/target/${{ matrix.target }}/release/bundle/dmg" -maxdepth 1 -type f -name '*.dmg' -print -quit)"
+          mount_point="$RUNNER_TEMP/knowtier-dmg"
+          mkdir -p "$mount_point"
+          hdiutil attach "$dmg" -nobrowse -readonly -mountpoint "$mount_point"
+          cleanup() { hdiutil detach "$mount_point" -force >/dev/null 2>&1 || true; }
+          trap cleanup EXIT
+          executable="$(find "$mount_point" -path '*.app/Contents/MacOS/*' -type f -perm -111 -print -quit)"
+          test -n "$executable"
+          privacy_count="$(find "$mount_point" -name PRIVACY.md -type f | wc -l | tr -d ' ')"
+          test "$privacy_count" = 1
+          uv run --frozen python scripts/desktop/smoke_package.py \
+            --executable "$executable" \
+            --data-dir "$RUNNER_TEMP/KnowTier-dmg-data" \
+            --sidecar-name "cognigraph-desktop-sidecar-${{ matrix.target }}"
+
+      - name: Build Linux AppImage and Debian package
+        if: runner.os == 'Linux'
+        working-directory: frontend
+        run: |
+          set -o pipefail
+          npx --yes "@tauri-apps/cli@$TAURI_CLI_VERSION" build \
+            --target ${{ matrix.target }} --bundles appimage,deb \
+            2>&1 | tee "$RUNNER_TEMP/tauri-build.log"
+
+      - name: Collect Windows installer and portable ZIP
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $version = (Get-Content -Raw frontend/package.json | ConvertFrom-Json).version
+          $releaseRoot = "frontend/src-tauri/target/${{ matrix.target }}/release"
+          $output = "desktop-release"
+          New-Item -ItemType Directory -Force -Path $output | Out-Null
+          $installers = @(
+            Get-ChildItem -Path "$releaseRoot/bundle/nsis" -Filter "*.exe" -File
+          )
+          if ($installers.Count -ne 1) {
+            throw "expected exactly one NSIS installer, found $($installers.Count)"
+          }
+          Copy-Item $installers[0].FullName "$output/KnowTier-Setup-$version-windows-x64.exe"
+
+          $portable = Join-Path $env:RUNNER_TEMP "KnowTier-Portable-$version-windows-x64"
+          New-Item -ItemType Directory -Force -Path $portable | Out-Null
+          $installedDir = Join-Path $env:RUNNER_TEMP "KnowTier-installed-smoke"
+          if (-not (Test-Path -LiteralPath $installedDir)) {
+            throw "installed bundle is unavailable for portable assembly"
+          }
+          Copy-Item "$installedDir/*" $portable -Recurse -Force
+          Get-ChildItem -Path $portable -Filter "*uninstall*.exe" -Recurse -File |
+            Remove-Item -Force -ErrorAction SilentlyContinue
+          Copy-Item `
+            "CHANGELOG.md","LICENSE","PRIVACY.md","THIRD_PARTY_NOTICES.md","docs/DESKTOP.md" `
+            "$portable/"
+          $portableExe = Join-Path $portable "KnowTier.exe"
+          if (-not (Test-Path -LiteralPath $portableExe)) {
+            $portableExe = Join-Path $portable "knowtier-desktop.exe"
+          }
+          if (-not (Test-Path -LiteralPath $portableExe)) {
+            throw "portable KnowTier executable was not found"
+          }
+          $portableSidecars = @(Get-ChildItem -Path $portable `
+            -Filter "cognigraph-desktop-sidecar-${{ matrix.target }}.exe" -Recurse -File)
+          if ($portableSidecars.Count -ne 1) {
+            throw "portable bundle does not contain exactly one target-suffixed sidecar"
+          }
+          uv run --frozen python scripts/desktop/smoke_package.py `
+            --executable $portableExe `
+            --data-dir (Join-Path $env:RUNNER_TEMP "KnowTier-portable-data") `
+            --sidecar-name "cognigraph-desktop-sidecar-${{ matrix.target }}.exe"
+          Copy-Item `
+            "CHANGELOG.md","LICENSE","PRIVACY.md","THIRD_PARTY_NOTICES.md","docs/DESKTOP.md" `
+            "$portable/"
+
+          if ($env:WINDOWS_SIGNING_STATE -eq "SIGNED") {
+            $signedFiles = @(
+              $installers[0].FullName,
+              (Resolve-Path $portableExe).Path,
+              $portableSidecars[0].FullName
+            )
+            foreach ($signedFile in $signedFiles) {
+              $signature = Get-AuthenticodeSignature -FilePath $signedFile
+              if ($signature.Status -ne "Valid") {
+                throw "expected a valid Authenticode signature: $signedFile ($($signature.Status))"
+              }
+            }
+          }
+          Compress-Archive -Path "$portable/*" `
+            -DestinationPath "$output/KnowTier-Portable-$version-windows-x64.zip" -Force
+
+          $statusFile = if ($env:WINDOWS_SIGNING_STATE -eq "UNSIGNED") {
+            "$output/UNSIGNED-windows.txt"
+          }
+          else {
+            "$output/SIGNED-windows.txt"
+          }
+          @(
+            "status=$($env:WINDOWS_SIGNING_STATE)"
+            "platform=windows-x64"
+            "detail=$($env:WINDOWS_SIGNING_DETAIL)"
+            "verify=Get-AuthenticodeSignature <artifact>"
+          ) | Set-Content -Encoding utf8 $statusFile
+          if (-not [string]::IsNullOrWhiteSpace($env:TAURI_WINDOWS_SIGNING_CONFIG)) {
+            Remove-Item -LiteralPath $env:TAURI_WINDOWS_SIGNING_CONFIG `
+              -Force -ErrorAction SilentlyContinue
+          }
+
+      - name: Collect macOS DMG
+        if: runner.os == 'macOS'
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./frontend/package.json').version")"
+          bundle_dir="frontend/src-tauri/target/${{ matrix.target }}/release/bundle/dmg"
+          count="$(find "$bundle_dir" -maxdepth 1 -type f -name '*.dmg' | wc -l | tr -d ' ')"
+          [[ "$count" == "1" ]] || { echo "expected exactly one DMG, found $count" >&2; exit 1; }
+          dmg="$(find "$bundle_dir" -maxdepth 1 -type f -name '*.dmg' -print -quit)"
+          mkdir -p desktop-release
+          cp "$dmg" "desktop-release/KnowTier-$version-macOS-x64.dmg"
+          if [[ "$MACOS_SIGNING_STATE" == "UNSIGNED" ]]; then
+            status_file="desktop-release/UNSIGNED-macos.txt"
+          else
+            status_file="desktop-release/${MACOS_SIGNING_STATE}-macos.txt"
+          fi
+          {
+            echo "status=$MACOS_SIGNING_STATE"
+            echo "platform=macos-x64"
+            echo "detail=$MACOS_SIGNING_DETAIL"
+            echo "verify=codesign --verify --deep --strict --verbose=2 <KnowTier.app>"
+          } > "$status_file"
+          if [[ -n "${MACOS_KEYCHAIN_PATH:-}" ]]; then
+            security delete-keychain "$MACOS_KEYCHAIN_PATH"
+          fi
+
+      - name: Collect Linux packages
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          version="$(node -p "require('./frontend/package.json').version")"
+          bundle_root="frontend/src-tauri/target/${{ matrix.target }}/release/bundle"
+          appimage_count="$(find "$bundle_root/appimage" -maxdepth 1 -type f -name '*.AppImage' | wc -l | tr -d ' ')"
+          deb_count="$(find "$bundle_root/deb" -maxdepth 1 -type f -name '*.deb' | wc -l | tr -d ' ')"
+          [[ "$appimage_count" == "1" ]] || { echo "expected one AppImage, found $appimage_count" >&2; exit 1; }
+          [[ "$deb_count" == "1" ]] || { echo "expected one deb, found $deb_count" >&2; exit 1; }
+          appimage="$(find "$bundle_root/appimage" -maxdepth 1 -type f -name '*.AppImage' -print -quit)"
+          deb="$(find "$bundle_root/deb" -maxdepth 1 -type f -name '*.deb' -print -quit)"
+          mkdir -p desktop-release
+          cp "$appimage" "desktop-release/KnowTier-$version-linux-x64.AppImage"
+          cp "$deb" "desktop-release/knowtier_${version}_amd64.deb"
+          {
+            echo "status=UNSIGNED"
+            echo "platform=linux-x64"
+            echo "detail=no Linux package-signing key is consumed by this workflow"
+            echo "verify=sha256sum --check SHA256SUMS.txt --ignore-missing"
+          } > desktop-release/UNSIGNED-linux.txt
+
+      - name: Smoke Linux AppImage
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          appimage="$(find "frontend/src-tauri/target/${{ matrix.target }}/release/bundle/appimage" -maxdepth 1 -type f -name '*.AppImage' -print -quit)"
+          chmod +x "$appimage"
+          xvfb-run -a env APPIMAGE_EXTRACT_AND_RUN=1 uv run --frozen python scripts/desktop/smoke_package.py \
+            --executable "$appimage" \
+            --data-dir "$RUNNER_TEMP/KnowTier-appimage-data" \
+            --sidecar-name "cognigraph-desktop-sidecar-${{ matrix.target }}"
+
+      - name: Smoke installed Linux Debian package
+        if: runner.os == 'Linux'
+        shell: bash
+        run: |
+          set -euo pipefail
+          deb="$(find "frontend/src-tauri/target/${{ matrix.target }}/release/bundle/deb" -maxdepth 1 -type f -name '*.deb' -print -quit)"
+          package_name="$(dpkg-deb -f "$deb" Package)"
+          sudo apt-get install --yes "$deb"
+          cleanup() { sudo apt-get remove --yes "$package_name" >/dev/null 2>&1 || true; }
+          trap cleanup EXIT
+          executable="$(dpkg -L "$package_name" | grep -E '/(KnowTier|knowtier-desktop)$' | head -n 1)"
+          test -n "$executable"
+          xvfb-run -a uv run --frozen python scripts/desktop/smoke_package.py \
+            --executable "$executable" \
+            --data-dir "$RUNNER_TEMP/KnowTier-deb-data" \
+            --sidecar-name "cognigraph-desktop-sidecar-${{ matrix.target }}"
+
+      - name: Upload packaging diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.platform }}-diagnostics
+          path: |
+            packaging-logs
+            ${{ runner.temp }}/sidecar-build.log
+            ${{ runner.temp }}/tauri-build.log
+            build/desktop-sidecar
+            frontend/src-tauri/target/${{ matrix.target }}/release/bundle
+            desktop-release
+          if-no-files-found: ignore
+          retention-days: 14
+
+      - name: Upload platform release candidates
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-${{ matrix.platform }}
+          path: desktop-release/*
+          if-no-files-found: error
+          retention-days: 14
+
+  assemble-release:
+    name: Assemble checksums and CycloneDX SBOMs
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: desktop-*-x64
+          path: release-assets
+          merge-multiple: true
+
+      - name: Require the complete platform matrix
+        run: |
+          set -euo pipefail
+          expect_one() {
+            local pattern="$1"
+            local count
+            count="$(find release-assets -maxdepth 1 -type f -name "$pattern" | wc -l | tr -d ' ')"
+            if [[ "$count" != "1" ]]; then
+              echo "expected exactly one $pattern asset, found $count" >&2
+              exit 1
+            fi
+          }
+          expect_one 'KnowTier-Setup-*-windows-x64.exe'
+          expect_one 'KnowTier-Portable-*-windows-x64.zip'
+          expect_one 'KnowTier-*-macOS-x64.dmg'
+          expect_one 'KnowTier-*-linux-x64.AppImage'
+          expect_one 'knowtier_*_amd64.deb'
+          expect_one '*-windows.txt'
+          expect_one '*-macos.txt'
+          expect_one 'UNSIGNED-linux.txt'
+
+      - name: Add release documentation assets
+        run: |
+          cp CHANGELOG.md release-assets/CHANGELOG.md
+          cp PRIVACY.md release-assets/PRIVACY.md
+          cp THIRD_PARTY_NOTICES.md release-assets/THIRD_PARTY_NOTICES.md
+          cp docs/DESKTOP.md release-assets/DESKTOP.md
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ env.PYTHON_VERSION }}
+
+      - uses: astral-sh/setup-uv@v5
+        with:
+          version: ${{ env.UV_VERSION }}
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install locked dependency graphs
+        run: |
+          uv lock --check
+          cd frontend
+          npm ci
+
+      - name: Generate Node.js CycloneDX 1.6 SBOM
+        working-directory: frontend
+        run: >-
+          npx --yes @cyclonedx/cyclonedx-npm@6.0.0
+          --package-lock-only --omit dev --output-reproducible
+          --spec-version 1.6 --output-format JSON
+          --output-file ../release-assets/knowtier-desktop-node.cdx.json
+
+      - name: Generate Python CycloneDX 1.5 SBOM
+        run: >-
+          uv export --preview-features sbom-export --frozen --no-dev
+          --format cyclonedx1.5
+          --output-file release-assets/knowtier-desktop-python.cdx.json
+          > /dev/null
+
+      - name: Generate Rust CycloneDX 1.5 SBOM
+        run: |
+          cargo install cargo-cyclonedx --version 0.5.9 --locked
+          cargo cyclonedx \
+            --manifest-path frontend/src-tauri/Cargo.toml \
+            --format json \
+            --spec-version 1.5 \
+            --target all \
+            --all-features \
+            --override-filename knowtier-desktop-rust
+          rust_sbom="$(find frontend/src-tauri -maxdepth 1 -type f -name 'knowtier-desktop-rust*.json' -print -quit)"
+          test -n "$rust_sbom"
+          mv "$rust_sbom" release-assets/knowtier-desktop-rust.cdx.json
+
+      - name: Validate CycloneDX documents
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+
+          expected = {
+              "knowtier-desktop-node.cdx.json": "1.6",
+              "knowtier-desktop-python.cdx.json": "1.5",
+              "knowtier-desktop-rust.cdx.json": "1.5",
+          }
+          for filename, spec_version in expected.items():
+              path = Path("release-assets", filename)
+              payload = json.loads(path.read_text(encoding="utf-8"))
+              if payload.get("bomFormat") != "CycloneDX":
+                  raise SystemExit(f"{filename} is not a CycloneDX document")
+              if payload.get("specVersion") != spec_version:
+                  raise SystemExit(
+                      f"{filename} uses {payload.get('specVersion')}, expected {spec_version}"
+                  )
+              components = payload.get("components")
+              if not isinstance(components, list) or not components:
+                  raise SystemExit(f"{filename} contains no dependency components")
+          print("Validated Node.js, Python, and Rust CycloneDX SBOMs")
+          PY
+
+      - name: Write SHA-256 manifest
+        working-directory: release-assets
+        run: |
+          checksum_file="$(mktemp)"
+          find . -maxdepth 1 -type f ! -name SHA256SUMS.txt -print0 \
+            | sort -z \
+            | xargs -0 sha256sum > "$checksum_file"
+          mv "$checksum_file" SHA256SUMS.txt
+          sha256sum --check SHA256SUMS.txt
+
+      - name: Upload complete desktop release assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: desktop-release-assets
+          path: release-assets/*
+          if-no-files-found: error
+          retention-days: 30
+
+  draft-release:
+    name: Create GitHub draft release
+    needs: assemble-release
+    if: ${{ github.event_name == 'push' || inputs.create_draft_release == true }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: desktop-release-assets
+          path: release-assets
+
+      - name: Create or refresh draft without publishing
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MANUAL_RELEASE_TAG: ${{ inputs.release_tag || '' }}
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
+            tag="$GITHUB_REF_NAME"
+          else
+            tag="$MANUAL_RELEASE_TAG"
+          fi
+
+          {
+            echo "## KnowTier Desktop $tag release candidate"
+            echo
+            echo "This release is a **draft**. Verify every checksum, SBOM, signing record, and platform smoke before publishing."
+            echo
+            echo "### Signing records"
+            echo '```text'
+            for status in release-assets/*-windows.txt release-assets/*-macos.txt release-assets/UNSIGNED-linux.txt; do
+              basename "$status"
+              sed -n '1,3p' "$status"
+            done
+            echo '```'
+            echo
+            echo "See docs/DESKTOP_RELEASE.md and CHANGELOG.md in commit $GITHUB_SHA."
+          } > release-notes.md
+
+          existing="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft 2>/dev/null || true)"
+          if [[ "$existing" == "false" ]]; then
+            echo "Refusing to replace assets on the already-published release $tag." >&2
+            exit 1
+          fi
+          if [[ "$existing" == "true" ]]; then
+            gh release upload "$tag" release-assets/* \
+              --repo "$GITHUB_REPOSITORY" --clobber
+            gh release edit "$tag" --repo "$GITHUB_REPOSITORY" \
+              --draft --title "KnowTier Desktop $tag" --notes-file release-notes.md
+          else
+            gh release create "$tag" release-assets/* \
+              --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
+              --draft \
+              --title "KnowTier Desktop $tag" \
+              --notes-file release-notes.md
+          fi
+
+          final_state="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)"
+          if [[ "$final_state" != "true" ]]; then
+            echo "Release $tag is not a draft after the release operation; refusing success." >&2
+            exit 1
+          fi

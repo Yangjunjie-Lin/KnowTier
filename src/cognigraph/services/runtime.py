@@ -6,6 +6,7 @@ from collections import defaultdict
 from contextlib import suppress
 from uuid import UUID
 
+from pydantic import SecretStr
 from sqlalchemy import select
 
 from cognigraph.config import Settings, get_settings
@@ -33,12 +34,21 @@ from cognigraph.ingestion.docling_adapter import DocumentParser
 from cognigraph.ingestion.ocr_adapter import PaddleOCRAdapter
 from cognigraph.ingestion.service import IngestionService, InMemoryDocumentRegistry
 from cognigraph.ingestion.vision_adapter import LiteLLMVisionParser
+from cognigraph.llm.configuration import (
+    ModelConfigurationService,
+    ModelProfile,
+    ProviderKind,
+)
 from cognigraph.llm.embedding import (
     DeterministicEmbeddingProvider,
     LiteLLMEmbeddingProvider,
 )
 from cognigraph.llm.fake_provider import FakeProvider
 from cognigraph.llm.gateway import LiteLLMProvider, ModelGateway
+from cognigraph.llm.openai_compatible import (
+    OpenAICompatibleEmbeddingProvider,
+    OpenAICompatibleProvider,
+)
 from cognigraph.persistence.neo4j import (
     GraphRepository,
     InMemoryGraphRepository,
@@ -173,6 +183,11 @@ class ApplicationRuntime:
         self._tool_audit_stop = asyncio.Event()
         self._tool_audit_task: asyncio.Task[None] | None = None
         self._tool_audit_flush_lock = asyncio.Lock()
+        self._active_model_profile: ModelProfile | None = None
+        self.model_configuration = ModelConfigurationService(
+            self.settings,
+            activate_profile=self.apply_model_profile,
+        )
 
     def _semantic_repository(self) -> GraphRepository:
         if not self.settings.neo4j_required:
@@ -186,6 +201,7 @@ class ApplicationRuntime:
     async def startup(self) -> None:
         if self.database.url.startswith("sqlite"):
             await self.database.create_schema()
+        await self.model_configuration.initialize()
         await self.semantic_graph.create_schema()
         await self._rehydrate_in_memory_semantic_graph()
         await self.outbox_dispatcher.dispatch_once(batch_size=self.settings.outbox_batch_size)
@@ -226,6 +242,113 @@ class ApplicationRuntime:
         finally:
             await self.semantic_graph.close()
             await self.database.dispose()
+            if isinstance(self.model_gateway.provider, OpenAICompatibleProvider):
+                with suppress(Exception):
+                    await self.model_gateway.provider.aclose()
+
+    async def apply_model_profile(
+        self,
+        profile: ModelProfile,
+        secret: SecretStr | None,
+    ) -> None:
+        """Atomically redirect every model role through a newly configured gateway."""
+
+        configured = self.settings.model_copy(
+            update={
+                "use_mock_llm": profile.provider is ProviderKind.MOCK,
+                "teacher_model": profile.models.teacher,
+                "extractor_model": profile.models.extractor,
+                "grader_model": profile.models.grader,
+                "graph_model": profile.models.graph,
+                "vision_model": profile.models.vision,
+                "embedding_model": profile.models.embedding,
+                "fallback_models": (),
+                "llm_timeout_seconds": profile.timeout_seconds,
+                "llm_max_retries": profile.max_retries,
+                "api_key": None,
+            }
+        )
+        provider: FakeProvider | OpenAICompatibleProvider
+        embedding_provider: DeterministicEmbeddingProvider | OpenAICompatibleEmbeddingProvider
+        if profile.provider is ProviderKind.MOCK:
+            provider = FakeProvider(
+                learning_insights_fixture=(
+                    configured.environment.casefold() == "test"
+                    and configured.mock_learning_insights_fixture_enabled
+                )
+            )
+            embedding_provider = DeterministicEmbeddingProvider(dimensions=1536)
+        else:
+            if secret is None or profile.base_url is None:
+                raise ValueError("an API key and Base URL are required")
+            provider = OpenAICompatibleProvider(
+                provider_name=profile.provider.value,
+                base_url=profile.base_url,
+                api_key=secret,
+                timeout_seconds=profile.timeout_seconds,
+                max_retries=profile.max_retries,
+                temperature=profile.temperature,
+                max_tokens=profile.max_tokens,
+            )
+            embedding_provider = OpenAICompatibleEmbeddingProvider(
+                provider,
+                profile.models.embedding,
+            )
+
+        previous_provider = self.model_gateway.provider
+        gateway = ModelGateway(
+            configured,
+            provider,
+            sink=self.model_gateway.sink,
+            tool_executor=self.model_gateway.tool_executor,
+            tool_definitions=self.model_gateway.tool_definitions,
+            tool_audit_sink=self.model_gateway.tool_audit_sink,
+        )
+        self.settings = configured
+        self.model_gateway = gateway
+        self.ingestion.settings = configured
+        self.ingestion.embedding_provider = embedding_provider
+        self.ingestion.extractor.gateway = gateway
+        self.ingestion.graph_comparison = GraphComparisonService(
+            gateway=gateway,
+            enabled=configured.graph_model_enabled,
+        )
+        self.ingestion.parser.vision = (
+            LiteLLMVisionParser(gateway, settings=configured)
+            if configured.vision_enabled and configured.vision_fallback_enabled
+            else None
+        )
+        self._active_model_profile = profile
+        if isinstance(previous_provider, OpenAICompatibleProvider):
+            # A profile switch aborts in-flight browser requests and must release
+            # the previous client's connection pool and Authorization header now.
+            try:
+                await previous_provider.aclose()
+            except Exception as exc:
+                # The new gateway is already live. A close failure must not turn a
+                # successful switch into a persistence rollback or expose secrets.
+                logger.warning(
+                    "previous model provider close failed during profile switch: %s",
+                    type(exc).__name__,
+                )
+
+    def active_model(self, role: str) -> dict[str, object]:
+        profile = self._active_model_profile
+        if profile is not None:
+            models = profile.models.model_dump()
+            return {
+                "provider": profile.provider.value,
+                "model": str(models.get(role, "")),
+                "profile_id": str(profile.id),
+                "profile_name": profile.name,
+            }
+        model = getattr(self.settings, f"{role}_model", "")
+        return {
+            "provider": "mock" if self.settings.use_mock_llm else "environment",
+            "model": str(model),
+            "profile_id": None,
+            "profile_name": "Environment",
+        }
 
     async def _run_outbox_worker(self) -> None:
         while not self._outbox_stop.is_set():

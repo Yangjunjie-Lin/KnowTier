@@ -14,16 +14,18 @@ import {
   RotateCcw,
   Send,
   Sparkles,
+  StopCircle,
   Upload,
   Wrench,
   X,
 } from "lucide-react";
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { EvidencePanel } from "@/components/learn/EvidencePanel";
 import { LearningStatusSheet } from "@/components/learn/LearningStatusSheet";
 import { MisconceptionPanel } from "@/components/learn/MisconceptionPanel";
 import { PrerequisitePanel } from "@/components/learn/PrerequisitePanel";
+import { TeachingResponse } from "@/components/learn/TeachingResponse";
 import {
   CognitiveBadge,
   CognitiveLevelTrack,
@@ -31,6 +33,7 @@ import {
 } from "@/components/shared/LearningVisuals";
 import { EmptyState, ErrorState } from "@/components/shared/States";
 import { PageHeader } from "@/components/shared/PageHeader";
+import { RuntimeModelBadge } from "@/components/shared/RuntimeModelBadge";
 import type { PrerequisiteInsight } from "@/lib/learningInsights";
 import { queryKeys } from "@/lib/queryKeys";
 import { cn } from "@/lib/utils";
@@ -90,6 +93,9 @@ interface ChatSubmission {
   text: string;
   attachmentIds: UUID[];
   requestedMode: RequestedMode;
+  workspaceId: UUID;
+  learnerId: UUID;
+  sessionId: UUID;
 }
 
 const acceptedMaterialTypes =
@@ -160,6 +166,17 @@ export function LearnPage() {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
+  const inFlightRef = useRef(false);
+  const abortControllerRef = useRef<AbortController | null>(null);
+  const [requestCancelled, setRequestCancelled] = useState(false);
+  const contextKey = `${currentWorkspace?.id ?? "none"}:${currentLearner?.id ?? "none"}:${sessionId}`;
+  const activeContextRef = useRef(contextKey);
+  activeContextRef.current = contextKey;
+  const previousContextRef = useRef(contextKey);
+  const navigationTargetKey = navigationTarget
+    ? `${navigationTarget.id ?? "name"}:${navigationTarget.name}:${navigationTarget.source ?? ""}`
+    : "none";
+  const previousNavigationTargetRef = useRef(navigationTargetKey);
   const availableDocuments = useMemo(
     () => documentsForWorkspace(recentDocuments, currentWorkspace?.id),
     [currentWorkspace?.id, recentDocuments],
@@ -185,16 +202,24 @@ export function LearnPage() {
   };
 
   const chatMutation = useMutation({
-    mutationFn: (input: ChatSubmission) =>
-      api.chat({
-        workspace_id: currentWorkspace!.id,
-        learner_id: currentLearner!.id,
-        session_id: sessionId,
-        message: input.text,
-        attachment_ids: input.attachmentIds,
-        requested_mode: input.requestedMode,
-      }),
-    onSuccess: async (result) => {
+    mutationFn: (input: ChatSubmission) => {
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
+      return api.chat(
+        {
+          workspace_id: input.workspaceId,
+          learner_id: input.learnerId,
+          session_id: input.sessionId,
+          message: input.text,
+          attachment_ids: input.attachmentIds,
+          requested_mode: input.requestedMode,
+        },
+        controller.signal,
+      );
+    },
+    onSuccess: async (result, input) => {
+      const submissionKey = `${input.workspaceId}:${input.learnerId}:${input.sessionId}`;
+      if (submissionKey !== activeContextRef.current) return;
       setMessages((current) => [
         ...current,
         {
@@ -211,31 +236,72 @@ export function LearnPage() {
       setSynchronizingInsightsTargetId(targetId);
       await Promise.allSettled([
         refreshLearningInsights(queryClient, {
-          workspaceId: currentWorkspace!.id,
-          learnerId: currentLearner!.id,
+          workspaceId: input.workspaceId,
+          learnerId: input.learnerId,
           targetId,
         }),
         queryClient.invalidateQueries({
-          queryKey: queryKeys.learnerRevisions(currentLearner!.id),
+          queryKey: queryKeys.learnerRevisions(input.learnerId),
         }),
         queryClient.invalidateQueries({
-          queryKey: queryKeys.manifest(currentWorkspace!.id),
+          queryKey: queryKeys.manifest(input.workspaceId),
         }),
         queryClient.invalidateQueries({
-          queryKey: queryKeys.domainGraph(currentWorkspace!.id),
+          queryKey: queryKeys.domainGraph(input.workspaceId),
         }),
         queryClient.invalidateQueries({
-          queryKey: queryKeys.domainRevisions(currentWorkspace!.id),
+          queryKey: queryKeys.domainRevisions(input.workspaceId),
         }),
         queryClient.invalidateQueries({
-          queryKey: ["learning-path", currentLearner!.id],
+          queryKey: ["learning-path", input.learnerId],
         }),
       ]);
       setSynchronizingInsightsTargetId((current) =>
         current === targetId ? null : current,
       );
     },
+    onSettled: () => {
+      inFlightRef.current = false;
+      abortControllerRef.current = null;
+    },
   });
+
+  useEffect(() => {
+    if (previousContextRef.current === contextKey) return;
+    previousContextRef.current = contextKey;
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = null;
+    inFlightRef.current = false;
+    chatMutation.reset();
+    setMessages([]);
+    setMessage("");
+    attachmentIdsRef.current = [];
+    setAttachments([]);
+    setShowAttachments(false);
+    setUploadOperation(null);
+    setNavigationTargetConfirmed(false);
+    setSynchronizingInsightsTargetId(null);
+    setLearningStatusOpen(false);
+    setRequestCancelled(false);
+  }, [chatMutation, contextKey]);
+
+  useEffect(() => {
+    if (previousNavigationTargetRef.current === navigationTargetKey) return;
+    previousNavigationTargetRef.current = navigationTargetKey;
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = null;
+    inFlightRef.current = false;
+    chatMutation.reset();
+    setMessages([]);
+    attachmentIdsRef.current = [];
+    setAttachments([]);
+    setShowAttachments(false);
+    setUploadOperation(null);
+    setNavigationTargetConfirmed(false);
+    setSynchronizingInsightsTargetId(null);
+    setMessage(learningTargetDraft(navigationTarget));
+    setRequestCancelled(false);
+  }, [chatMutation, navigationTarget, navigationTargetKey]);
 
   if (!currentWorkspace || !currentLearner) {
     return (
@@ -330,7 +396,9 @@ export function LearnPage() {
 
   const submit = () => {
     const text = message.trim();
-    if (!text || chatMutation.isPending) return;
+    if (!text || inFlightRef.current || chatMutation.isPending) return;
+    inFlightRef.current = true;
+    setRequestCancelled(false);
     const attachmentIds = [...attachmentIdsRef.current];
     const attachmentNames = attachmentIds.map(
       (id) =>
@@ -347,7 +415,50 @@ export function LearnPage() {
       },
     ]);
     setShowAttachments(false);
-    chatMutation.mutate({ text, attachmentIds, requestedMode: mode });
+    chatMutation.mutate({
+      text,
+      attachmentIds,
+      requestedMode: mode,
+      workspaceId: currentWorkspace.id,
+      learnerId: currentLearner.id,
+      sessionId,
+    });
+  };
+
+  const retryLastSubmission = () => {
+    if (!chatMutation.variables || inFlightRef.current) return;
+    inFlightRef.current = true;
+    setRequestCancelled(false);
+    chatMutation.mutate(chatMutation.variables);
+  };
+
+  const cancelSubmission = () => {
+    if (!chatMutation.isPending) return;
+    setRequestCancelled(true);
+    abortControllerRef.current?.abort(
+      new DOMException("The teaching request was cancelled.", "AbortError"),
+    );
+  };
+
+  const resetLearningSession = () => {
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = null;
+    inFlightRef.current = false;
+    chatMutation.reset();
+    newSession();
+    setMessages([]);
+    setMessage("");
+    replaceAttachments([]);
+    setShowAttachments(false);
+    setUploadOperation(null);
+    setNavigationTargetConfirmed(false);
+    setSynchronizingInsightsTargetId(null);
+    setLearningStatusOpen(false);
+    setRequestCancelled(false);
+    if (uploadInputRef.current) uploadInputRef.current.value = "";
+    if (cameraInputRef.current) cameraInputRef.current.value = "";
+    void navigate("/learn", { replace: true, state: null });
+    window.setTimeout(() => inputRef.current?.focus(), 0);
   };
 
   const startPrerequisite = (item: PrerequisiteInsight) => {
@@ -388,12 +499,7 @@ export function LearnPage() {
             </button>
             <button
               type="button"
-              onClick={() => {
-                newSession();
-                setMessages([]);
-                setNavigationTargetConfirmed(false);
-                setSynchronizingInsightsTargetId(null);
-              }}
+              onClick={resetLearningSession}
               disabled={chatMutation.isPending}
               className="secondary-button"
             >
@@ -403,6 +509,9 @@ export function LearnPage() {
           </div>
         }
       />
+      <div className="mb-4">
+        <RuntimeModelBadge role="teacher" label="Teacher" />
+      </div>
 
       <div className="grid gap-4 xl:grid-cols-[250px_minmax(0,1fr)_300px]">
         <aside className="hidden space-y-4 xl:block" aria-label="教学上下文">
@@ -432,7 +541,7 @@ export function LearnPage() {
                 </span>
                 <p className="text-sm font-medium">{navigationTarget.name}</p>
                 {navigationTarget.source && (
-                  <p className="text-[11px] text-slate-400">
+                  <p className="text-[11px] text-slate-600 dark:text-slate-400">
                     来自：{navigationTarget.source}
                   </p>
                 )}
@@ -465,7 +574,7 @@ export function LearnPage() {
                 </option>
               ))}
             </select>
-            <p className="mt-2 text-[11px] leading-5 text-slate-400">
+            <p className="mt-2 text-[11px] leading-5 text-slate-600 dark:text-slate-400">
               默认使用本设备设置中的“{teachingModeLabel(preferences.defaultTeachingMode)}”模式。
             </p>
           </ContextPanel>
@@ -494,7 +603,7 @@ export function LearnPage() {
           </ContextPanel>
         </aside>
 
-        <section className="flex min-h-[680px] min-w-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+        <section className="flex min-h-[520px] min-w-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 lg:min-h-[680px]">
           <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3 dark:border-slate-800">
             <div className="flex items-center gap-2">
               <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50 text-[#3157D5] dark:bg-indigo-950">
@@ -502,16 +611,16 @@ export function LearnPage() {
               </span>
               <div>
                 <p className="text-sm font-medium">结构化教学内容</p>
-                <p className="text-[11px] text-slate-400">
+                <p className="text-[11px] text-slate-600 dark:text-slate-400">
                   教师讲解与掌握检测分开呈现
                 </p>
               </div>
             </div>
             <div className="flex items-center gap-2">
-              <span className="hidden text-[11px] text-slate-400 sm:inline">
+              <span className="hidden text-[11px] text-slate-600 dark:text-slate-400 sm:inline">
                 {currentKnowledgePoint ?? "等待服务器确认当前知识点"}
               </span>
-              <span className="hidden text-[11px] text-slate-400 xl:inline">
+              <span className="hidden text-[11px] text-slate-600 dark:text-slate-400 xl:inline">
                 · {teachingModeLabel(mode)}模式
               </span>
               <label className="xl:hidden">
@@ -535,7 +644,7 @@ export function LearnPage() {
           </div>
 
           <div
-            className="flex-1 space-y-5 overflow-y-auto p-5"
+            className="flex-1 space-y-5 overflow-y-auto p-5 pb-72 lg:pb-5"
             aria-live="polite"
           >
             {messages.length === 0 ? (
@@ -559,26 +668,34 @@ export function LearnPage() {
             )}
             {chatMutation.isPending && (
               <div
-                className="flex items-center gap-2 text-sm text-slate-400"
+                className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400"
                 role="status"
               >
                 <LoaderCircle className="h-4 w-4 animate-spin" />
                 正在生成讲解、检查掌握并更新模型…
+                <button
+                  type="button"
+                  onClick={cancelSubmission}
+                  className="quiet-button ml-auto min-h-8 border border-slate-200 px-2 text-xs dark:border-slate-700"
+                >
+                  <StopCircle className="h-3.5 w-3.5" /> 取消
+                </button>
               </div>
             )}
-            {chatMutation.isError && (
+            {requestCancelled && !chatMutation.isPending && (
+              <div role="status" className="rounded-lg bg-slate-100 px-3 py-2 text-sm text-slate-600 dark:bg-slate-800 dark:text-slate-300">
+                本轮请求已取消。草稿和附件仍保留，可直接重新发送。
+              </div>
+            )}
+            {chatMutation.isError && !requestCancelled && (
               <ErrorState
                 error={chatMutation.error}
-                onRetry={() => {
-                  if (chatMutation.variables) {
-                    chatMutation.mutate(chatMutation.variables);
-                  }
-                }}
+                onRetry={retryLastSubmission}
               />
             )}
           </div>
 
-          <div className="border-t border-slate-100 p-4 dark:border-slate-800">
+          <div className="fixed inset-x-0 bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-20 border-t border-slate-100 bg-white p-3 shadow-[0_-8px_24px_rgba(15,23,42,0.08)] dark:border-slate-800 dark:bg-slate-900 lg:static lg:z-auto lg:p-4 lg:shadow-none">
             <div className="mb-3 flex flex-wrap gap-2" aria-label="快捷教学操作">
               {quickTeachingActions.map((action) => (
                 <button
@@ -698,7 +815,7 @@ export function LearnPage() {
                   event.currentTarget.value = "";
                 }}
               />
-              <span className="ml-auto text-[10px] text-slate-400">
+              <span className="ml-auto text-[10px] text-slate-600 dark:text-slate-400">
                 Enter 发送 · Shift+Enter 换行
               </span>
             </div>
@@ -753,7 +870,7 @@ export function LearnPage() {
                 <p className="leading-5 text-slate-500">
                   {latestResult.learner_update.reason}
                 </p>
-                <p className="text-slate-400">
+                <p className="text-slate-600 dark:text-slate-400">
                   当前认知层级 L{latestResult.learner_update.current_level}
                 </p>
               </div>
@@ -846,7 +963,7 @@ export function LearnPage() {
                     : "每周两次"}
               </dd>
             </dl>
-            <p className="mt-2 text-[10px] leading-4 text-slate-400">
+            <p className="mt-2 text-[10px] leading-4 text-slate-600 dark:text-slate-400">
               这些是本设备偏好，只影响模式默认值、快捷提示与界面说明，不会伪装成服务器设置。
             </p>
           </ContextPanel>
@@ -856,6 +973,7 @@ export function LearnPage() {
         open={learningStatusOpen}
         onOpenChange={setLearningStatusOpen}
         result={learningInsightsResult}
+        latestResult={latestResult}
         onStartPrerequisite={startPrerequisite}
       />
     </div>
@@ -891,12 +1009,10 @@ export function TeachingTurn({ result }: { result: ChatResponse }) {
         </span>
       </div>
       <section className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-4 dark:border-slate-700 dark:bg-slate-800/70">
-        <p className="mb-2 text-[11px] text-slate-400">
+        <p className="mb-2 text-[11px] text-slate-600 dark:text-slate-400">
           目标知识点 · {result.target_knowledge_point.name}
         </p>
-        <p className="whitespace-pre-wrap text-sm leading-7 text-slate-700 dark:text-slate-200">
-          {result.response}
-        </p>
+        <TeachingResponse content={result.response} />
       </section>
       <section
         className="rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-3 dark:border-amber-900/50 dark:bg-amber-950/20"
@@ -933,7 +1049,7 @@ function AttachmentMenu({
         </p>
       ) : (
         <>
-          <p className="px-3 pb-2 text-[10px] leading-4 text-slate-400">
+          <p className="px-3 pb-2 text-[10px] leading-4 text-slate-600 dark:text-slate-400">
             后端聊天契约会在发送时摄取尚未摄取的附件。
           </p>
           {documents.map((document) => (
@@ -956,11 +1072,11 @@ function AttachmentMenu({
                   <CheckCircle2 className="h-3 w-3" />
                 )}
               </span>
-              <FileText className="h-3.5 w-3.5 shrink-0 text-slate-400" />
+              <FileText className="h-3.5 w-3.5 shrink-0 text-slate-600 dark:text-slate-400" />
               <span className="min-w-0 flex-1 truncate">
                 {document.filename}
               </span>
-              <span className="text-[9px] text-slate-400">
+              <span className="text-[9px] text-slate-600 dark:text-slate-400">
                 {document.status === "INGESTED" ? "已摄取" : "发送时摄取"}
               </span>
             </button>
@@ -1035,7 +1151,7 @@ function SourceList({ sources }: { sources: JsonObject[] }) {
           >
             <p className="line-clamp-3">{excerpt}</p>
             {(page || documentId) && (
-              <p className="mt-1 text-[10px] text-slate-400">
+              <p className="mt-1 text-[10px] text-slate-600 dark:text-slate-400">
                 {[page, documentId ? `文档 ${documentId.slice(0, 8)}` : null]
                   .filter(Boolean)
                   .join(" · ")}
@@ -1059,7 +1175,7 @@ function GraphUpdateSummary({ result }: { result: ChatResponse }) {
         <p className="mt-2">
           新增 {result.graph_update.nodes_added} 个节点 · 新增 {result.graph_update.assertions_added} 条关系 · 替代 {result.graph_update.assertions_superseded} 条关系
         </p>
-        <p className="mt-1 font-mono text-[10px] text-slate-400">
+        <p className="mt-1 font-mono text-[10px] text-slate-600 dark:text-slate-400">
           {result.graph_update.revision_id
             ? `版本 ${result.graph_update.revision_id.slice(0, 8)}`
             : "本轮没有领域版本"}
@@ -1074,12 +1190,12 @@ function GraphUpdateSummary({ result }: { result: ChatResponse }) {
             <p className="mt-2">
               新增 {result.learner_graph_update.assertions_added} 条关系 · 替代 {result.learner_graph_update.assertions_superseded} 条关系
             </p>
-            <p className="mt-1 font-mono text-[10px] text-slate-400">
+            <p className="mt-1 font-mono text-[10px] text-slate-600 dark:text-slate-400">
               版本 {result.learner_graph_update.revision_id.slice(0, 8)}
             </p>
           </>
         ) : (
-          <p className="mt-2 text-slate-400">本轮没有学生图谱版本。</p>
+          <p className="mt-2 text-slate-600 dark:text-slate-400">本轮没有学生图谱版本。</p>
         )}
       </div>
     </div>
@@ -1087,7 +1203,7 @@ function GraphUpdateSummary({ result }: { result: ChatResponse }) {
 }
 
 function PanelEmpty({ text }: { text: string }) {
-  return <p className="text-xs leading-5 text-slate-400">{text}</p>;
+  return <p className="text-xs leading-5 text-slate-600 dark:text-slate-400">{text}</p>;
 }
 
 function ContextPanel({

@@ -47,7 +47,7 @@ export function InsightPanelFrame({
       </div>
 
       {!targetId ? (
-        <p className="text-xs leading-5 text-slate-400">
+        <p className="text-xs leading-5 text-slate-500 dark:text-slate-400">
           等待服务器确认当前知识点
         </p>
       ) : (

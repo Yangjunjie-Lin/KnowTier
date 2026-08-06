@@ -1,0 +1,47 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "KnowTier",
+  "version": "1.0.0-rc.1",
+  "identifier": "io.knowtier.desktop",
+  "build": {
+    "beforeBuildCommand": "npm run build",
+    "beforeDevCommand": "npm run dev",
+    "devUrl": "http://127.0.0.1:5173",
+    "frontendDist": "../dist"
+  },
+  "app": {
+    "windows": [],
+    "security": {
+      "csp": "default-src 'self'; connect-src 'self' http://127.0.0.1:*; img-src 'self' data: blob:; style-src 'self' 'unsafe-inline'; script-src 'self'; object-src 'none'; frame-ancestors 'none'"
+    }
+  },
+  "bundle": {
+    "active": true,
+    "targets": "all",
+    "icon": [
+      "icons/32x32.png",
+      "icons/64x64.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.png",
+      "icons/icon.icns",
+      "icons/icon.ico"
+    ],
+    "licenseFile": "../../LICENSE",
+    "resources": [
+      "../../PRIVACY.md",
+      "../../CHANGELOG.md",
+      "../../THIRD_PARTY_NOTICES.md",
+      "../../docs/DESKTOP.md"
+    ],
+    "category": "Education",
+    "shortDescription": "Traceable local-first tutoring and knowledge graphs",
+    "longDescription": "KnowTier is a local-first tutoring workspace with evidence-linked knowledge and learner graphs.",
+    "externalBin": ["binaries/cognigraph-desktop-sidecar"],
+    "windows": {
+      "nsis": {
+        "installMode": "currentUser"
+      }
+    }
+  }
+}

@@ -1,0 +1,13 @@
+*, *::before, *::after {
+  caret-color: transparent !important;
+  animation: none !important;
+  transition: none !important;
+}
+
+body *:not(svg):not(path):not(circle):not(line):not(polyline):not(rect) {
+  text-shadow: none !important;
+}
+
+::-webkit-scrollbar {
+  display: none !important;
+}

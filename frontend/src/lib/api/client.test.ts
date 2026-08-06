@@ -43,6 +43,29 @@ describe("ApiClient", () => {
     ).toBe(false);
   });
 
+  it("keeps the model configuration token in memory and scopes it to configuration calls", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    const client = new ApiClient("/api", 1_000);
+    client.setModelConfigurationToken("admin-session-token");
+    await client.get("/v1/model-config");
+    await client.get("/v1/health");
+    expect(
+      new Headers(fetchMock.mock.calls[0]?.[1]?.headers).get(
+        "X-Model-Configuration-Token",
+      ),
+    ).toBe("admin-session-token");
+    expect(
+      new Headers(fetchMock.mock.calls[1]?.[1]?.headers).has(
+        "X-Model-Configuration-Token",
+      ),
+    ).toBe(false);
+  });
+
   it("maps FastAPI validation errors to a Chinese ApiError with technical detail", async () => {
     vi.spyOn(globalThis, "fetch").mockResolvedValue(
       new Response(
@@ -125,5 +148,21 @@ describe("ApiClient", () => {
         acceptedStatuses: [503],
       }),
     ).resolves.toEqual({ postgres: true, neo4j: false, ready: false });
+  });
+
+  it("surfaces 429 as a retryable rate-limit error", async () => {
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ detail: "rate limit reached" }), {
+        status: 429,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    const client = new ApiClient("/api", 1_000);
+    await expect(client.get("/limited", { retries: 0 })).rejects.toMatchObject({
+      status: 429,
+      kind: "rate_limited",
+      retryable: true,
+      message: "请求过于频繁或模型额度受限，请稍后重试。",
+    } satisfies Partial<ApiError>);
   });
 });

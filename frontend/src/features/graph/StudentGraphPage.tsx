@@ -1,5 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
-import { Filter, Search } from "lucide-react";
+import { Download, Filter, Search } from "lucide-react";
 import { useMemo, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "@/services/api";
@@ -22,6 +22,7 @@ import {
   LoadingState,
 } from "@/components/shared/States";
 import { PageHeader } from "@/components/shared/PageHeader";
+import { RuntimeModelBadge } from "@/components/shared/RuntimeModelBadge";
 import { Sheet } from "@/components/shared/Sheet";
 
 export function StudentGraphPage() {
@@ -31,6 +32,7 @@ export function StudentGraphPage() {
   const [selectedNode, setSelectedNode] = useState<GraphNodeData | null>(null);
   const [selectedEdge, setSelectedEdge] = useState<GraphEdgeData | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
+  const [exportError, setExportError] = useState<unknown>(null);
   const graph = useQuery({
     queryKey: queryKeys.learnerGraph(currentLearner?.id ?? ""),
     queryFn: ({ signal }) =>
@@ -104,22 +106,52 @@ export function StudentGraphPage() {
         ? current.filter((item) => item !== type)
         : [...current, type],
     );
+  const exportGraph = () => {
+    try {
+      const blob = new Blob([JSON.stringify(graph.data, null, 2)], {
+        type: "application/json;charset=utf-8",
+      });
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `learner-graph-${currentLearner.id}.json`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      setExportError(null);
+    } catch (error) {
+      setExportError(error);
+    }
+  };
   return (
     <div>
       <PageHeader
         eyebrow="Learner graph"
         title="学生知识图谱"
-        description="仅展示当前学习者的状态与 RelationAssertion，不与领域图数据混用。"
+        description="仅展示当前学习者的掌握状态、证据和可追溯关系，不与领域图数据混用。"
         actions={
-          <Link to="/history/learner" className="secondary-button">
-            查看学生版本
-          </Link>
+          <div className="flex flex-wrap gap-2">
+            <button type="button" className="secondary-button" onClick={exportGraph}>
+              <Download className="h-4 w-4" /> 导出 JSON
+            </button>
+            <Link to="/history/learner" className="secondary-button">
+              查看学生版本
+            </Link>
+          </div>
         }
       />
+      {exportError !== null && (
+        <div className="mb-4">
+          <ErrorState error={exportError} onRetry={exportGraph} />
+        </div>
+      )}
+      <div className="mb-4">
+        <RuntimeModelBadge role="graph" label="Graph" />
+      </div>
       <div className="mb-4 grid gap-3 rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900 md:grid-cols-[1fr_auto]">
         <div className="relative">
           <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
           <input
+            aria-label="搜索学生图节点"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             className="form-input pl-9"

@@ -24,7 +24,9 @@ export function MobileBottomNav() {
               to={item.path}
               className={cn(
                 "flex min-h-14 flex-col items-center justify-center gap-1 text-[10px] focus:outline-none focus:ring-2 focus:ring-inset focus:ring-[#3157D5]/50",
-                active ? "text-[#3157D5]" : "text-slate-400",
+                active
+                  ? "text-[#3157D5]"
+                  : "text-slate-600 dark:text-slate-400",
               )}
               aria-current={active ? "page" : undefined}
             >

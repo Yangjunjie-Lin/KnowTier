@@ -27,6 +27,7 @@ vi.mock("@/services/api", () => ({
     getLearnerEvidence: vi.fn(),
     getLearnerGraph: vi.fn(),
     getDomainDetail: vi.fn(),
+    getActiveModel: vi.fn(),
   },
 }));
 
@@ -167,6 +168,13 @@ describe("LearnPage", () => {
     vi.mocked(api.getDomainDetail).mockResolvedValue({
       data: { prerequisites: [] },
     });
+    vi.mocked(api.getActiveModel).mockResolvedValue({
+      role: "teacher",
+      provider: "mock",
+      model: "mock/default",
+      profile_id: null,
+      profile_name: "Mock Provider",
+    });
   });
 
   it("reads a tolerant navigation target and only prefills its confirmation", () => {
@@ -228,6 +236,7 @@ describe("LearnPage", () => {
           attachment_ids: [uploadedDocument.id],
           requested_mode: "practice",
         }),
+        expect.any(AbortSignal),
       ),
     );
     expect(await screen.findByText("这是教师讲解。")).toBeInTheDocument();
@@ -272,6 +281,57 @@ describe("LearnPage", () => {
     expect(screen.getByRole("button", { name: "拍照" })).toBeDisabled();
     expect(screen.getByLabelText("上传学习资料")).toBeDisabled();
     expect(screen.getByLabelText("拍照上传学习资料")).toBeDisabled();
+  });
+
+  it("synchronously blocks a duplicate submit before React rerenders", async () => {
+    vi.mocked(api.chat).mockImplementation(
+      () => new Promise<ChatResponse>(() => undefined),
+    );
+    renderPage();
+    fireEvent.change(screen.getByLabelText("学习消息"), {
+      target: { value: "只提交一次" },
+    });
+    const send = screen.getByRole("button", { name: "发送学习消息" });
+    fireEvent.click(send);
+    fireEvent.click(send);
+    await waitFor(() => expect(api.chat).toHaveBeenCalledOnce());
+  });
+
+  it("cancels an in-flight request without losing the draft", async () => {
+    vi.mocked(api.chat).mockImplementation(
+      (_input, signal) =>
+        new Promise<ChatResponse>((_resolve, reject) => {
+          signal?.addEventListener(
+            "abort",
+            () => reject(new DOMException("cancelled", "AbortError")),
+            { once: true },
+          );
+        }),
+    );
+    renderPage();
+    fireEvent.change(screen.getByLabelText("学习消息"), {
+      target: { value: "取消后保留我" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送学习消息" }));
+    fireEvent.click(await screen.findByRole("button", { name: "取消" }));
+
+    expect(await screen.findByText(/本轮请求已取消/)).toBeVisible();
+    expect(screen.getByLabelText("学习消息")).toHaveValue("取消后保留我");
+    expect(screen.getByLabelText("学习消息")).toBeEnabled();
+  });
+
+  it("clears draft and mismatched state for a new session", async () => {
+    renderPage({
+      learningTarget: { name: "旧目标", source: "learning-path" },
+    });
+    fireEvent.change(screen.getByLabelText("学习消息"), {
+      target: { value: "旧 Session 草稿" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "新建 Session" }));
+    expect(screen.getByLabelText("学习消息")).toHaveValue("");
+    await waitFor(() =>
+      expect(screen.queryByText("旧目标")).not.toBeInTheDocument(),
+    );
   });
 
   it("refreshes model, evidence, learner graph, and domain detail after chat", async () => {
@@ -363,5 +423,22 @@ describe("LearnPage", () => {
     );
     expect(screen.getByText("其他教学动作：Future scaffold")).toBeInTheDocument();
     expect(screen.getByText(/其他掌握检测：Future check/)).toBeInTheDocument();
+  });
+
+  it("renders structured Markdown and exposes copy controls", () => {
+    render(
+      <TeachingTurn
+        result={{
+          ...chatResponse,
+          response: "## 推导\n\n公式 $a^2+b^2=c^2$\n\n```python\nprint('ok')\n```",
+        }}
+      />,
+    );
+    expect(screen.getByRole("heading", { name: "推导" })).toBeVisible();
+    expect(screen.getByText("print('ok')")).toBeVisible();
+    expect(screen.getByRole("button", { name: "复制代码" })).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "复制完整教学回答" }),
+    ).toBeVisible();
   });
 });

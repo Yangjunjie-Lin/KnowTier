@@ -25,7 +25,7 @@ export function MasteryBar({
         />
       </div>
       {confidence !== undefined && (
-        <div className="text-[11px] text-slate-400">
+        <div className="text-[11px] text-slate-600 dark:text-slate-400">
           置信度 {displayPercent(confidence)}
         </div>
       )}

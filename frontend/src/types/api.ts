@@ -310,3 +310,104 @@ export interface GraphDetailResponse {
   workspace_id?: UUID;
   graph_revision_id?: UUID | null;
 }
+
+export type ModelProviderKind =
+  | "mock"
+  | "siliconflow"
+  | "custom_openai_compatible";
+export type CredentialStorage = "session" | "os_keyring";
+export type ModelConnectionStatus = "untested" | "connected" | "error";
+
+export interface RoleModels {
+  teacher: string;
+  extractor: string;
+  grader: string;
+  graph: string;
+  vision: string;
+  embedding: string;
+}
+
+export interface ModelProfile {
+  id: UUID;
+  name: string;
+  provider: ModelProviderKind;
+  base_url: string | null;
+  allow_local: boolean;
+  credential_storage: CredentialStorage;
+  models: RoleModels;
+  timeout_seconds: number;
+  max_retries: number;
+  temperature: number;
+  max_tokens: number;
+  active: boolean;
+  connection_status: ModelConnectionStatus;
+  last_tested_at: string | null;
+  error_summary: string | null;
+  updated_at: string;
+  credential_present: boolean;
+  credential_masked: string | null;
+}
+
+export interface ModelProfileInput {
+  name: string;
+  provider: ModelProviderKind;
+  base_url?: string | null;
+  allow_local: boolean;
+  credential_storage: CredentialStorage;
+  models: RoleModels;
+  timeout_seconds: number;
+  max_retries: number;
+  temperature: number;
+  max_tokens: number;
+  api_key?: string;
+}
+
+export interface ModelConfigurationSnapshot {
+  profiles: ModelProfile[];
+  active_profile_id: UUID | null;
+}
+
+export interface ModelDiscoveryResult {
+  profile_id: UUID;
+  provider: ModelProviderKind;
+  models: string[];
+  tested_at: string;
+}
+
+export type ModelRoleName =
+  | "teacher"
+  | "extractor"
+  | "grader"
+  | "graph"
+  | "vision"
+  | "embedding";
+
+export interface ActiveModel {
+  role: ModelRoleName;
+  provider: string;
+  model: string;
+  profile_id: UUID | null;
+  profile_name: string;
+}
+
+export type GlobalSearchResultKind =
+  | "knowledge"
+  | "material"
+  | "material_content"
+  | "learner_state";
+
+export interface GlobalSearchResult {
+  kind: GlobalSearchResultKind;
+  id: UUID;
+  title: string;
+  description: string;
+  path: string;
+  score: number;
+  metadata: JsonObject;
+}
+
+export interface GlobalSearchResponse {
+  query: string;
+  items: GlobalSearchResult[];
+  truncated: boolean;
+}

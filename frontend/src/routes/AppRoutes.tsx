@@ -16,6 +16,7 @@ const LearningPathPage = lazy(() => import("@/features/path/LearningPathPage").t
 const DomainVersionPage = lazy(() => import("@/features/history/VersionHistoryPage").then((module) => ({ default: module.DomainVersionPage })));
 const LearnerVersionPage = lazy(() => import("@/features/history/VersionHistoryPage").then((module) => ({ default: module.LearnerVersionPage })));
 const SettingsPage = lazy(() => import("@/features/settings/SettingsPage").then((module) => ({ default: module.SettingsPage })));
+const GlobalSearchPage = lazy(() => import("@/features/search/GlobalSearchPage").then((module) => ({ default: module.GlobalSearchPage })));
 
 function ContextGuard() {
   const { currentWorkspace, currentLearner } = useAppStore();
@@ -46,6 +47,7 @@ export function AppRoutes() {
           <Route path="/settings" element={<SettingsPage />} />
           <Route element={<ContextGuard />}>
             <Route path="/overview" element={<OverviewPage />} />
+            <Route path="/search" element={<GlobalSearchPage />} />
             <Route path="/learn" element={<LearnPage />} />
             <Route path="/materials" element={<MaterialsPage />} />
             <Route path="/materials/:documentId" element={<DocumentDetailPage />} />

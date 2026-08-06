@@ -84,21 +84,27 @@ export function InitPage() {
     }
   };
 
+  const connectExistingWorkspace = async (id: string) => {
+    setBusy(true);
+    setError(null);
+    try {
+      const workspace = await api.getWorkspace(id);
+      setWorkspace(workspace);
+      setStep("learner");
+    } catch (requestError) {
+      setError(requestError);
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const chooseExistingWorkspace = () => {
     const id = existingWorkspaceId.trim();
     if (!isUuid(id)) {
       setError(new Error("请输入有效的 Workspace UUID。"));
       return;
     }
-    setWorkspace({
-      id,
-      name: "已连接 Workspace",
-      slug: id.slice(0, 8),
-      default_language: "zh-CN",
-      created_at: new Date().toISOString(),
-    });
-    setStep("learner");
-    setError(null);
+    void connectExistingWorkspace(id);
   };
 
   const handleLearner = async (values: LearnerValues) => {
@@ -212,10 +218,9 @@ export function InitPage() {
                 setExistingId={setExistingWorkspaceId}
                 recent={recentWorkspaces}
                 onChoose={chooseExistingWorkspace}
-                onUseRecent={(workspace) => {
-                  setWorkspace(workspace);
-                  setStep("learner");
-                }}
+                onUseRecent={(workspace) =>
+                  void connectExistingWorkspace(workspace.id)
+                }
               />
             ) : (
               <LearnerStep
@@ -235,7 +240,7 @@ export function InitPage() {
             )}
             {error !== null && (
               <div className="mt-5">
-                <ErrorState error={error} onRetry={() => setError(null)} />
+                <ErrorState error={error} />
               </div>
             )}
           </section>
@@ -343,6 +348,7 @@ function WorkspaceStep({
         <button
           type="button"
           onClick={onChoose}
+          disabled={busy}
           className="secondary-button shrink-0"
         >
           连接
@@ -358,6 +364,7 @@ function WorkspaceStep({
               <button
                 type="button"
                 key={workspace.id}
+                disabled={busy}
                 onClick={() => onUseRecent(workspace)}
                 className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm hover:bg-indigo-50 dark:hover:bg-indigo-950/50"
               >

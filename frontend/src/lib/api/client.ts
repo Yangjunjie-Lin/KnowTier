@@ -106,6 +106,7 @@ export class ApiClient {
   private configuredBaseUrl: string;
   readonly defaultTimeoutMs: number;
   private workspaceId: string | null = null;
+  private modelConfigurationToken: string | null = null;
 
   constructor(
     baseUrl: string = typeof import.meta.env.VITE_API_BASE_URL === "string"
@@ -128,6 +129,9 @@ export class ApiClient {
   getWorkspaceId(): string | null {
     return this.workspaceId;
   }
+  setModelConfigurationToken(token: string | null): void {
+    this.modelConfigurationToken = token?.trim() || null;
+  }
   setBaseUrl(baseUrl: string): void {
     this.configuredBaseUrl = baseUrl.trim().replace(/\/$/, "") || "/api";
   }
@@ -143,6 +147,13 @@ export class ApiClient {
     const headers = new Headers(options.headers);
     if (options.workspaceScoped !== false && this.workspaceId)
       headers.set("X-Workspace-ID", this.workspaceId);
+    if (path === "/v1/model-config" || path.startsWith("/v1/model-config/")) {
+      if (this.modelConfigurationToken) {
+        headers.set("X-Model-Configuration-Token", this.modelConfigurationToken);
+      } else {
+        headers.delete("X-Model-Configuration-Token");
+      }
+    }
     let body: BodyInit | undefined;
     if (options.body !== undefined) {
       if (isBodyInit(options.body)) body = options.body;
@@ -242,6 +253,21 @@ export class ApiClient {
     options: Omit<RequestOptions, "method" | "body"> = {},
   ): Promise<T> {
     return this.request<T>(path, { ...options, method: "POST", body });
+  }
+
+  put<T>(
+    path: string,
+    body?: JsonValue | BodyInit | object,
+    options: Omit<RequestOptions, "method" | "body"> = {},
+  ): Promise<T> {
+    return this.request<T>(path, { ...options, method: "PUT", body });
+  }
+
+  delete<T>(
+    path: string,
+    options: Omit<RequestOptions, "method" | "body"> = {},
+  ): Promise<T> {
+    return this.request<T>(path, { ...options, method: "DELETE" });
   }
 
   async download(

@@ -1,6 +1,7 @@
 import { apiClient } from "@/lib/api/client";
 import type {
   ApiHealth,
+  ActiveModel,
   ChatRequest,
   ChatResponse,
   CytoscapeGraph,
@@ -10,6 +11,7 @@ import type {
   EvidenceItem,
   GraphDetailResponse,
   GraphManifest,
+  GlobalSearchResponse,
   GraphQueryEnvelope,
   IngestionReport,
   JsonValue,
@@ -18,6 +20,11 @@ import type {
   LearnerRevision,
   LearningPathData,
   LearningPathResponse,
+  ModelConfigurationSnapshot,
+  ModelDiscoveryResult,
+  ModelProfile,
+  ModelProfileInput,
+  ModelRoleName,
   RevisionSummary,
   UUID,
   Workspace,
@@ -35,6 +42,64 @@ export const api = {
       retries: 1,
       acceptedStatuses: [503],
       signal,
+    }),
+  getModelConfiguration: (signal?: AbortSignal) =>
+    apiClient.get<ModelConfigurationSnapshot>("/v1/model-config", {
+      workspaceScoped: false,
+      signal,
+    }),
+  getActiveModel: (role: ModelRoleName, signal?: AbortSignal) =>
+    apiClient.get<ActiveModel>(
+      `/v1/model-config/active?role=${encodeURIComponent(role)}`,
+      { workspaceScoped: false, signal },
+    ),
+  globalSearch: (
+    workspaceId: UUID,
+    learnerId: UUID,
+    query: string,
+    signal?: AbortSignal,
+  ) =>
+    apiClient.get<GlobalSearchResponse>(
+      `/v1/search?workspace_id=${encodeURIComponent(workspaceId)}&learner_id=${encodeURIComponent(learnerId)}&q=${encodeURIComponent(query)}`,
+      { signal },
+    ),
+  createModelProfile: (input: ModelProfileInput) =>
+    apiClient.post<ModelProfile>("/v1/model-config/profiles", input, {
+      workspaceScoped: false,
+      retries: 0,
+    }),
+  updateModelProfile: (profileId: UUID, input: ModelProfileInput) =>
+    apiClient.put<ModelProfile>(
+      `/v1/model-config/profiles/${profileId}`,
+      input,
+      { workspaceScoped: false, retries: 0 },
+    ),
+  activateModelProfile: (profileId: UUID) =>
+    apiClient.post<ModelProfile>(
+      `/v1/model-config/profiles/${profileId}/activate`,
+      undefined,
+      { workspaceScoped: false, retries: 0 },
+    ),
+  discoverProviderModels: (profileId: UUID, signal?: AbortSignal) =>
+    apiClient.get<ModelDiscoveryResult>(
+      `/v1/model-config/profiles/${profileId}/models`,
+      { workspaceScoped: false, retries: 0, signal, timeoutMs: 60_000 },
+    ),
+  testModelConnection: (profileId: UUID) =>
+    apiClient.post<ModelDiscoveryResult>(
+      `/v1/model-config/profiles/${profileId}/test`,
+      undefined,
+      { workspaceScoped: false, retries: 0, timeoutMs: 60_000 },
+    ),
+  deleteModelCredential: (profileId: UUID) =>
+    apiClient.delete<ModelProfile>(
+      `/v1/model-config/profiles/${profileId}/credential`,
+      { workspaceScoped: false, retries: 0 },
+    ),
+  deleteModelProfile: (profileId: UUID) =>
+    apiClient.delete<void>(`/v1/model-config/profiles/${profileId}`, {
+      workspaceScoped: false,
+      retries: 0,
     }),
   createWorkspace: (input: {
     name: string;
@@ -55,6 +120,11 @@ export const api = {
       { workspaceScoped: false, headers },
     );
   },
+  getWorkspace: (workspaceId: UUID, signal?: AbortSignal) =>
+    apiClient.get<Workspace>(`/v1/workspaces/${workspaceId}`, {
+      workspaceScoped: false,
+      signal,
+    }),
   createLearner: (input: {
     workspace_id: UUID;
     display_name: string;
@@ -90,10 +160,11 @@ export const api = {
       `/v1/documents/${documentId}/extracted-knowledge`,
       { signal },
     ),
-  chat: (input: ChatRequest) =>
+  chat: (input: ChatRequest, signal?: AbortSignal) =>
     apiClient.post<ChatResponse>("/v1/chat", input, {
       timeoutMs: 120_000,
       retries: 0,
+      signal,
     }),
   getManifest: (workspaceId: UUID, signal?: AbortSignal) =>
     apiClient.get<

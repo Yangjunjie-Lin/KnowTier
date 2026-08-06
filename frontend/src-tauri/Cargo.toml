@@ -1,0 +1,21 @@
+[package]
+name = "knowtier-desktop"
+version = "1.0.0-rc.1"
+description = "KnowTier native desktop shell"
+authors = ["KnowTier contributors"]
+edition = "2021"
+rust-version = "1.77.2"
+license = "MIT"
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+getrandom = "0.3"
+tauri = { version = "2", features = [] }
+tauri-plugin-single-instance = "2"
+tauri-plugin-shell = "2"
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]

@@ -19,6 +19,7 @@ import { useAppStore } from "@/stores/AppContext";
 import { ErrorState } from "@/components/shared/States";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { teachingModes } from "@/features/learn/teachingLabels";
+import { ModelConfigurationSection } from "@/features/settings/ModelConfigurationSection";
 
 export function SettingsPage() {
   const store = useAppStore();
@@ -57,6 +58,7 @@ export function SettingsPage() {
         title="设置"
         description="偏好和最近上下文仅保存在本设备；API 密钥与 Provisioning Token 不会保存。"
       />
+      <ModelConfigurationSection />
       <div className="grid gap-5 lg:grid-cols-2">
         <section className="space-y-5">
           <SettingSection title="连接">
@@ -346,7 +348,7 @@ export function SettingsPage() {
               />
             </div>
           )}
-          <p className="mt-4 text-[11px] leading-5 text-slate-400">
+          <p className="mt-4 text-[11px] leading-5 text-slate-600 dark:text-slate-400">
             健康探针来自 `/health` 和 `/ready`。后端没有结构化模型/OCR/Vision
             故障码，摄取失败详情请查看资料警告。
           </p>
@@ -365,7 +367,15 @@ export function SettingsPage() {
           </div>
           <button
             type="button"
-            onClick={store.clearLocalHistory}
+            onClick={() => {
+              if (
+                window.confirm(
+                  "清除本设备保存的 Workspace、Learner、Document 与 Session 索引？服务器数据不会删除。",
+                )
+              ) {
+                store.clearLocalHistory();
+              }
+            }}
             className="secondary-button border-red-200 text-red-700 hover:bg-red-50"
           >
             <Trash2 className="h-4 w-4" />
@@ -373,7 +383,7 @@ export function SettingsPage() {
           </button>
         </div>
       </section>
-      <p className="mt-5 text-xs text-slate-400">
+      <p className="mt-5 text-xs text-slate-600 dark:text-slate-400">
         API 文档：
         <a
           className="inline-flex items-center gap-1 text-[#3157D5]"
@@ -413,7 +423,7 @@ function ContextValue({
 }) {
   return (
     <div className="rounded-lg bg-slate-50 p-3 dark:bg-slate-800/60">
-      <p className="text-[11px] text-slate-400">{label}</p>
+      <p className="text-[11px] text-slate-600 dark:text-slate-400">{label}</p>
       <p
         className={`mt-1 break-all text-xs text-slate-700 dark:text-slate-200 ${mono ? "font-mono" : ""}`}
       >
