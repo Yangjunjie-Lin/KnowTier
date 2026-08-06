@@ -621,10 +621,15 @@ jobs:
           }
           $privacy = @(Get-ChildItem -Path $installDir -Filter "PRIVACY.md" -Recurse -File)
           if ($privacy.Count -ne 1) { throw "installed bundle does not contain exactly one PRIVACY.md" }
+          $installedSidecars = @(Get-ChildItem -Path $installDir `
+            -Filter "cognigraph-desktop-sidecar*.exe" -Recurse -File)
+          if ($installedSidecars.Count -ne 1) {
+            throw "installed bundle does not contain exactly one sidecar"
+          }
           uv run --frozen python scripts/desktop/smoke_package.py `
             --executable $installedExe `
             --data-dir (Join-Path $env:RUNNER_TEMP "KnowTier-installed-data") `
-            --sidecar-name "cognigraph-desktop-sidecar-${{ matrix.target }}.exe"
+            --sidecar-name $installedSidecars[0].Name
           $uninstallers = @(Get-ChildItem -Path $installDir -Filter "*uninstall*.exe" -Recurse -File)
           if ($uninstallers.Count -ne 1) {
             throw "expected exactly one uninstaller, found $($uninstallers.Count)"
@@ -714,14 +719,14 @@ jobs:
             throw "portable KnowTier executable was not found"
           }
           $portableSidecars = @(Get-ChildItem -Path $portable `
-            -Filter "cognigraph-desktop-sidecar-${{ matrix.target }}.exe" -Recurse -File)
+            -Filter "cognigraph-desktop-sidecar*.exe" -Recurse -File)
           if ($portableSidecars.Count -ne 1) {
-            throw "portable bundle does not contain exactly one target-suffixed sidecar"
+            throw "portable bundle does not contain exactly one sidecar"
           }
           uv run --frozen python scripts/desktop/smoke_package.py `
             --executable $portableExe `
             --data-dir (Join-Path $env:RUNNER_TEMP "KnowTier-portable-data") `
-            --sidecar-name "cognigraph-desktop-sidecar-${{ matrix.target }}.exe"
+            --sidecar-name $portableSidecars[0].Name
           Copy-Item `
             "CHANGELOG.md","LICENSE","PRIVACY.md","THIRD_PARTY_NOTICES.md","docs/DESKTOP.md" `
             "$portable/"
