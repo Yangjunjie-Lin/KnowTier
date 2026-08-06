@@ -14,7 +14,10 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument("--executable", type=Path, required=True)
     parser.add_argument("--data-dir", type=Path, required=True)
     parser.add_argument("--sidecar-name", required=True)
-    parser.add_argument("--startup-seconds", type=float, default=8.0)
+    # A one-file PyInstaller sidecar must unpack before the native shell can
+    # announce readiness. Keep the smoke deterministic on a cold, clean disk
+    # (Windows Defender can make this noticeably slower than a warm restart).
+    parser.add_argument("--startup-seconds", type=float, default=60.0)
     return parser.parse_args()
 
 
