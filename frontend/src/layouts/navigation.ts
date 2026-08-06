@@ -6,6 +6,7 @@ import {
   History,
   Home,
   Network,
+  Search,
   Settings,
   Target,
   type LucideIcon,
@@ -33,6 +34,12 @@ export const navigationItems: NavigationItem[] = [
     path: "/learn",
     icon: BookOpen,
     mobile: true,
+  },
+  {
+    key: "search",
+    label: "全局搜索",
+    path: "/search",
+    icon: Search,
   },
   {
     key: "materials",

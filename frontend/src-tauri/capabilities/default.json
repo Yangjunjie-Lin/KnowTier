@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "The UI has no direct process or shell capabilities.",
+  "windows": ["main"],
+  "permissions": ["core:default"]
+}

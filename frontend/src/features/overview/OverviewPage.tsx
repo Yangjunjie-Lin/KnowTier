@@ -114,7 +114,8 @@ export function OverviewPage() {
       {(manifest.isError ||
         model.isError ||
         evidence.isError ||
-        revisions.isError) && (
+        revisions.isError ||
+        domainRevisions.isError) && (
         <PartialSuccess title="部分数据暂不可用">
           可用模块仍显示真实数据；对应区块可以单独重试。
         </PartialSuccess>
@@ -126,11 +127,17 @@ export function OverviewPage() {
           value={
             manifest.isLoading ? (
               <Skeleton className="h-7 w-16" />
+            ) : manifest.isError ? (
+              <span className="text-sm text-amber-700">不可用</span>
             ) : (
               String(manifestData?.knowledge_point_count ?? 0)
             )
           }
-          caption={`关系 ${manifestData?.assertion_count ?? 0} 条`}
+          caption={
+            manifest.isError
+              ? "领域图谱读取失败"
+              : `关系 ${manifestData?.assertion_count ?? 0} 条`
+          }
         />
         <MetricCard
           icon={<Brain className="h-4 w-4" />}
@@ -138,11 +145,13 @@ export function OverviewPage() {
           value={
             model.isLoading ? (
               <Skeleton className="h-7 w-16" />
+            ) : model.isError ? (
+              <span className="text-sm text-amber-700">不可用</span>
             ) : (
               String(items.length)
             )
           }
-          caption={`平均掌握度 ${Math.round(avgMastery)}%`}
+          caption={model.isError ? "个人模型读取失败" : `平均掌握度 ${Math.round(avgMastery)}%`}
         />
         <MetricCard
           icon={<CalendarClock className="h-4 w-4" />}
@@ -150,11 +159,13 @@ export function OverviewPage() {
           value={
             model.isLoading ? (
               <Skeleton className="h-7 w-16" />
+            ) : model.isError ? (
+              <span className="text-sm text-amber-700">不可用</span>
             ) : (
               String(dueItems.length)
             )
           }
-          caption="按 next_review_at 确定"
+          caption={model.isError ? "个人模型读取失败" : "按复习计划确定"}
           tone={dueItems.length > 0 ? "amber" : "default"}
         />
         <MetricCard
@@ -163,11 +174,17 @@ export function OverviewPage() {
           value={
             model.isLoading ? (
               <Skeleton className="h-7 w-16" />
+            ) : model.isError ? (
+              <span className="text-sm text-amber-700">不可用</span>
             ) : (
               String(misconceptionCount)
             )
           }
-          caption={`证据 ${evidence.data?.items.length ?? 0} 条`}
+          caption={
+            evidence.isError
+              ? "证据读取失败"
+              : `证据 ${evidence.data?.items.length ?? 0} 条`
+          }
           tone={misconceptionCount > 0 ? "red" : "default"}
         />
       </section>
@@ -194,6 +211,8 @@ export function OverviewPage() {
               <Skeleton className="h-10 w-full" />
               <Skeleton className="h-10 w-full" />
             </div>
+          ) : model.isError ? (
+            <ErrorState error={model.error} onRetry={() => void model.refetch()} />
           ) : items.length === 0 ? (
             <EmptyState
               title="还没有掌握度数据"
@@ -217,7 +236,7 @@ export function OverviewPage() {
                     </p>
                     <div className="mt-1 flex items-center gap-2">
                       <CognitiveBadge level={item.current_level} size="xs" />
-                      <span className="text-[11px] text-slate-400">
+                      <span className="text-[11px] text-slate-600 dark:text-slate-400">
                         证据 {item.evidence_count}
                       </span>
                     </div>
@@ -245,12 +264,14 @@ export function OverviewPage() {
               revision={latestDomainRevision?.sequence_number}
               date={latestDomainRevision?.created_at}
               href="/history/domain"
+              unavailable={domainRevisions.isError}
             />
             <RevisionLine
               label="学生图谱"
               revision={latestLearnerRevision?.sequence_number}
               date={latestLearnerRevision?.created_at}
               href="/history/learner"
+              unavailable={revisions.isError}
             />
           </div>
           <div className="rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
@@ -350,7 +371,7 @@ function MetricCard({
       <div className="mt-2 min-h-8 text-2xl font-semibold tracking-tight">
         {value}
       </div>
-      <p className="mt-1 text-[11px] text-slate-400">{caption}</p>
+      <p className="mt-1 text-[11px] text-slate-600 dark:text-slate-400">{caption}</p>
     </div>
   );
 }
@@ -360,11 +381,13 @@ function RevisionLine({
   revision,
   date,
   href,
+  unavailable = false,
 }: {
   label: string;
   revision?: number;
   date?: string;
   href: string;
+  unavailable?: boolean;
 }) {
   return (
     <Link
@@ -373,12 +396,12 @@ function RevisionLine({
     >
       <div>
         <p className="text-sm font-medium">{label}</p>
-        <p className="mt-0.5 text-[11px] text-slate-400">
-          {date ? formatDate(date, true) : "暂无版本"}
+        <p className="mt-0.5 text-[11px] text-slate-600 dark:text-slate-400">
+          {unavailable ? "版本读取失败" : date ? formatDate(date, true) : "暂无版本"}
         </p>
       </div>
       <span className="font-mono text-xs text-[#3157D5]">
-        {revision !== undefined ? `v${revision}` : "—"}
+        {unavailable ? "不可用" : revision !== undefined ? `v${revision}` : "—"}
       </span>
     </Link>
   );

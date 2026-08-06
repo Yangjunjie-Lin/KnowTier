@@ -64,6 +64,10 @@ class Settings(BaseSettings):
     llm_max_retries: int = 2
     llm_max_concurrency: int = 4
     api_key: SecretStr | None = Field(default=None, repr=False)
+    model_config_path: Path | None = None
+    desktop_mode: bool = False
+    keyring_service_name: str = "KnowTier LLM Credentials"
+    model_configuration_token: SecretStr | None = Field(default=None, repr=False)
 
     # Model tool calls are optional and always bounded.  When disabled (or
     # when a provider does not advertise support), callers receive the normal
@@ -135,6 +139,13 @@ class Settings(BaseSettings):
     def positive_limits(cls, value: int) -> int:
         if value <= 0:
             raise ValueError("limit must be positive")
+        return value
+
+    @field_validator("llm_max_retries")
+    @classmethod
+    def non_negative_retries(cls, value: int) -> int:
+        if value < 0:
+            raise ValueError("llm_max_retries cannot be negative")
         return value
 
     @field_validator("outbox_poll_interval_seconds", "tool_timeout_seconds")

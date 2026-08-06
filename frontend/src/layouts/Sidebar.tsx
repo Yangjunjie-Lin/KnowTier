@@ -32,7 +32,7 @@ export function Sidebar({
             <p className="text-sm font-semibold tracking-tight text-slate-900 dark:text-white">
               KnowTier
             </p>
-            <p className="text-[10px] text-slate-400">认知学习工作台</p>
+            <p className="text-[10px] text-slate-600 dark:text-slate-400">认知学习工作台</p>
           </div>
         )}
       </div>

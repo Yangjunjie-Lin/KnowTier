@@ -32,9 +32,11 @@ export function MaterialsPage() {
   const queryClient = useQueryClient();
   const navigate = useNavigate();
   const inputRef = useRef<HTMLInputElement>(null);
+  const lastUploadRef = useRef<File | null>(null);
   const [query, setQuery] = useState("");
   const [manualId, setManualId] = useState("");
   const [uploadError, setUploadError] = useState<unknown>(null);
+  const [errorSource, setErrorSource] = useState<"upload" | "manual" | null>(null);
   const docs = useMemo(
     () =>
       documentsForWorkspace(recentDocuments, currentWorkspace?.id).filter(
@@ -51,10 +53,14 @@ export function MaterialsPage() {
       rememberDocument(document);
       selectDocument(document.id);
       setUploadError(null);
+      setErrorSource(null);
       void queryClient.setQueryData(queryKeys.document(document.id), document);
       void navigate(`/materials/${document.id}`);
     },
-    onError: setUploadError,
+    onError: (error) => {
+      setUploadError(error);
+      setErrorSource("upload");
+    },
   });
   if (!currentWorkspace)
     return (
@@ -72,6 +78,7 @@ export function MaterialsPage() {
     const id = manualId.trim();
     if (!isUuid(id)) {
       setUploadError(new Error("请输入有效的 Document UUID。"));
+      setErrorSource("manual");
       return;
     }
     selectDocument(id);
@@ -87,6 +94,7 @@ export function MaterialsPage() {
           <button
             type="button"
             onClick={() => inputRef.current?.click()}
+            disabled={upload.isPending}
             className="primary-button"
           >
             <UploadCloud className="h-4 w-4" />
@@ -99,9 +107,13 @@ export function MaterialsPage() {
         type="file"
         accept={accepted}
         className="hidden"
+        aria-label="选择要上传的资料"
         onChange={(event) => {
           const file = event.target.files?.[0];
-          if (file) upload.mutate(file);
+          if (file) {
+            lastUploadRef.current = file;
+            upload.mutate(file);
+          }
           event.target.value = "";
         }}
       />
@@ -115,14 +127,22 @@ export function MaterialsPage() {
         <div className="mb-4">
           <ErrorState
             error={uploadError}
-            onRetry={() => setUploadError(null)}
+            onRetry={
+              errorSource === "upload" && lastUploadRef.current
+                ? () => {
+                    const file = lastUploadRef.current;
+                    if (file) upload.mutate(file);
+                  }
+                : undefined
+            }
           />
         </div>
       )}
       <div className="mb-5 grid gap-3 md:grid-cols-[1fr_auto]">
         <div className="relative">
-          <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+          <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-600 dark:text-slate-400" />
           <input
+            aria-label="搜索最近资料"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
             placeholder="搜索本设备最近资料或 Document ID"
@@ -131,6 +151,7 @@ export function MaterialsPage() {
         </div>
         <div className="flex gap-2">
           <input
+            aria-label="手动打开 Document UUID"
             value={manualId}
             onChange={(event) => setManualId(event.target.value)}
             placeholder="手动打开 UUID"
@@ -154,7 +175,7 @@ export function MaterialsPage() {
               后端当前没有 Document 列表接口，因此这里不伪造服务器列表。
             </p>
           </div>
-          <span className="font-mono text-xs text-slate-400">
+          <span className="font-mono text-xs text-slate-600 dark:text-slate-400">
             {docs.length} items
           </span>
         </div>
@@ -180,7 +201,7 @@ export function MaterialsPage() {
                     <p className="truncate text-sm font-medium">
                       {doc.filename}
                     </p>
-                    <p className="mt-0.5 truncate font-mono text-[10px] text-slate-400">
+                    <p className="mt-0.5 truncate font-mono text-[10px] text-slate-600 dark:text-slate-400">
                       {doc.id} · {doc.mimeType} ·{" "}
                       {formatDate(doc.createdAt, true)}
                     </p>
@@ -203,7 +224,7 @@ export function MaterialsPage() {
           </div>
         )}
       </section>
-      <p className="mt-4 text-[11px] text-slate-400">
+      <p className="mt-4 text-[11px] text-slate-600 dark:text-slate-400">
         支持 PDF、DOCX、PPTX、TXT、Markdown、PNG、JPEG、TIFF 和扫描
         PDF（是否启用 OCR 由后端运行配置决定）。
       </p>

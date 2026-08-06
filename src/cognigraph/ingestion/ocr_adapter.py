@@ -378,7 +378,7 @@ class PaddleOCRAdapter:
             return rendered
 
         try:
-            from pdf2image import convert_from_path  # type: ignore[import-not-found]
+            from pdf2image import convert_from_path
         except ImportError as exc:
             raise OCRUnavailableError(
                 "scan-PDF OCR requires PyMuPDF or pdf2image with Poppler"

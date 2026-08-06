@@ -472,7 +472,7 @@ export function GraphListView({
         {nodes.length ? (
           <ul className="grid gap-2 md:grid-cols-2" role="listbox" aria-label="图谱节点">
             {nodes.map((node, index) => (
-              <li key={node.id}>
+              <li key={node.id} role="presentation">
                 <button
                   ref={(element) => { buttonRefs.current[index] = element; }}
                   type="button"
@@ -504,7 +504,7 @@ export function GraphListView({
             {edges.map((edge, edgeIndex) => {
               const index = nodes.length + edgeIndex;
               return (
-                <li key={edge.id}>
+                <li key={edge.id} role="presentation">
                   <button
                     ref={(element) => { buttonRefs.current[index] = element; }}
                     type="button"

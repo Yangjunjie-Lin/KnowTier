@@ -39,6 +39,7 @@ export function PersonalModelPage() {
   const [sort, setSort] = useState<SortKey>("mastery");
   const [ascending, setAscending] = useState(false);
   const [selected, setSelected] = useState<LearnerModelItem | null>(null);
+  const [downloadError, setDownloadError] = useState<unknown>(null);
   const query = useQuery({
     queryKey: queryKeys.model(currentLearner?.id ?? ""),
     queryFn: ({ signal }) => api.getLearnerModel(currentLearner!.id, signal),
@@ -87,8 +88,13 @@ export function PersonalModelPage() {
       <ErrorState error={query.error} onRetry={() => void query.refetch()} />
     );
   const downloadCsv = async () => {
-    const response = await api.downloadLearnerModelCsv(currentLearner.id);
-    await triggerResponseDownload(response, `learner-${currentLearner.id}.csv`);
+    try {
+      const response = await api.downloadLearnerModelCsv(currentLearner.id);
+      await triggerResponseDownload(response, `learner-${currentLearner.id}.csv`);
+      setDownloadError(null);
+    } catch (error) {
+      setDownloadError(error);
+    }
   };
   return (
     <div>
@@ -107,10 +113,16 @@ export function PersonalModelPage() {
           </button>
         }
       />
+      {downloadError !== null && (
+        <div className="mb-4">
+          <ErrorState error={downloadError} onRetry={() => void downloadCsv()} />
+        </div>
+      )}
       <div className="mb-4 grid gap-3 rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900 md:grid-cols-[1fr_auto_auto_auto_auto]">
         <div className="relative">
-          <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
+          <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-600 dark:text-slate-400" />
           <input
+            aria-label="搜索个人模型知识点"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             className="form-input pl-9"
@@ -133,8 +145,9 @@ export function PersonalModelPage() {
           </select>
         </label>
         <label className="flex items-center gap-2">
-          <Filter className="h-3.5 w-3.5 text-slate-400" />
+          <Filter className="h-3.5 w-3.5 text-slate-600 dark:text-slate-400" />
           <select
+            aria-label="前置状态"
             value={status}
             onChange={(event) => setStatus(event.target.value)}
             className="form-input min-w-32"
@@ -146,7 +159,7 @@ export function PersonalModelPage() {
           </select>
         </label>
         <label className="flex items-center gap-2">
-          <SlidersHorizontal className="h-3.5 w-3.5 text-slate-400" />
+          <SlidersHorizontal className="h-3.5 w-3.5 text-slate-600 dark:text-slate-400" />
           <select
             value={sort}
             onChange={(event) => setSort(event.target.value as SortKey)}
@@ -209,16 +222,22 @@ export function PersonalModelPage() {
                 {rows.map((item) => (
                   <tr
                     key={item.knowledge_point_id}
-                    onClick={() => setSelected(item)}
-                    className="cursor-pointer hover:bg-indigo-50/50 dark:hover:bg-indigo-950/20"
+                    className="hover:bg-indigo-50/50 dark:hover:bg-indigo-950/20"
                   >
                     <td className="px-5 py-3">
-                      <p className="font-medium text-slate-800 dark:text-slate-100">
-                        {item.knowledge_point}
-                      </p>
-                      <p className="mt-0.5 font-mono text-[10px] text-slate-400">
-                        {item.knowledge_point_id}
-                      </p>
+                      <button
+                        type="button"
+                        className="w-full rounded text-left focus:outline-none focus:ring-2 focus:ring-[#3157D5]/50"
+                        onClick={() => setSelected(item)}
+                        aria-label={`查看 ${item.knowledge_point} 的个人模型详情`}
+                      >
+                        <span className="block font-medium text-slate-800 dark:text-slate-100">
+                          {item.knowledge_point}
+                        </span>
+                        <span className="mt-0.5 block font-mono text-[10px] text-slate-600 dark:text-slate-400">
+                          {item.knowledge_point_id}
+                        </span>
+                      </button>
                     </td>
                     <td className="px-3 py-3">
                       <CognitiveBadge level={item.current_level} size="xs" />
@@ -254,6 +273,9 @@ export function PersonalModelPage() {
                 entry.knowledge_point_id === selected.knowledge_point_id,
             ) ?? []
           }
+          evidenceLoading={evidence.isLoading}
+          evidenceError={evidence.error}
+          onRetryEvidence={() => void evidence.refetch()}
           onClose={() => setSelected(null)}
         />
       )}
@@ -274,6 +296,9 @@ function sortLabel(sort: SortKey): string {
 function ModelDrawer({
   item,
   evidence,
+  evidenceLoading,
+  evidenceError,
+  onRetryEvidence,
   onClose,
 }: {
   item: LearnerModelItem;
@@ -285,6 +310,9 @@ function ModelDrawer({
     observed_misconceptions: string[];
     correctness_score: number;
   }>;
+  evidenceLoading: boolean;
+  evidenceError: unknown;
+  onRetryEvidence: () => void;
   onClose: () => void;
 }) {
   return (
@@ -326,7 +354,7 @@ function ModelDrawer({
                 ))}
               </div>
             ) : (
-              <p className="mt-2 text-xs text-slate-400">
+              <p className="mt-2 text-xs text-slate-600 dark:text-slate-400">
                 后端未返回前置知识。
               </p>
             )}
@@ -342,14 +370,22 @@ function ModelDrawer({
                 ))}
               </ul>
             ) : (
-              <p className="mt-2 text-xs text-slate-400">暂无记录。</p>
+              <p className="mt-2 text-xs text-slate-600 dark:text-slate-400">暂无记录。</p>
             )}
           </div>
           <div>
             <h3 className="text-xs font-semibold uppercase tracking-wide text-slate-500">
               证据
             </h3>
-            {evidence.length ? (
+            {evidenceLoading ? (
+              <p className="mt-2 text-xs text-slate-500" role="status">
+                正在读取掌握证据…
+              </p>
+            ) : evidenceError ? (
+              <div className="mt-2">
+                <ErrorState error={evidenceError} onRetry={onRetryEvidence} />
+              </div>
+            ) : evidence.length ? (
               <div className="mt-2 space-y-2">
                 {evidence.slice(0, 8).map((entry) => (
                   <div
@@ -357,7 +393,7 @@ function ModelDrawer({
                     className="rounded-lg border border-slate-100 p-3 text-xs dark:border-slate-800"
                   >
                     <div className="flex justify-between text-slate-500">
-                      <span>{entry.evidence_type}</span>
+                      <span>{evidenceTypeLabel(entry.evidence_type)}</span>
                       <span>{formatDate(entry.created_at, true)}</span>
                     </div>
                     <p className="mt-1 leading-5 text-slate-600 dark:text-slate-300">
@@ -367,10 +403,23 @@ function ModelDrawer({
                 ))}
               </div>
             ) : (
-              <p className="mt-2 text-xs text-slate-400">暂无证据。</p>
+              <p className="mt-2 text-xs text-slate-600 dark:text-slate-400">暂无证据。</p>
             )}
           </div>
       </div>
     </Sheet>
   );
+}
+
+function evidenceTypeLabel(value: string): string {
+  return {
+    RECOGNITION: "识别",
+    WORKED_EXAMPLE: "例题",
+    EXPLANATION: "解释",
+    APPLICATION: "应用",
+    TRANSFER: "迁移",
+    CRITIQUE: "批判分析",
+    CREATION: "创造",
+    SELF_REPORT: "自我报告",
+  }[value] ?? `其他证据：${value.toLowerCase().replaceAll("_", " ")}`;
 }

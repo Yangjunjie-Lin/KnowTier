@@ -4,6 +4,7 @@ export type ErrorKind =
   | "not_found"
   | "conflict"
   | "validation"
+  | "rate_limited"
   | "server"
   | "database_unready"
   | "neo4j_unready"
@@ -21,6 +22,7 @@ const statusMessages: Record<number, string> = {
   404: "找不到请求的资源，请确认 ID 是否正确。",
   409: "资源已存在或状态冲突，请刷新后重试。",
   422: "提交的数据未通过校验，请检查必填项。",
+  429: "请求过于频繁或模型额度受限，请稍后重试。",
   500: "服务端发生错误，请稍后重试。",
   502: "模型或上游服务暂时不可用。",
   503: "服务尚未准备就绪，请稍后重试。",
@@ -54,6 +56,7 @@ export class ApiError extends Error {
 
 export function errorKindFor(status: number | null, detail: string): ErrorKind {
   const lowered = detail.toLowerCase();
+  if (status === 429) return "rate_limited";
   if (lowered.includes("neo4j")) return "neo4j_unready";
   if (lowered.includes("database") || lowered.includes("postgres"))
     return "database_unready";
@@ -75,6 +78,7 @@ export function friendlyStatusMessage(
   detail = "",
 ): string {
   const lowered = detail.toLowerCase();
+  if (status === 429) return "请求过于频繁或模型额度受限，请稍后重试。";
   if (lowered.includes("ocr")) return "OCR 处理失败，请检查 OCR 配置或重试。";
   if (lowered.includes("vision")) return "Vision 处理失败，请检查视觉模型配置或重试。";
   if (lowered.includes("model") || lowered.includes("llm"))

@@ -7,7 +7,7 @@ import {
   Search,
   Undo2,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { api } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
@@ -31,6 +31,7 @@ import {
   LoadingState,
 } from "@/components/shared/States";
 import { PageHeader } from "@/components/shared/PageHeader";
+import { RuntimeModelBadge } from "@/components/shared/RuntimeModelBadge";
 import { Sheet } from "@/components/shared/Sheet";
 
 export function DomainGraphPage() {
@@ -43,10 +44,15 @@ export function DomainGraphPage() {
   const [selectedNode, setSelectedNode] = useState<GraphNodeData | null>(null);
   const [selectedEdge, setSelectedEdge] = useState<GraphEdgeData | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
+  const [exportError, setExportError] = useState<unknown>(null);
   const [focusNodeId, setFocusNodeId] = useState<string | null>(() => {
     const linkedNodeId = searchParams.get("node");
     return linkedNodeId && isUuid(linkedNodeId) ? linkedNodeId : null;
   });
+  useEffect(() => {
+    const linkedNodeId = searchParams.get("node");
+    setFocusNodeId(linkedNodeId && isUuid(linkedNodeId) ? linkedNodeId : null);
+  }, [searchParams]);
   const graph = useQuery({
     queryKey: queryKeys.domainGraph(workspaceId ?? ""),
     queryFn: ({ signal }) => api.getDomainGraph(workspaceId!, signal),
@@ -150,14 +156,19 @@ export function DomainGraphPage() {
     setDetailOpen(true);
   };
   const exportGraph = async (format: "cytoscape" | "jsonld" | "turtle") => {
-    const response = await api.downloadGraph(workspaceId, format);
-    const blob = await response.blob();
-    const url = URL.createObjectURL(blob);
-    const anchor = document.createElement("a");
-    anchor.href = url;
-    anchor.download = `domain-graph.${format === "turtle" ? "ttl" : format === "jsonld" ? "jsonld" : "json"}`;
-    anchor.click();
-    URL.revokeObjectURL(url);
+    try {
+      const response = await api.downloadGraph(workspaceId, format);
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const anchor = document.createElement("a");
+      anchor.href = url;
+      anchor.download = `domain-graph.${format === "turtle" ? "ttl" : format === "jsonld" ? "jsonld" : "json"}`;
+      anchor.click();
+      URL.revokeObjectURL(url);
+      setExportError(null);
+    } catch (error) {
+      setExportError(error);
+    }
   };
   return (
     <div>
@@ -200,10 +211,22 @@ export function DomainGraphPage() {
           </div>
         }
       />
+      {exportError !== null && (
+        <div className="mb-4">
+          <ErrorState
+            error={exportError}
+            onRetry={() => void exportGraph("cytoscape")}
+          />
+        </div>
+      )}
+      <div className="mb-4">
+        <RuntimeModelBadge role="graph" label="Graph" />
+      </div>
       <div className="mb-4 grid gap-3 rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900 md:grid-cols-[1fr_auto]">
         <div className="relative">
           <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
           <input
+            aria-label="搜索领域图节点"
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             className="form-input pl-9"

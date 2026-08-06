@@ -11,7 +11,16 @@ from fastapi.responses import JSONResponse
 from starlette.middleware.base import RequestResponseEndpoint
 from starlette.responses import Response as StarletteResponse
 
-from cognigraph.api.routes import chat, documents, graph, learners, workspaces
+from cognigraph import __version__
+from cognigraph.api.routes import (
+    chat,
+    documents,
+    graph,
+    learners,
+    model_config,
+    search,
+    workspaces,
+)
 from cognigraph.config import Settings
 from cognigraph.logging import configure_logging, request_id_context
 from cognigraph.services.runtime import ApplicationRuntime
@@ -37,7 +46,7 @@ def create_app(
 
     application = FastAPI(
         title="Cognigraph Tutor API",
-        version="0.1.0",
+        version=__version__,
         description="Six-level traceable tutoring and learner knowledge graph backend.",
         lifespan=lifespan,
     )
@@ -55,6 +64,7 @@ def create_app(
                 "X-Workspace-ID",
                 "X-Workspace-Provisioning-Token",
                 "X-Request-ID",
+                "X-Model-Configuration-Token",
             ],
             expose_headers=["X-Request-ID"],
         )
@@ -100,6 +110,8 @@ def create_app(
     application.include_router(chat.router, prefix="/v1")
     application.include_router(graph.router, prefix="/v1")
     application.include_router(learners.router, prefix="/v1")
+    application.include_router(model_config.router, prefix="/v1")
+    application.include_router(search.router, prefix="/v1")
     return application
 
 

@@ -1,6 +1,10 @@
 export const queryKeys = {
   health: ["health"] as const,
   readiness: ["readiness"] as const,
+  modelConfiguration: ["model-configuration"] as const,
+  activeModel: (role: string) => ["active-model", role] as const,
+  globalSearch: (workspaceId: string, learnerId: string, query: string) =>
+    ["global-search", workspaceId, learnerId, query] as const,
   learner: (learnerId: string) => ["learner", learnerId] as const,
   model: (learnerId: string) => ["learner-model", learnerId] as const,
   evidence: (learnerId: string) => ["learner-evidence", learnerId] as const,

@@ -1,14 +1,33 @@
 from __future__ import annotations
 
 import secrets
+from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Request, status
 from sqlalchemy.exc import IntegrityError
 
-from cognigraph.api.dependencies import RuntimeDependency
+from cognigraph.api.dependencies import (
+    RuntimeDependency,
+    WorkspaceScopeDependency,
+    enforce_workspace_scope,
+)
 from cognigraph.api.schemas import WorkspaceCreateRequest, WorkspaceResponse
 
 router = APIRouter(tags=["workspaces"])
+
+
+@router.get("/workspaces/{workspace_id}", response_model=WorkspaceResponse)
+async def get_workspace(
+    workspace_id: UUID,
+    runtime: RuntimeDependency,
+    workspace_scope: WorkspaceScopeDependency,
+) -> WorkspaceResponse:
+    enforce_workspace_scope(workspace_scope, workspace_id)
+    async with runtime.database.unit_of_work() as unit:
+        workspace = await unit.workspaces.get(workspace_id)
+    if workspace is None:
+        raise HTTPException(status_code=404, detail="workspace not found")
+    return WorkspaceResponse.model_validate(workspace, from_attributes=True)
 
 
 @router.post(

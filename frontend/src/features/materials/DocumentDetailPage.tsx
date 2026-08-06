@@ -21,6 +21,7 @@ import {
   PartialSuccess,
 } from "@/components/shared/States";
 import { PageHeader } from "@/components/shared/PageHeader";
+import { RuntimeModelBadge } from "@/components/shared/RuntimeModelBadge";
 import { IngestionSummary } from "@/components/materials/IngestionSummary";
 import { KnowledgeBlueprintView } from "@/components/materials/KnowledgeBlueprintView";
 
@@ -77,7 +78,12 @@ export function DocumentDetailPage() {
   if (!documentId) return <EmptyState title="缺少 Document ID" />;
   if (document.isLoading) return <LoadingState label="正在读取资料" />;
   if (document.isError || !document.data)
-    return <ErrorState error={document.error ?? new Error("资料不存在")} />;
+    return (
+      <ErrorState
+        error={document.error ?? new Error("资料不存在")}
+        onRetry={() => void document.refetch()}
+      />
+    );
   const record = document.data;
   return (
     <div>
@@ -108,6 +114,11 @@ export function DocumentDetailPage() {
           </button>
         }
       />
+      <div className="mb-4 flex flex-wrap gap-2" aria-label="资料处理运行模型">
+        <RuntimeModelBadge role="extractor" label="Extractor" />
+        <RuntimeModelBadge role="embedding" label="Embedding" />
+        <RuntimeModelBadge role="vision" label="Vision" />
+      </div>
       {ingest.isPending && (
         <div className="mb-4 flex items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-800 dark:border-indigo-900 dark:bg-indigo-950/30 dark:text-indigo-200">
           <LoaderCircle className="h-4 w-4 animate-spin" />
