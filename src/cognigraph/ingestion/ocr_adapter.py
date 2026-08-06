@@ -13,7 +13,7 @@ import tempfile
 import threading
 from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
-from typing import Any
+from typing import Any, Protocol, cast
 
 from PIL import Image, ImageEnhance, ImageFilter, ImageOps
 
@@ -23,6 +23,24 @@ from cognigraph.ingestion.models import ParsedBlock, ParsedDocument
 
 class OCRUnavailableError(RuntimeError):
     """Raised when the optional OCR runtime or a PDF renderer is unavailable."""
+
+
+class _RenderedPdfPage(Protocol):
+    """Minimal image surface returned by the optional pdf2image package."""
+
+    def save(self, fp: str | Path, *, format: str) -> None: ...
+
+
+class _PdfPageConverter(Protocol):
+    """Typed boundary for pdf2image without making it a required dependency."""
+
+    def __call__(
+        self,
+        pdf_path: str,
+        *,
+        dpi: int,
+        fmt: str,
+    ) -> list[_RenderedPdfPage]: ...
 
 
 class PaddleOCRAdapter:
@@ -378,11 +396,12 @@ class PaddleOCRAdapter:
             return rendered
 
         try:
-            from pdf2image import convert_from_path
+            pdf2image = importlib.import_module("pdf2image")
         except ImportError as exc:
             raise OCRUnavailableError(
                 "scan-PDF OCR requires PyMuPDF or pdf2image with Poppler"
             ) from exc
+        convert_from_path = cast(_PdfPageConverter, pdf2image.convert_from_path)
         directory = Path(tempfile.mkdtemp(prefix="cognigraph-pdf-"))
         rendered = []
         try:
