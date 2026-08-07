@@ -70,6 +70,14 @@ def _sidecar_is_running(name: str, *, exclude_pid: int) -> bool:
     return bool(_sidecar_processes(name, exclude_pid=exclude_pid))
 
 
+def _sidecar_parent_pid(processes: list[tuple[int, int]]) -> int | None:
+    process_ids = {process_id for process_id, _parent_id in processes}
+    for _process_id, parent_id in processes:
+        if parent_id not in process_ids:
+            return parent_id
+    return None
+
+
 def _terminate_packaged_process(
     process: subprocess.Popen[str],
     sidecar_parent_pid: int | None,
@@ -119,7 +127,7 @@ def _run_once(
             if sidecars:
                 saw_sidecar = True
                 if os.name != "nt":
-                    sidecar_parent_pid = sidecars[0][1]
+                    sidecar_parent_pid = _sidecar_parent_pid(sidecars)
             time.sleep(0.25)
     finally:
         _terminate_packaged_process(process, sidecar_parent_pid)

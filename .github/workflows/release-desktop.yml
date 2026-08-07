@@ -671,17 +671,18 @@ jobs:
           dmg="$(find "frontend/src-tauri/target/${{ matrix.target }}/release/bundle/dmg" -maxdepth 1 -type f -name '*.dmg' -print -quit)"
           mount_point="$RUNNER_TEMP/knowtier-dmg"
           mkdir -p "$mount_point"
-          hdiutil attach "$dmg" -nobrowse -readonly -mountpoint "$mount_point"
+          hdiutil attach "$dmg" -nobrowse -readonly -acceptlicense -mountpoint "$mount_point"
           cleanup() { hdiutil detach "$mount_point" -force >/dev/null 2>&1 || true; }
           trap cleanup EXIT
-          executable="$(find "$mount_point" -path '*.app/Contents/MacOS/*' -type f -perm -111 -print -quit)"
+          executable="$(find "$mount_point" -path '*.app/Contents/MacOS/*' \
+            -type f -perm -111 ! -name 'cognigraph-desktop-sidecar*' -print -quit)"
           test -n "$executable"
           privacy_count="$(find "$mount_point" -name PRIVACY.md -type f | wc -l | tr -d ' ')"
           test "$privacy_count" = 1
           uv run --frozen python scripts/desktop/smoke_package.py \
             --executable "$executable" \
             --data-dir "$RUNNER_TEMP/KnowTier-dmg-data" \
-            --sidecar-name "cognigraph-desktop-sidecar-${{ matrix.target }}"
+            --sidecar-name "cognigraph-desktop-sidecar"
 
       - name: Build Linux AppImage and Debian package
         if: runner.os == 'Linux'
@@ -833,7 +834,7 @@ jobs:
           xvfb-run -a env APPIMAGE_EXTRACT_AND_RUN=1 uv run --frozen python scripts/desktop/smoke_package.py \
             --executable "$appimage" \
             --data-dir "$RUNNER_TEMP/KnowTier-appimage-data" \
-            --sidecar-name "cognigraph-desktop-sidecar-${{ matrix.target }}"
+            --sidecar-name "cognigraph-desktop-sidecar"
 
       - name: Smoke installed Linux Debian package
         if: runner.os == 'Linux'
@@ -850,7 +851,7 @@ jobs:
           xvfb-run -a uv run --frozen python scripts/desktop/smoke_package.py \
             --executable "$executable" \
             --data-dir "$RUNNER_TEMP/KnowTier-deb-data" \
-            --sidecar-name "cognigraph-desktop-sidecar-${{ matrix.target }}"
+            --sidecar-name "cognigraph-desktop-sidecar"
 
       - name: Upload packaging diagnostics
         if: always()
