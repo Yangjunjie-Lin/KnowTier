@@ -846,8 +846,21 @@ jobs:
           sudo apt-get install --yes "$deb"
           cleanup() { sudo apt-get remove --yes "$package_name" >/dev/null 2>&1 || true; }
           trap cleanup EXIT
-          executable="$(dpkg -L "$package_name" | grep -E '/(KnowTier|knowtier-desktop)$' | head -n 1)"
-          test -n "$executable"
+          mapfile -t installed_executables < <(
+            while IFS= read -r candidate; do
+              if [[ -f "$candidate" && -x "$candidate" \
+                && "$(basename "$candidate")" != cognigraph-desktop-sidecar* ]]; then
+                printf '%s\n' "$candidate"
+              fi
+            done < <(dpkg -L "$package_name")
+          )
+          if [[ "${#installed_executables[@]}" != "1" ]]; then
+            printf 'expected one installed desktop executable, found %s:\n' \
+              "${#installed_executables[@]}" >&2
+            printf '  %s\n' "${installed_executables[@]}" >&2
+            exit 1
+          fi
+          executable="${installed_executables[0]}"
           xvfb-run -a uv run --frozen python scripts/desktop/smoke_package.py \
             --executable "$executable" \
             --data-dir "$RUNNER_TEMP/KnowTier-deb-data" \
