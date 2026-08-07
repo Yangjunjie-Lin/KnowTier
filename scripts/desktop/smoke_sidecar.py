@@ -39,6 +39,29 @@ def request(
         return error.code, error.read()
 
 
+def _wait_until_ready(
+    base_url: str,
+    bootstrap_token: str,
+    process: subprocess.Popen[bytes],
+    *,
+    startup_timeout: float,
+) -> bool:
+    deadline = time.monotonic() + startup_timeout
+    while time.monotonic() < deadline and process.poll() is None:
+        try:
+            ready_status, _body = request(
+                f"{base_url}/desktop/ready",
+                headers={"Authorization": f"Bearer {bootstrap_token}"},
+            )
+        except (TimeoutError, urllib.error.URLError):
+            time.sleep(0.2)
+            continue
+        if ready_status == 204:
+            return True
+        time.sleep(0.2)
+    return False
+
+
 def run_smoke(binary: Path, *, startup_timeout: float) -> dict[str, int | bool]:
     executable = binary.resolve(strict=True)
     bootstrap_token = secrets.token_hex(32)
@@ -86,19 +109,12 @@ def run_smoke(binary: Path, *, startup_timeout: float) -> dict[str, int | bool]:
             if not 1024 <= port <= 65535:
                 raise RuntimeError("sidecar announced an out-of-range loopback port")
             base_url = f"http://127.0.0.1:{port}"
-            deadline = time.monotonic() + startup_timeout
-            ready = False
-            while time.monotonic() < deadline and process.poll() is None:
-                try:
-                    ready_status, _body = request(
-                        f"{base_url}/desktop/ready",
-                        headers={"Authorization": f"Bearer {bootstrap_token}"},
-                    )
-                except urllib.error.URLError:
-                    time.sleep(0.2)
-                    continue
-                ready = ready_status == 204
-                break
+            ready = _wait_until_ready(
+                base_url,
+                bootstrap_token,
+                process,
+                startup_timeout=startup_timeout,
+            )
             if not ready:
                 raise RuntimeError("sidecar did not complete its authenticated readiness handshake")
             anonymous_status, _body = request(f"{base_url}/")
