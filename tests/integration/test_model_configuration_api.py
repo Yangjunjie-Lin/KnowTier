@@ -68,6 +68,7 @@ def test_model_configuration_api_masks_and_deletes_session_credential(
         assert activated.json()["active"] is True
         runtime = app.state.runtime
         assert isinstance(runtime.model_gateway.provider, OpenAICompatibleProvider)
+        assert runtime.model_gateway.provider.request_embedding_dimensions is False
         assert runtime.settings.teacher_model == "chat-model"
         assert runtime.ingestion.extractor.gateway is runtime.model_gateway
         assert isinstance(

@@ -9,6 +9,10 @@ All notable changes to KnowTier are documented in this file. The format is based
 
 - Desktop installers are held as draft releases until a maintainer has verified every platform
   artifact, checksum, SBOM, and signing-status record.
+- Live SiliconFlow validation can target an explicitly requested chat model after verifying the
+  exact ID through `/models`; embedding models remain capability-discovered.
+- SiliconFlow native embedding vectors narrower than the 1536-wide store are zero-padded without
+  changing their dot products, norms, or cosine similarity.
 
 ## [1.0.0-rc.1] - 2026-08-06
 

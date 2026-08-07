@@ -648,6 +648,7 @@ def _external_provider(profile: ModelProfile, secret: SecretStr) -> OpenAICompat
         max_retries=profile.max_retries,
         temperature=profile.temperature,
         max_tokens=profile.max_tokens,
+        request_embedding_dimensions=profile.provider is not ProviderKind.SILICONFLOW,
     )
 
 

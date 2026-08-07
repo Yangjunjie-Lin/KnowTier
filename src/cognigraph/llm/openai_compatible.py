@@ -46,6 +46,7 @@ class OpenAICompatibleProvider(ModelProvider):
         temperature: float,
         max_tokens: int,
         expected_embedding_dimensions: int = 1536,
+        request_embedding_dimensions: bool = True,
         transport: httpx.AsyncBaseTransport | None = None,
     ) -> None:
         if timeout_seconds <= 0:
@@ -68,6 +69,7 @@ class OpenAICompatibleProvider(ModelProvider):
         self.temperature = temperature
         self.max_tokens = max_tokens
         self.expected_embedding_dimensions = expected_embedding_dimensions
+        self.request_embedding_dimensions = request_embedding_dimensions
         self._client = httpx.AsyncClient(
             base_url=self.base_url,
             headers={"Authorization": f"Bearer {secret}"},
@@ -196,14 +198,16 @@ class OpenAICompatibleProvider(ModelProvider):
     async def embed(self, *, model: str, texts: list[str]) -> list[list[float]]:
         if not texts:
             return []
+        request: dict[str, object] = {
+            "model": model,
+            "input": texts,
+        }
+        if self.request_embedding_dimensions:
+            request["dimensions"] = self.expected_embedding_dimensions
         payload = await self._request_json(
             "POST",
             "embeddings",
-            json_body={
-                "model": model,
-                "input": texts,
-                "dimensions": self.expected_embedding_dimensions,
-            },
+            json_body=request,
         )
         data = _list_field(payload, "data")
         indexed: list[tuple[int, list[float]]] = []
@@ -223,10 +227,20 @@ class OpenAICompatibleProvider(ModelProvider):
                 ) from exc
             if not all(math.isfinite(item) for item in vector):
                 raise OpenAICompatibleError("provider returned a non-finite embedding vector")
-            if len(vector) != self.expected_embedding_dimensions:
+            if not vector:
+                raise OpenAICompatibleError("provider returned an empty embedding vector")
+            if len(vector) > self.expected_embedding_dimensions:
                 raise OpenAICompatibleError(
-                    "embedding dimensions do not match the configured vector store"
+                    "embedding dimensions exceed the configured vector store"
                 )
+            if len(vector) < self.expected_embedding_dimensions:
+                if self.request_embedding_dimensions:
+                    raise OpenAICompatibleError(
+                        "embedding dimensions do not match the configured vector store"
+                    )
+                # Zero-padding preserves dot products, cosine similarity, and norms
+                # while adapting fixed native provider vectors to the store width.
+                vector.extend([0.0] * (self.expected_embedding_dimensions - len(vector)))
             indexed.append((index_value, vector))
         indexed.sort(key=lambda item: item[0])
         vectors = [item[1] for item in indexed]

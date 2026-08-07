@@ -9,10 +9,10 @@ from cognigraph.llm.configuration import SILICONFLOW_BASE_URL
 from cognigraph.llm.openai_compatible import OpenAICompatibleProvider
 from cognigraph.llm.schemas import ChatMessage
 
-pytestmark = pytest.mark.live_model
 
-
-def _select_models(model_ids: list[str]) -> tuple[str, str]:
+def _select_models(
+    model_ids: list[str], *, preferred_chat_model: str | None = None
+) -> tuple[str, str]:
     embedding = next(
         (
             model_id
@@ -21,23 +21,52 @@ def _select_models(model_ids: list[str]) -> tuple[str, str]:
         ),
         None,
     )
-    chat = next(
-        (
-            model_id
-            for model_id in model_ids
-            if model_id != embedding
-            and not any(
-                token in model_id.casefold()
-                for token in ("embed", "rerank", "image", "speech", "audio")
+    if preferred_chat_model is not None:
+        if preferred_chat_model not in model_ids:
+            raise AssertionError(
+                "requested chat model was not returned by SiliconFlow /models: "
+                f"{preferred_chat_model}"
             )
-        ),
-        None,
-    )
+        chat = preferred_chat_model
+    else:
+        chat = next(
+            (
+                model_id
+                for model_id in model_ids
+                if model_id != embedding
+                and not any(
+                    token in model_id.casefold()
+                    for token in ("embed", "rerank", "image", "speech", "audio")
+                )
+            ),
+            None,
+        )
     if chat is None or embedding is None:
         raise AssertionError("dynamic model discovery found no chat/embedding capability pair")
     return chat, embedding
 
 
+def test_select_models_honors_discovered_preferred_chat_model() -> None:
+    models = ["provider/embed-v1", "provider/chat-default", "provider/chat-requested"]
+
+    assert _select_models(models, preferred_chat_model="provider/chat-requested") == (
+        "provider/chat-requested",
+        "provider/embed-v1",
+    )
+
+
+def test_select_models_rejects_unavailable_preferred_chat_model() -> None:
+    with pytest.raises(
+        AssertionError,
+        match="requested chat model was not returned by SiliconFlow /models",
+    ):
+        _select_models(
+            ["provider/embed-v1", "provider/chat-default"],
+            preferred_chat_model="provider/chat-requested",
+        )
+
+
+@pytest.mark.live_model
 async def test_live_siliconflow_discovery_structured_chat_and_embedding() -> None:
     assert os.getenv("COGNIGRAPH_RUN_SILICONFLOW_LIVE") == "1", (
         "live SiliconFlow tests require an explicit workflow_dispatch or local opt-in"
@@ -54,10 +83,14 @@ async def test_live_siliconflow_discovery_structured_chat_and_embedding() -> Non
         max_retries=0,
         temperature=0,
         max_tokens=96,
+        request_embedding_dimensions=False,
     )
     try:
         model_ids = await provider.list_models()
-        chat_model, embedding_model = _select_models(model_ids)
+        preferred_chat_model = os.getenv("SILICONFLOW_CHAT_MODEL") or None
+        chat_model, embedding_model = _select_models(
+            model_ids, preferred_chat_model=preferred_chat_model
+        )
         response = await provider.complete(
             model=chat_model,
             messages=[
