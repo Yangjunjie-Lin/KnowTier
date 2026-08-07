@@ -369,7 +369,7 @@ jobs:
             runner: windows-latest
             target: x86_64-pc-windows-msvc
           - platform: macos-x64
-            runner: macos-14-large
+            runner: macos-15-intel
             target: x86_64-apple-darwin
           - platform: linux-x64
             runner: ubuntu-latest
@@ -610,8 +610,11 @@ jobs:
           $installDir = Join-Path $env:RUNNER_TEMP "KnowTier-installed-smoke"
           Remove-Item -LiteralPath $installDir -Recurse -Force -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Force -Path $installDir | Out-Null
-          & $installers[0].FullName /S "/D=$installDir"
-          if ($LASTEXITCODE -ne 0) { throw "NSIS silent installation failed: $LASTEXITCODE" }
+          $install = Start-Process -FilePath $installers[0].FullName `
+            -ArgumentList @("/S", "/D=$installDir") -Wait -PassThru -WindowStyle Hidden
+          if ($install.ExitCode -ne 0) {
+            throw "NSIS silent installation failed: $($install.ExitCode)"
+          }
           $installedExe = Join-Path $installDir "KnowTier.exe"
           if (-not (Test-Path -LiteralPath $installedExe)) {
             $installedExe = Join-Path $installDir "knowtier-desktop.exe"
@@ -634,13 +637,19 @@ jobs:
           if ($uninstallers.Count -ne 1) {
             throw "expected exactly one uninstaller, found $($uninstallers.Count)"
           }
-          & $uninstallers[0].FullName /S
-          if ($LASTEXITCODE -ne 0) { throw "silent uninstall failed: $LASTEXITCODE" }
+          $uninstall = Start-Process -FilePath $uninstallers[0].FullName `
+            -ArgumentList "/S" -Wait -PassThru -WindowStyle Hidden
+          if ($uninstall.ExitCode -ne 0) {
+            throw "silent uninstall failed: $($uninstall.ExitCode)"
+          }
           if (-not (Test-Path -LiteralPath (Join-Path $env:RUNNER_TEMP "KnowTier-installed-data"))) {
             throw "uninstall removed user App Data; the documented retention policy was violated"
           }
-          & $installers[0].FullName /S "/D=$installDir"
-          if ($LASTEXITCODE -ne 0) { throw "reinstall after uninstall failed: $LASTEXITCODE" }
+          $reinstall = Start-Process -FilePath $installers[0].FullName `
+            -ArgumentList @("/S", "/D=$installDir") -Wait -PassThru -WindowStyle Hidden
+          if ($reinstall.ExitCode -ne 0) {
+            throw "reinstall after uninstall failed: $($reinstall.ExitCode)"
+          }
           if (-not (Test-Path -LiteralPath $installedExe)) {
             throw "reinstalled KnowTier executable was not found"
           }
@@ -662,17 +671,18 @@ jobs:
           dmg="$(find "frontend/src-tauri/target/${{ matrix.target }}/release/bundle/dmg" -maxdepth 1 -type f -name '*.dmg' -print -quit)"
           mount_point="$RUNNER_TEMP/knowtier-dmg"
           mkdir -p "$mount_point"
-          hdiutil attach "$dmg" -nobrowse -readonly -mountpoint "$mount_point"
+          printf 'Y\n' | hdiutil attach "$dmg" -nobrowse -readonly -mountpoint "$mount_point"
           cleanup() { hdiutil detach "$mount_point" -force >/dev/null 2>&1 || true; }
           trap cleanup EXIT
-          executable="$(find "$mount_point" -path '*.app/Contents/MacOS/*' -type f -perm -111 -print -quit)"
+          executable="$(find "$mount_point" -path '*.app/Contents/MacOS/*' \
+            -type f -perm -111 ! -name 'cognigraph-desktop-sidecar*' -print -quit)"
           test -n "$executable"
           privacy_count="$(find "$mount_point" -name PRIVACY.md -type f | wc -l | tr -d ' ')"
           test "$privacy_count" = 1
           uv run --frozen python scripts/desktop/smoke_package.py \
             --executable "$executable" \
             --data-dir "$RUNNER_TEMP/KnowTier-dmg-data" \
-            --sidecar-name "cognigraph-desktop-sidecar-${{ matrix.target }}"
+            --sidecar-name "cognigraph-desktop-sidecar"
 
       - name: Build Linux AppImage and Debian package
         if: runner.os == 'Linux'
@@ -824,14 +834,14 @@ jobs:
           xvfb-run -a env APPIMAGE_EXTRACT_AND_RUN=1 uv run --frozen python scripts/desktop/smoke_package.py \
             --executable "$appimage" \
             --data-dir "$RUNNER_TEMP/KnowTier-appimage-data" \
-            --sidecar-name "cognigraph-desktop-sidecar-${{ matrix.target }}"
+            --sidecar-name "cognigraph-desktop-sidecar"
 
       - name: Smoke installed Linux Debian package
         if: runner.os == 'Linux'
         shell: bash
         run: |
           set -euo pipefail
-          deb="$(find "frontend/src-tauri/target/${{ matrix.target }}/release/bundle/deb" -maxdepth 1 -type f -name '*.deb' -print -quit)"
+          deb="$(realpath "$(find "frontend/src-tauri/target/${{ matrix.target }}/release/bundle/deb" -maxdepth 1 -type f -name '*.deb' -print -quit)")"
           package_name="$(dpkg-deb -f "$deb" Package)"
           sudo apt-get install --yes "$deb"
           cleanup() { sudo apt-get remove --yes "$package_name" >/dev/null 2>&1 || true; }
@@ -841,7 +851,7 @@ jobs:
           xvfb-run -a uv run --frozen python scripts/desktop/smoke_package.py \
             --executable "$executable" \
             --data-dir "$RUNNER_TEMP/KnowTier-deb-data" \
-            --sidecar-name "cognigraph-desktop-sidecar-${{ matrix.target }}"
+            --sidecar-name "cognigraph-desktop-sidecar"
 
       - name: Upload packaging diagnostics
         if: always()

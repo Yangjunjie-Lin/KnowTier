@@ -5,6 +5,7 @@ import errno
 import os
 import sys
 from collections.abc import Callable
+from pathlib import Path
 
 if sys.platform == "win32":
     import ctypes
@@ -26,7 +27,23 @@ def parent_process_alive(process_id: int) -> bool:
         return True
     except OSError as error:
         return error.errno == errno.EPERM
+    if sys.platform.startswith("linux") and _linux_process_is_zombie(process_id):
+        return False
     return True
+
+
+def _linux_process_is_zombie(process_id: int) -> bool:
+    """Treat a reaped-but-not-yet-collected parent as unavailable on Linux."""
+
+    try:
+        process_stat = (Path("/proc") / str(process_id) / "stat").read_text(encoding="utf-8")
+    except (OSError, UnicodeError):
+        return False
+    closing_parenthesis = process_stat.rfind(")")
+    if closing_parenthesis < 0:
+        return False
+    remaining_fields = process_stat[closing_parenthesis + 1 :].split()
+    return bool(remaining_fields) and remaining_fields[0] == "Z"
 
 
 if sys.platform == "win32":
