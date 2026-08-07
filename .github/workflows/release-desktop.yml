@@ -671,7 +671,7 @@ jobs:
           dmg="$(find "frontend/src-tauri/target/${{ matrix.target }}/release/bundle/dmg" -maxdepth 1 -type f -name '*.dmg' -print -quit)"
           mount_point="$RUNNER_TEMP/knowtier-dmg"
           mkdir -p "$mount_point"
-          hdiutil attach "$dmg" -nobrowse -readonly -acceptlicense -mountpoint "$mount_point"
+          printf 'Y\n' | hdiutil attach "$dmg" -nobrowse -readonly -mountpoint "$mount_point"
           cleanup() { hdiutil detach "$mount_point" -force >/dev/null 2>&1 || true; }
           trap cleanup EXIT
           executable="$(find "$mount_point" -path '*.app/Contents/MacOS/*' \
@@ -841,7 +841,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          deb="$(find "frontend/src-tauri/target/${{ matrix.target }}/release/bundle/deb" -maxdepth 1 -type f -name '*.deb' -print -quit)"
+          deb="$(realpath "$(find "frontend/src-tauri/target/${{ matrix.target }}/release/bundle/deb" -maxdepth 1 -type f -name '*.deb' -print -quit)")"
           package_name="$(dpkg-deb -f "$deb" Package)"
           sudo apt-get install --yes "$deb"
           cleanup() { sudo apt-get remove --yes "$package_name" >/dev/null 2>&1 || true; }
