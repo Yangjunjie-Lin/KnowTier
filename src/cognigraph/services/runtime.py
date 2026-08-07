@@ -289,6 +289,7 @@ class ApplicationRuntime:
                 max_retries=profile.max_retries,
                 temperature=profile.temperature,
                 max_tokens=profile.max_tokens,
+                request_embedding_dimensions=profile.provider is not ProviderKind.SILICONFLOW,
             )
             embedding_provider = OpenAICompatibleEmbeddingProvider(
                 provider,

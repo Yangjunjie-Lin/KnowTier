@@ -21,6 +21,7 @@ def provider(
     *,
     retries: int = 0,
     dimensions: int = 3,
+    request_dimensions: bool = True,
 ) -> OpenAICompatibleProvider:
     return OpenAICompatibleProvider(
         provider_name="contract",
@@ -31,6 +32,7 @@ def provider(
         temperature=0.2,
         max_tokens=256,
         expected_embedding_dimensions=dimensions,
+        request_embedding_dimensions=request_dimensions,
         transport=httpx.MockTransport(handler),
     )
 
@@ -160,6 +162,30 @@ async def test_embedding_contract_preserves_order_and_dimensions() -> None:
     finally:
         await model_provider.aclose()
     assert vectors == [[1.0, 0.0, 0.0], [0.0, 1.0, 0.0]]
+
+
+@pytest.mark.contract
+async def test_embedding_contract_adapts_native_dimensions_without_request_override() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        assert payload == {
+            "model": "native-embedding-model",
+            "input": ["first"],
+        }
+        return httpx.Response(
+            200,
+            json={"data": [{"index": 0, "embedding": [0.6, 0.8]}]},
+        )
+
+    model_provider = provider(handler, dimensions=3, request_dimensions=False)
+    try:
+        vectors = await model_provider.embed(
+            model="native-embedding-model",
+            texts=["first"],
+        )
+    finally:
+        await model_provider.aclose()
+    assert vectors == [[0.6, 0.8, 0.0]]
 
 
 @pytest.mark.contract

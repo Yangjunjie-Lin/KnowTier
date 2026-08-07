@@ -85,6 +85,12 @@ The smoke still fetches `/models` first and fails without making the chat reques
 ID is unavailable. The embedding model remains capability-discovered so the workflow never embeds a
 provider model catalog in source control.
 
+SiliconFlow embedding models use their native output width because several otherwise compatible
+models reject OpenAI's optional `dimensions` request field. Vectors narrower than KnowTier's
+1536-wide store are zero-padded before persistence; this preserves their dot products, norms, and
+cosine similarity. Empty vectors and vectors wider than the configured store are rejected rather
+than truncated.
+
 ## SBOM, checksums, and draft release
 
 After all builds pass, the release job:

@@ -83,6 +83,7 @@ async def test_live_siliconflow_discovery_structured_chat_and_embedding() -> Non
         max_retries=0,
         temperature=0,
         max_tokens=96,
+        request_embedding_dimensions=False,
     )
     try:
         model_ids = await provider.list_models()
