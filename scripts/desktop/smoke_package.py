@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import signal
 import subprocess
 import time
 from pathlib import Path
@@ -21,7 +22,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def _sidecar_is_running(name: str, *, exclude_pid: int) -> bool:
+def _sidecar_processes(name: str, *, exclude_pid: int) -> list[tuple[int, int]]:
     if os.name == "nt":
         result = subprocess.run(
             ["tasklist", "/FI", f"IMAGENAME eq {name}", "/FO", "CSV", "/NH"],
@@ -29,22 +30,51 @@ def _sidecar_is_running(name: str, *, exclude_pid: int) -> bool:
             text=True,
             check=False,
         )
-        return any(
-            line.startswith('"') and line.split(",", 1)[0].strip('"') == name
+        return [
+            (0, 0)
             for line in result.stdout.splitlines()
-        )
+            if line.startswith('"') and line.split(",", 1)[0].strip('"') == name
+        ]
 
     result = subprocess.run(
-        ["ps", "-eo", "pid=,args="], capture_output=True, text=True, check=False
+        ["ps", "-eo", "pid=,ppid=,args="], capture_output=True, text=True, check=False
     )
-    excluded_pids = {str(exclude_pid), str(os.getpid())}
-    return any(
-        parts[0] not in excluded_pids and name in parts[1]
-        for line in result.stdout.splitlines()
-        if line.strip()
-        for parts in [line.strip().split(maxsplit=1)]
-        if len(parts) == 2
-    )
+    excluded_pids = {exclude_pid, os.getpid()}
+    matches: list[tuple[int, int]] = []
+    for line in result.stdout.splitlines():
+        parts = line.strip().split(maxsplit=2)
+        if len(parts) != 3:
+            continue
+        try:
+            process_id = int(parts[0])
+            parent_id = int(parts[1])
+        except ValueError:
+            continue
+        if process_id not in excluded_pids and name in parts[2]:
+            matches.append((process_id, parent_id))
+    return matches
+
+
+def _sidecar_is_running(name: str, *, exclude_pid: int) -> bool:
+    return bool(_sidecar_processes(name, exclude_pid=exclude_pid))
+
+
+def _terminate_packaged_process(
+    process: subprocess.Popen[str],
+    sidecar_parent_pid: int | None,
+) -> None:
+    if os.name != "nt" and sidecar_parent_pid is not None and sidecar_parent_pid != process.pid:
+        try:
+            os.kill(sidecar_parent_pid, signal.SIGTERM)
+        except ProcessLookupError:
+            pass
+    if process.poll() is None:
+        process.terminate()
+    try:
+        process.wait(timeout=10)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait(timeout=10)
 
 
 def _run_once(
@@ -63,9 +93,10 @@ def _run_once(
         stderr=subprocess.PIPE,
         text=True,
     )
+    saw_sidecar = False
+    sidecar_parent_pid: int | None = None
     try:
         deadline = time.monotonic() + startup_seconds
-        saw_sidecar = False
         while time.monotonic() < deadline:
             code = process.poll()
             if code is not None:
@@ -73,21 +104,19 @@ def _run_once(
                 raise RuntimeError(
                     f"packaged application exited before startup (code {code}): {stderr[-2_000:]}"
                 )
-            saw_sidecar = saw_sidecar or _sidecar_is_running(sidecar_name, exclude_pid=process.pid)
+            sidecars = _sidecar_processes(sidecar_name, exclude_pid=process.pid)
+            if sidecars:
+                saw_sidecar = True
+                if os.name != "nt":
+                    sidecar_parent_pid = sidecars[0][1]
             time.sleep(0.25)
     finally:
-        if process.poll() is None:
-            process.terminate()
-        try:
-            process.wait(timeout=10)
-        except subprocess.TimeoutExpired:
-            process.kill()
-            process.wait(timeout=10)
+        _terminate_packaged_process(process, sidecar_parent_pid)
 
     if not saw_sidecar:
         raise RuntimeError(f"packaged application did not start its sidecar: {sidecar_name}")
 
-    for _ in range(20):
+    for _ in range(60):
         if not _sidecar_is_running(sidecar_name, exclude_pid=process.pid):
             return
         time.sleep(0.25)

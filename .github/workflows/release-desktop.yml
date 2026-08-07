@@ -610,8 +610,11 @@ jobs:
           $installDir = Join-Path $env:RUNNER_TEMP "KnowTier-installed-smoke"
           Remove-Item -LiteralPath $installDir -Recurse -Force -ErrorAction SilentlyContinue
           New-Item -ItemType Directory -Force -Path $installDir | Out-Null
-          & $installers[0].FullName /S "/D=$installDir"
-          if ($LASTEXITCODE -ne 0) { throw "NSIS silent installation failed: $LASTEXITCODE" }
+          $install = Start-Process -FilePath $installers[0].FullName `
+            -ArgumentList @("/S", "/D=$installDir") -Wait -PassThru -WindowStyle Hidden
+          if ($install.ExitCode -ne 0) {
+            throw "NSIS silent installation failed: $($install.ExitCode)"
+          }
           $installedExe = Join-Path $installDir "KnowTier.exe"
           if (-not (Test-Path -LiteralPath $installedExe)) {
             $installedExe = Join-Path $installDir "knowtier-desktop.exe"
@@ -634,13 +637,19 @@ jobs:
           if ($uninstallers.Count -ne 1) {
             throw "expected exactly one uninstaller, found $($uninstallers.Count)"
           }
-          & $uninstallers[0].FullName /S
-          if ($LASTEXITCODE -ne 0) { throw "silent uninstall failed: $LASTEXITCODE" }
+          $uninstall = Start-Process -FilePath $uninstallers[0].FullName `
+            -ArgumentList "/S" -Wait -PassThru -WindowStyle Hidden
+          if ($uninstall.ExitCode -ne 0) {
+            throw "silent uninstall failed: $($uninstall.ExitCode)"
+          }
           if (-not (Test-Path -LiteralPath (Join-Path $env:RUNNER_TEMP "KnowTier-installed-data"))) {
             throw "uninstall removed user App Data; the documented retention policy was violated"
           }
-          & $installers[0].FullName /S "/D=$installDir"
-          if ($LASTEXITCODE -ne 0) { throw "reinstall after uninstall failed: $LASTEXITCODE" }
+          $reinstall = Start-Process -FilePath $installers[0].FullName `
+            -ArgumentList @("/S", "/D=$installDir") -Wait -PassThru -WindowStyle Hidden
+          if ($reinstall.ExitCode -ne 0) {
+            throw "reinstall after uninstall failed: $($reinstall.ExitCode)"
+          }
           if (-not (Test-Path -LiteralPath $installedExe)) {
             throw "reinstalled KnowTier executable was not found"
           }
