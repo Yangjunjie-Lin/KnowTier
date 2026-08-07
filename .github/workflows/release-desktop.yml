@@ -21,6 +21,11 @@ on:
         required: false
         default: false
         type: boolean
+      siliconflow_chat_model:
+        description: Optional chat model ID that must first be verified through SiliconFlow /models
+        required: false
+        default: ""
+        type: string
 
 concurrency:
   group: desktop-release-${{ inputs.release_tag || github.ref_name }}
@@ -326,6 +331,7 @@ jobs:
     env:
       COGNIGRAPH_RUN_SILICONFLOW_LIVE: "1"
       SILICONFLOW_API_KEY: ${{ secrets.SILICONFLOW_API_KEY }}
+      SILICONFLOW_CHAT_MODEL: ${{ inputs.siliconflow_chat_model || '' }}
     steps:
       - uses: actions/checkout@v4
 

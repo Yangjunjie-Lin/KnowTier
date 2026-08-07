@@ -80,6 +80,11 @@ sets a short per-request and job timeout, and caps the chat output at 96 tokens.
 connectivity/schema smoke, not an evaluation suite and not permission to process user documents. A
 missing key fails the explicitly requested job rather than silently reporting success.
 
+For a deliberate model-specific check, set the optional `siliconflow_chat_model` dispatch input.
+The smoke still fetches `/models` first and fails without making the chat request if the exact model
+ID is unavailable. The embedding model remains capability-discovered so the workflow never embeds a
+provider model catalog in source control.
+
 ## SBOM, checksums, and draft release
 
 After all builds pass, the release job:
