@@ -36,7 +36,7 @@ origin and forwards only `/api` fetches to the random loopback port announced ov
 sidecar control pipe.
 
 - `windows-latest`: Tauri `nsis` bundle plus a ZIP made from the release executable and its sidecar
-- `macos-14-large`: Tauri `dmg` bundle for x86-64 (Intel runner; the sidecar architecture is asserted)
+- `macos-14`: Tauri `dmg` bundle for x86-64 (Intel runner; the sidecar architecture is asserted)
 - `ubuntu-latest`: Tauri `appimage` and `deb` bundles for x86-64
 
 Artifacts from the three isolated runners are joined only in the release job. That job refuses to

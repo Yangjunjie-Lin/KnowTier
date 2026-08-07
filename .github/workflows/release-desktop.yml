@@ -369,7 +369,7 @@ jobs:
             runner: windows-latest
             target: x86_64-pc-windows-msvc
           - platform: macos-x64
-            runner: macos-14-large
+            runner: macos-14
             target: x86_64-apple-darwin
           - platform: linux-x64
             runner: ubuntu-latest
