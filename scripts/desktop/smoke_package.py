@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import os
+import shlex
 import signal
 import subprocess
 import time
@@ -20,6 +21,16 @@ def parse_args() -> argparse.Namespace:
     # (Windows Defender can make this noticeably slower than a warm restart).
     parser.add_argument("--startup-seconds", type=float, default=60.0)
     return parser.parse_args()
+
+
+def _command_executable_name(arguments: str) -> str | None:
+    try:
+        tokens = shlex.split(arguments, posix=True)
+    except ValueError:
+        return None
+    if not tokens:
+        return None
+    return Path(tokens[0]).name
 
 
 def _sidecar_processes(name: str, *, exclude_pid: int) -> list[tuple[int, int]]:
@@ -50,7 +61,7 @@ def _sidecar_processes(name: str, *, exclude_pid: int) -> list[tuple[int, int]]:
             parent_id = int(parts[1])
         except ValueError:
             continue
-        if process_id not in excluded_pids and name in parts[2]:
+        if process_id not in excluded_pids and _command_executable_name(parts[2]) == name:
             matches.append((process_id, parent_id))
     return matches
 
