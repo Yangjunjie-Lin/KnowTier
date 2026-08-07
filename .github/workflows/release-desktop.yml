@@ -892,6 +892,7 @@ jobs:
   assemble-release:
     name: Assemble checksums and CycloneDX SBOMs
     needs: build
+    if: ${{ always() && needs.build.result == 'success' }}
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
@@ -1029,7 +1030,9 @@ jobs:
   draft-release:
     name: Create GitHub draft release
     needs: assemble-release
-    if: ${{ github.event_name == 'push' || inputs.create_draft_release == true }}
+    if: >-
+      ${{ always() && needs.assemble-release.result == 'success' &&
+          (github.event_name == 'push' || inputs.create_draft_release == true) }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
