@@ -56,7 +56,7 @@ export function SettingsPage() {
       <PageHeader
         eyebrow="Workspace settings"
         title="设置"
-        description="偏好和最近上下文仅保存在本设备；API 密钥与 Provisioning Token 不会保存。"
+        description="偏好和最近上下文仅保存在本设备；API 密钥只交给后端安全凭据存储，不写入本地偏好。"
       />
       <ModelConfigurationSection />
       <div className="grid gap-5 lg:grid-cols-2">
@@ -83,9 +83,16 @@ export function SettingsPage() {
                 </button>
               </div>
             </label>
-            {urlError && <p className="text-xs text-red-600">{urlError}</p>}
+            {urlError && (
+              <p className="text-xs text-red-600" role="alert">
+                {urlError}
+              </p>
+            )}
             {saved && (
-              <p className="flex items-center gap-1 text-xs text-emerald-600">
+              <p
+                className="flex items-center gap-1 text-xs text-emerald-600"
+                role="status"
+              >
                 <CheckCircle2 className="h-3.5 w-3.5" />
                 已更新，下一次请求使用新地址
               </p>
@@ -114,6 +121,7 @@ export function SettingsPage() {
                       type="button"
                       key={theme}
                       onClick={() => store.setTheme(theme)}
+                      aria-pressed={store.preferences.theme === theme}
                       className={`inline-flex items-center justify-center gap-1 rounded-lg border px-3 py-2 text-xs ${store.preferences.theme === theme ? "border-[#3157D5] bg-indigo-50 text-[#3157D5] dark:bg-indigo-950" : "border-slate-200 text-slate-500 dark:border-slate-700"}`}
                     >
                       {theme === "light" ? (
@@ -355,7 +363,7 @@ export function SettingsPage() {
         </section>
       </div>
       <section className="mt-5 rounded-xl border border-red-200 bg-white p-5 dark:border-red-900/50 dark:bg-slate-900">
-        <div className="flex items-center justify-between gap-4">
+        <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
           <div>
             <h2 className="text-sm font-semibold text-red-800 dark:text-red-300">
               本设备记录
@@ -376,7 +384,7 @@ export function SettingsPage() {
                 store.clearLocalHistory();
               }
             }}
-            className="secondary-button border-red-200 text-red-700 hover:bg-red-50"
+            className="secondary-button w-full border-red-200 text-red-700 hover:bg-red-50 sm:w-auto"
           >
             <Trash2 className="h-4 w-4" />
             清除本地记录
@@ -441,15 +449,21 @@ function ToggleRow({
   checked: boolean;
   onChange: (value: boolean) => void;
 }) {
+  const switchId = `setting-${label.replace(/\s+/g, "-")}`;
   return (
-    <label className="flex cursor-pointer items-center justify-between gap-3">
-      <span className="text-sm text-slate-700 dark:text-slate-200">
+    <div className="flex items-center justify-between gap-3">
+      <label
+        htmlFor={switchId}
+        className="cursor-pointer text-sm text-slate-700 dark:text-slate-200"
+      >
         {label}
-      </span>
+      </label>
       <button
+        id={switchId}
         type="button"
         role="switch"
         aria-checked={checked}
+        aria-label={label}
         onClick={() => onChange(!checked)}
         className={`relative h-6 w-11 rounded-full transition-colors focus:outline-none focus:ring-2 focus:ring-[#3157D5]/40 ${checked ? "bg-[#3157D5]" : "bg-slate-200 dark:bg-slate-700"}`}
       >
@@ -457,7 +471,7 @@ function ToggleRow({
           className={`absolute top-1 h-4 w-4 rounded-full bg-white transition-transform ${checked ? "translate-x-6" : "translate-x-1"}`}
         />
       </button>
-    </label>
+    </div>
   );
 }
 function HealthCard({
@@ -472,7 +486,11 @@ function HealthCard({
   detail: string;
 }) {
   return (
-    <div className="rounded-lg border border-slate-100 p-3 dark:border-slate-800">
+    <div
+      className="rounded-lg border border-slate-100 p-3 dark:border-slate-800"
+      role="status"
+      aria-label={`${label}：${loading ? "检查中" : detail}`}
+    >
       <div className="flex items-center justify-between">
         <span className="text-xs font-medium">{label}</span>
         {loading ? (

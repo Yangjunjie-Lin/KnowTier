@@ -1,18 +1,67 @@
 @layer components {
   .form-input {
-    @apply w-full rounded-lg border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800 outline-none transition-colors placeholder:text-slate-400 focus:border-[#3157D5] focus:ring-2 focus:ring-[#3157D5]/15 disabled:cursor-not-allowed disabled:bg-slate-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:focus:border-indigo-400 dark:disabled:bg-slate-900;
+    @apply w-full min-h-10 rounded-xl border border-slate-200 bg-white px-3 py-2.5 text-sm text-slate-800 shadow-[0_1px_2px_rgba(15,23,42,0.03)] outline-none transition-[border-color,box-shadow,background-color] placeholder:text-slate-400 hover:border-slate-300 focus:border-[#3157D5] focus:ring-2 focus:ring-[#3157D5]/15 disabled:cursor-not-allowed disabled:bg-slate-50 dark:border-slate-700 dark:bg-slate-950 dark:text-slate-100 dark:hover:border-slate-600 dark:focus:border-indigo-400 dark:disabled:bg-slate-900;
   }
 
   .primary-button {
-    @apply inline-flex min-h-9 items-center justify-center gap-2 rounded-lg bg-[#3157D5] px-3.5 py-2 text-sm font-medium text-white shadow-sm transition-colors hover:bg-[#2446B8] focus:outline-none focus:ring-2 focus:ring-[#3157D5]/40 focus:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50 dark:focus:ring-offset-slate-950;
+    @apply inline-flex min-h-10 items-center justify-center gap-2 rounded-xl bg-[#3157D5] px-4 py-2 text-sm font-semibold text-white shadow-[0_5px_14px_rgba(49,87,213,0.22)] transition-[background-color,box-shadow,transform] hover:-translate-y-px hover:bg-[#2446B8] hover:shadow-[0_7px_18px_rgba(49,87,213,0.28)] focus:outline-none focus:ring-2 focus:ring-[#3157D5]/40 focus:ring-offset-2 active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-50 dark:focus:ring-offset-slate-950;
   }
 
   .secondary-button {
-    @apply inline-flex min-h-9 items-center justify-center gap-2 rounded-lg border border-slate-200 bg-white px-3.5 py-2 text-sm font-medium text-slate-700 transition-colors hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-[#3157D5]/40 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:bg-slate-800;
+    @apply inline-flex min-h-10 items-center justify-center gap-2 rounded-xl border border-slate-200 bg-white px-3.5 py-2 text-sm font-semibold text-slate-700 shadow-[0_1px_2px_rgba(15,23,42,0.04)] transition-[border-color,background-color,box-shadow,transform] hover:-translate-y-px hover:border-slate-300 hover:bg-slate-50 hover:shadow-sm focus:outline-none focus:ring-2 focus:ring-[#3157D5]/40 active:translate-y-0 disabled:cursor-not-allowed disabled:opacity-50 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-200 dark:hover:border-slate-600 dark:hover:bg-slate-800;
   }
 
   .quiet-button {
-    @apply inline-flex min-h-9 items-center justify-center gap-2 rounded-lg px-3 py-2 text-sm font-medium text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#3157D5]/40 dark:hover:bg-slate-800 dark:hover:text-slate-100;
+    @apply inline-flex min-h-10 items-center justify-center gap-2 rounded-xl px-3 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#3157D5]/40 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100;
+  }
+
+  .surface-card {
+    @apply rounded-2xl border border-slate-200/90 bg-white shadow-[0_1px_2px_rgba(15,23,42,0.025),0_8px_24px_rgba(15,23,42,0.035)] dark:border-slate-800 dark:bg-slate-900;
+  }
+
+  .toolbar-card {
+    @apply rounded-2xl border border-slate-200/90 bg-white/90 p-4 shadow-[0_1px_2px_rgba(15,23,42,0.03)] backdrop-blur dark:border-slate-800 dark:bg-slate-900/90;
+  }
+
+  .filter-chip {
+    @apply inline-flex min-h-8 items-center rounded-lg border border-slate-200 bg-white px-2.5 py-1 text-xs font-medium text-slate-600 transition-colors hover:border-indigo-300 hover:text-[#3157D5] focus:outline-none focus:ring-2 focus:ring-[#3157D5]/35 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300;
+  }
+
+  .filter-chip-active {
+    @apply border-indigo-300 bg-indigo-50 text-[#3157D5] shadow-[inset_0_0_0_1px_rgba(49,87,213,0.05)] dark:border-indigo-700 dark:bg-indigo-950/70 dark:text-indigo-300;
+  }
+
+  .icon-button {
+    @apply inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-[#3157D5]/40 dark:text-slate-400 dark:hover:bg-slate-800 dark:hover:text-slate-100;
+  }
+}
+
+@layer base {
+  html,
+  body,
+  #root {
+    min-height: 100%;
+  }
+
+  html {
+    overflow-x: clip;
+    scroll-behavior: smooth;
+  }
+
+  body {
+    min-width: 320px;
+    overflow-x: clip;
+    -webkit-font-smoothing: antialiased;
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    background: rgb(199 215 248 / 0.8);
+    color: #1e3a8a;
+  }
+
+  :focus-visible {
+    scroll-margin: 5rem;
   }
 }
 

@@ -118,7 +118,7 @@ export function PersonalModelPage() {
           <ErrorState error={downloadError} onRetry={() => void downloadCsv()} />
         </div>
       )}
-      <div className="mb-4 grid gap-3 rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900 md:grid-cols-[1fr_auto_auto_auto_auto]">
+      <div className="toolbar-card mb-4 grid gap-3 md:grid-cols-[minmax(14rem,1fr)_auto_auto_auto_auto]">
         <div className="relative">
           <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-600 dark:text-slate-400" />
           <input
@@ -129,12 +129,12 @@ export function PersonalModelPage() {
             placeholder="搜索知识点名称或 ID"
           />
         </div>
-        <label className="flex items-center gap-2">
+        <label className="flex min-w-0 items-center gap-2">
           <span className="text-xs text-slate-500">层级</span>
           <select
             value={level}
             onChange={(event) => setLevel(event.target.value)}
-            className="form-input min-w-24"
+            className="form-input min-w-0 flex-1 md:min-w-24"
           >
             <option value="all">全部</option>
             {[1, 2, 3, 4, 5, 6].map((item) => (
@@ -144,13 +144,13 @@ export function PersonalModelPage() {
             ))}
           </select>
         </label>
-        <label className="flex items-center gap-2">
+        <label className="flex min-w-0 items-center gap-2">
           <Filter className="h-3.5 w-3.5 text-slate-600 dark:text-slate-400" />
           <select
             aria-label="前置状态"
             value={status}
             onChange={(event) => setStatus(event.target.value)}
-            className="form-input min-w-32"
+            className="form-input min-w-0 flex-1 md:min-w-32"
           >
             <option value="all">全部状态</option>
             <option value="mastered">前置已掌握</option>
@@ -158,12 +158,12 @@ export function PersonalModelPage() {
             <option value="misconception">有误解</option>
           </select>
         </label>
-        <label className="flex items-center gap-2">
+        <label className="flex min-w-0 items-center gap-2">
           <SlidersHorizontal className="h-3.5 w-3.5 text-slate-600 dark:text-slate-400" />
           <select
             value={sort}
             onChange={(event) => setSort(event.target.value as SortKey)}
-            className="form-input min-w-28"
+            className="form-input min-w-0 flex-1 md:min-w-28"
             aria-label="排序字段"
           >
             <option value="mastery">掌握度</option>
@@ -188,7 +188,7 @@ export function PersonalModelPage() {
           </span>
         </button>
       </div>
-      <section className="overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
+      <section className="surface-card overflow-hidden">
         <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3 text-xs text-slate-500 dark:border-slate-800">
           <span>
             {rows.length} / {query.data?.items.length ?? 0} 个知识点
@@ -205,7 +205,40 @@ export function PersonalModelPage() {
             />
           </div>
         ) : (
-          <div className="overflow-x-auto">
+          <>
+          <div className="divide-y divide-slate-100 sm:hidden dark:divide-slate-800">
+            {rows.map((item) => (
+              <button
+                type="button"
+                key={item.knowledge_point_id}
+                onClick={() => setSelected(item)}
+                className="block w-full px-4 py-4 text-left transition-colors hover:bg-indigo-50/60 focus:outline-none focus:ring-2 focus:ring-inset focus:ring-[#3157D5]/45 dark:hover:bg-indigo-950/20"
+                aria-label={`查看 ${item.knowledge_point} 的个人模型详情`}
+              >
+                <span className="flex items-start justify-between gap-3">
+                  <span className="min-w-0">
+                    <span className="block truncate text-sm font-semibold text-slate-900 dark:text-slate-100">
+                      {item.knowledge_point}
+                    </span>
+                    <span className="mt-1 block truncate font-mono text-[10px] text-slate-500">
+                      {item.knowledge_point_id}
+                    </span>
+                  </span>
+                  <CognitiveBadge level={item.current_level} size="xs" />
+                </span>
+                <span className="mt-3 block">
+                  <MasteryBar value={item.mastery_score} confidence={item.confidence} />
+                </span>
+                <span className="mt-3 flex items-center justify-between gap-3 text-xs text-slate-500">
+                  <span>证据 {item.evidence_count} · {formatDate(item.next_review_at)}</span>
+                  <span className="shrink-0 font-medium text-[#3157D5]">
+                    {item.recommended_action}
+                  </span>
+                </span>
+              </button>
+            ))}
+          </div>
+          <div className="hidden overflow-x-auto sm:block">
             <table className="w-full min-w-[800px] text-left text-sm">
               <thead className="bg-slate-50 text-xs text-slate-500 dark:bg-slate-800/60">
                 <tr>
@@ -262,6 +295,7 @@ export function PersonalModelPage() {
               </tbody>
             </table>
           </div>
+          </>
         )}
       </section>
       {selected && (

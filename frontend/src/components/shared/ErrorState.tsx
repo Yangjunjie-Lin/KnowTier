@@ -13,10 +13,10 @@ export function ErrorState({
   const technicalDetail = isApiError(error) ? error.technicalDetail : null;
   return (
     <div
-      className="rounded-xl border border-red-200 bg-red-50 px-5 py-5 dark:border-red-900/60 dark:bg-red-950/30"
+      className="rounded-2xl border border-red-200 bg-red-50/90 px-4 py-4 shadow-[0_1px_2px_rgba(127,29,29,0.04)] sm:px-5 sm:py-5 dark:border-red-900/60 dark:bg-red-950/30"
       role="alert"
     >
-      <div className="flex items-start gap-3">
+      <div className="flex flex-wrap items-start gap-3 sm:flex-nowrap">
         <AlertCircle
           className="mt-0.5 h-5 w-5 shrink-0 text-red-600"
           aria-hidden="true"
@@ -43,7 +43,7 @@ export function ErrorState({
           <button
             type="button"
             onClick={onRetry}
-            className="inline-flex items-center gap-1 rounded-md border border-red-300 px-2.5 py-1.5 text-xs font-medium text-red-800 hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-red-400"
+            className="ml-8 inline-flex min-h-9 items-center gap-1 rounded-lg border border-red-300 px-3 py-1.5 text-xs font-semibold text-red-800 hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-red-400 sm:ml-0"
             aria-label="重试"
           >
             <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />

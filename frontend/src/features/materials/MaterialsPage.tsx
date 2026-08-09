@@ -118,7 +118,7 @@ export function MaterialsPage() {
         }}
       />
       {upload.isPending && (
-        <div className="mb-4 flex items-center gap-3 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-800 dark:border-indigo-900 dark:bg-indigo-950/30 dark:text-indigo-200">
+        <div className="mb-4 flex items-center gap-3 rounded-2xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-800 dark:border-indigo-900 dark:bg-indigo-950/30 dark:text-indigo-200" role="status">
           <LoaderCircle className="h-4 w-4 animate-spin" />
           正在上传文件…
         </div>
@@ -138,7 +138,7 @@ export function MaterialsPage() {
           />
         </div>
       )}
-      <div className="mb-5 grid gap-3 md:grid-cols-[1fr_auto]">
+      <div className="toolbar-card mb-5 grid gap-3 md:grid-cols-[1fr_auto]">
         <div className="relative">
           <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-600 dark:text-slate-400" />
           <input
@@ -167,8 +167,8 @@ export function MaterialsPage() {
           </button>
         </div>
       </div>
-      <section className="rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900">
-        <div className="flex items-center justify-between border-b border-slate-100 px-5 py-4 dark:border-slate-800">
+      <section className="surface-card overflow-hidden">
+        <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-4 py-4 sm:items-center sm:px-5 dark:border-slate-800">
           <div>
             <h2 className="text-base font-semibold">本设备最近上传</h2>
             <p className="mt-1 text-xs text-slate-500">
@@ -191,10 +191,10 @@ export function MaterialsPage() {
             {docs.map((doc) => (
               <div
                 key={doc.id}
-                className="flex flex-col gap-3 px-5 py-4 sm:flex-row sm:items-center"
+                className="flex flex-col gap-3 px-4 py-4 transition-colors hover:bg-slate-50/80 sm:flex-row sm:items-center sm:px-5 dark:hover:bg-slate-800/40"
               >
                 <div className="flex min-w-0 flex-1 items-center gap-3">
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-[#3157D5] dark:bg-indigo-950">
+                  <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-indigo-50 text-[#3157D5] ring-1 ring-indigo-100 dark:bg-indigo-950 dark:ring-indigo-900">
                     <FileText className="h-4 w-4" />
                   </div>
                   <div className="min-w-0">
@@ -213,7 +213,7 @@ export function MaterialsPage() {
                   <Link
                     to={`/materials/${doc.id}`}
                     onClick={() => selectDocument(doc.id)}
-                    className="inline-flex items-center gap-1 text-[#3157D5]"
+                    className="inline-flex min-h-9 items-center gap-1 rounded-lg px-2 font-medium text-[#3157D5] hover:bg-indigo-50 focus:outline-none focus:ring-2 focus:ring-[#3157D5]/40 dark:hover:bg-indigo-950/50"
                   >
                     详情
                     <ArrowRight className="h-3.5 w-3.5" />

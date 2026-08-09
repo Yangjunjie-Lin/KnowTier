@@ -177,7 +177,7 @@ export function DomainGraphPage() {
         title="领域知识图谱"
         description="真实 Cytoscape 导出；关系边以 assertion_id 作为唯一身份。"
         actions={
-          <div className="flex gap-2">
+          <div className="flex flex-wrap gap-2">
             <button
               type="button"
               onClick={() => void exportGraph("cytoscape")}
@@ -222,7 +222,7 @@ export function DomainGraphPage() {
       <div className="mb-4">
         <RuntimeModelBadge role="graph" label="Graph" />
       </div>
-      <div className="mb-4 grid gap-3 rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900 md:grid-cols-[1fr_auto]">
+      <div className="toolbar-card mb-4 grid gap-3 md:grid-cols-[minmax(16rem,1fr)_auto]">
         <div className="relative">
           <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
           <input
@@ -241,7 +241,8 @@ export function DomainGraphPage() {
               type="button"
               key={type}
               onClick={() => toggle(type, typeFilter, setTypeFilter)}
-              className={`rounded-md border px-2 py-1 ${typeFilter.includes(type) ? "border-[#3157D5] bg-indigo-50 text-[#3157D5]" : "border-slate-200 text-slate-500 dark:border-slate-700"}`}
+              aria-pressed={typeFilter.includes(type)}
+              className={`filter-chip ${typeFilter.includes(type) ? "filter-chip-active" : ""}`}
             >
               {type}
             </button>
@@ -254,7 +255,8 @@ export function DomainGraphPage() {
               onClick={() =>
                 toggle(relation, relationFilter, setRelationFilter)
               }
-              className={`rounded-md border px-2 py-1 ${relationFilter.includes(relation) ? "border-[#3157D5] bg-indigo-50 text-[#3157D5]" : "border-slate-200 text-slate-500 dark:border-slate-700"}`}
+              aria-pressed={relationFilter.includes(relation)}
+              className={`filter-chip ${relationFilter.includes(relation) ? "filter-chip-active" : ""}`}
             >
               {relation}
             </button>
@@ -304,7 +306,7 @@ export function DomainGraphPage() {
           onEdgeSelect={handleEdge}
         />
         <aside className="space-y-4">
-          <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+          <div className="surface-card p-4">
             <h2 className="text-sm font-semibold">Manifest</h2>
             <dl className="mt-3 space-y-2 text-xs">
               <Metric
@@ -332,7 +334,7 @@ export function DomainGraphPage() {
               />
             </dl>
           </div>
-          <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+          <div className="surface-card p-4">
             <h2 className="text-sm font-semibold">图例</h2>
             <div className="mt-3 space-y-2 text-xs text-slate-500">
               {[

@@ -284,6 +284,9 @@ async function expectVisualSnapshot(page: Page, name: string) {
       { timeout: 10_000 },
     )
     .toBeLessThanOrEqual(1);
+  // Allow ResizeObserver-driven responsive layouts to commit after the
+  // deterministic scroll reset before capturing the visual contract.
+  await page.waitForTimeout(250);
   await expect(page).toHaveScreenshot(name, {
     fullPage: false,
     animations: "disabled",
@@ -923,7 +926,11 @@ test("initialization, ingestion, tutoring, model and both graph views", async ({
 
   await page.goto("/model");
   await expect(page.getByRole("heading", { name: "个人模型" })).toBeVisible();
-  await expect(page.getByText("梯度下降", { exact: true })).toBeVisible();
+  await expect(
+    page
+      .getByRole("button", { name: "查看 梯度下降 的个人模型详情" })
+      .filter({ visible: true }),
+  ).toBeVisible();
 
   await page.goto("/graph/domain");
   await expect(
@@ -962,7 +969,13 @@ test("initialization, ingestion, tutoring, model and both graph views", async ({
   await expectVisualSnapshot(page, "materials-list.png");
 
   await page.goto("/learn");
-  await expect(page.getByLabel("学习消息", { exact: true })).toBeVisible();
+  const learningMessage = page.getByLabel("学习消息", { exact: true });
+  await expect(learningMessage).toBeVisible();
+  await page.evaluate(() =>
+    window.scrollTo({ top: 0, left: 0, behavior: "instant" }),
+  );
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeLessThanOrEqual(1);
+  await expect(learningMessage).toBeInViewport({ ratio: 0.9 });
   await expect(page.getByLabel(/Teacher 运行模型/)).toBeVisible();
   await expectNoHorizontalOverflow(page);
   await expectNoSeriousAxeViolations(page);
@@ -1045,7 +1058,7 @@ test("SiliconFlow profile lifecycle is visible, dynamic and secret-safe", async 
   await expect(page.getByLabel(/Teacher/).first()).toHaveValue("sf-chat");
   await page.getByRole("button", { name: "启用配置" }).click();
   await expect(page.getByText("当前启用：SiliconFlow 验收")).toBeVisible();
-  await expect(page.getByText(/Teacher · siliconflow \/ sf-chat/)).toBeVisible();
+  await expect(page.getByText(/Teacher · SiliconFlow \/ sf-chat/)).toBeVisible();
   await page.getByRole("button", { name: "测试连接" }).click();
   await expect(
     page.getByRole("button", { name: /SiliconFlow 验收 连接成功/ }),
@@ -1057,6 +1070,11 @@ test("SiliconFlow profile lifecycle is visible, dynamic and secret-safe", async 
   );
   expect(persistedState).not.toContain("e2e-secret-never-persist-me");
 
+  page.once("dialog", async (dialog) => {
+    expect(dialog.type()).toBe("confirm");
+    expect(dialog.message()).toContain("删除模型配置");
+    await dialog.accept();
+  });
   await page.getByRole("button", { name: "删除凭据" }).click();
   await expect(page.getByRole("button", { name: "删除凭据" })).toHaveCount(0);
   await expect(page.getByText("当前启用：Mock Provider")).toBeVisible();
@@ -1073,6 +1091,21 @@ test("global search shortcut, graph keyboard list and responsive visuals", async
   await installApiContract(page);
 
   await page.goto("/overview");
+  if ((page.viewportSize()?.width ?? 0) < 1024) {
+    const menuButton = page.getByRole("button", { name: "打开导航" });
+    await menuButton.focus();
+    await menuButton.press("Enter");
+    const mobileNavigation = page.getByRole("dialog", {
+      name: "移动端主导航",
+    });
+    await expect(mobileNavigation).toBeVisible();
+    await expect(
+      mobileNavigation.getByRole("button", { name: "关闭导航" }),
+    ).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(mobileNavigation).toHaveCount(0);
+    await expect(menuButton).toBeFocused();
+  }
   await expect(page.getByRole("link", { name: "打开全局搜索" })).toBeVisible();
   await page.evaluate(() => {
     window.dispatchEvent(

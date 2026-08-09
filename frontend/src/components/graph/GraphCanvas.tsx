@@ -337,13 +337,13 @@ export function GraphCanvas({
   return (
     <section
       className={cn(
-        "relative min-h-[420px] overflow-hidden rounded-xl border border-slate-200 bg-[#F8FAFF] dark:border-slate-700 dark:bg-slate-900",
-        fullScreen && "fixed inset-3 z-50 min-h-0 bg-white shadow-2xl dark:bg-slate-950",
+        "relative min-h-[440px] overflow-hidden rounded-2xl border border-slate-200 bg-[radial-gradient(circle_at_50%_20%,#ffffff_0%,#f6f8ff_62%,#eef2ff_100%)] shadow-[0_1px_2px_rgba(15,23,42,0.03),0_12px_32px_rgba(15,23,42,0.04)] dark:border-slate-700 dark:bg-slate-900",
+        fullScreen && "fixed inset-2 z-50 min-h-0 bg-white shadow-2xl sm:inset-3 dark:bg-slate-950",
         className,
       )}
       aria-label="知识图谱浏览器"
     >
-      <div className="absolute left-3 top-3 z-10 flex rounded-lg border border-slate-200 bg-white/95 p-1 shadow-sm dark:border-slate-700 dark:bg-slate-900/95">
+      <div className="absolute left-3 top-3 z-10 flex rounded-xl border border-slate-200 bg-white/95 p-1 shadow-md backdrop-blur dark:border-slate-700 dark:bg-slate-900/95">
         <button
           type="button"
           onClick={() => setView("graph")}
@@ -365,7 +365,7 @@ export function GraphCanvas({
       </div>
 
       {view === "graph" ? (
-        <div ref={hostRef} className="h-full min-h-[420px] w-full" role="application" aria-label={`知识图谱，${visible.nodes.length} 个节点、${visible.edges.length} 条有向关系。可切换列表视图进行键盘浏览。`} />
+        <div ref={hostRef} className="h-full min-h-[440px] w-full" role="application" aria-label={`知识图谱，${visible.nodes.length} 个节点、${visible.edges.length} 条有向关系。可切换列表视图进行键盘浏览。`} />
       ) : (
         <GraphListView
           nodes={visible.nodes.map((node) => node.data)}
@@ -377,7 +377,7 @@ export function GraphCanvas({
       )}
 
       {view === "graph" && (
-        <div className="absolute right-3 top-3 z-10 flex items-center gap-1 rounded-lg border border-slate-200 bg-white/95 p-1 shadow-sm dark:border-slate-700 dark:bg-slate-900/95">
+        <div className="absolute right-3 top-3 z-10 flex items-center gap-1 rounded-xl border border-slate-200 bg-white/95 p-1 shadow-md backdrop-blur dark:border-slate-700 dark:bg-slate-900/95">
           <button type="button" onClick={() => adjustZoom(0.25)} className="rounded p-1.5 text-slate-500 hover:bg-slate-100 focus:outline-none focus:ring-2 focus:ring-[#3157D5]" aria-label="放大图谱">
             <Plus className="h-4 w-4" />
           </button>
@@ -393,7 +393,7 @@ export function GraphCanvas({
         </div>
       )}
 
-      <div className="absolute bottom-3 left-3 z-10 flex flex-wrap items-center gap-x-2 rounded bg-white/90 px-2 py-1 font-mono text-[10px] text-slate-500 shadow-sm dark:bg-slate-900/90">
+      <div className="absolute bottom-3 left-3 right-3 z-10 flex flex-wrap items-center gap-x-2 rounded-lg border border-slate-200/70 bg-white/90 px-2.5 py-1.5 font-mono text-[10px] text-slate-600 shadow-sm backdrop-blur sm:right-auto dark:border-slate-700 dark:bg-slate-900/90 dark:text-slate-400">
         <span>{visible.nodes.length} 节点</span>
         <span>{visible.edges.length} 关系</span>
         <span>{filtered ? "筛选已启用" : "显示全部"}</span>
@@ -466,7 +466,7 @@ export function GraphListView({
   const nodeLabels = new Map(nodes.map((node) => [node.id, graphNodeLabel(node)]));
 
   return (
-    <div className="max-h-[620px] min-h-[420px] overflow-auto px-4 pb-16 pt-16" onKeyDown={onKeyDown} aria-label="知识图谱列表，可用方向键选择，Enter 打开详情，Escape 退出焦点">
+    <div className="max-h-[640px] min-h-[440px] overflow-auto px-3 pb-16 pt-16 sm:px-4" onKeyDown={onKeyDown} aria-label="知识图谱列表，可用方向键选择，Enter 打开详情，Escape 退出焦点">
       <section aria-labelledby="graph-node-list-heading">
         <h2 id="graph-node-list-heading" className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">节点（{nodes.length}）</h2>
         {nodes.length ? (

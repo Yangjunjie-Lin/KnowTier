@@ -26,8 +26,8 @@ jobs:
       COGNIGRAPH_WORKSPACE_SCOPE_REQUIRED: "true"
       COGNIGRAPH_WORKSPACE_PROVISIONING_TOKEN: release-check-provisioning-token
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
+      - uses: actions/checkout@v7
+      - uses: docker/setup-buildx-action@v4
       - name: Validate Compose manifests
         run: docker compose config --quiet
       - name: Validate OCR profile
@@ -45,10 +45,10 @@ jobs:
       - name: Stop Compose stack
         if: always()
         run: docker compose down --volumes --remove-orphans
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v9.0.0
         with:
           version: "latest"
       - run: uv lock --check
@@ -67,11 +67,11 @@ jobs:
       COGNIGRAPH_LIVE_MODEL_API_KEY: ${{ secrets.COGNIGRAPH_API_KEY }}
       COGNIGRAPH_LIVE_MODEL: ${{ vars.COGNIGRAPH_LIVE_MODEL || 'openai/gpt-4.1-mini' }}
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v9.0.0
         with:
           version: "latest"
       - name: Install frozen development environment
@@ -88,11 +88,11 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 35
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v9.0.0
         with:
           version: "latest"
       - name: Install reproducible OCR fonts

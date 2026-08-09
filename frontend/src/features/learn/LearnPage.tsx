@@ -19,7 +19,13 @@ import {
   Wrench,
   X,
 } from "lucide-react";
-import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  type CSSProperties,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { useLocation, useNavigate } from "react-router-dom";
 import { EvidencePanel } from "@/components/learn/EvidencePanel";
 import { LearningStatusSheet } from "@/components/learn/LearningStatusSheet";
@@ -84,6 +90,8 @@ type UploadStage = "upload" | "ingest" | "attachment";
 
 interface UploadOperation {
   fileName: string;
+  file?: File;
+  uploaded?: Awaited<ReturnType<typeof api.uploadDocument>>;
   stage: UploadStage;
   pending: boolean;
   error: unknown;
@@ -91,6 +99,7 @@ interface UploadOperation {
 
 interface ChatSubmission {
   clientRequestId: UUID;
+  viewKey: string;
   text: string;
   attachmentIds: UUID[];
   requestedMode: RequestedMode;
@@ -167,17 +176,21 @@ export function LearnPage() {
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
+  const composerRef = useRef<HTMLDivElement>(null);
+  const messageEndRef = useRef<HTMLDivElement>(null);
+  const [composerHeight, setComposerHeight] = useState(288);
   const inFlightRef = useRef(false);
   const abortControllerRef = useRef<AbortController | null>(null);
   const [requestCancelled, setRequestCancelled] = useState(false);
   const contextKey = `${currentWorkspace?.id ?? "none"}:${currentLearner?.id ?? "none"}:${sessionId}`;
-  const activeContextRef = useRef(contextKey);
-  activeContextRef.current = contextKey;
   const previousContextRef = useRef(contextKey);
   const navigationTargetKey = navigationTarget
     ? `${navigationTarget.id ?? "name"}:${navigationTarget.name}:${navigationTarget.source ?? ""}`
     : "none";
   const previousNavigationTargetRef = useRef(navigationTargetKey);
+  const viewKey = `${contextKey}:${navigationTargetKey}`;
+  const activeViewRef = useRef(viewKey);
+  activeViewRef.current = viewKey;
   const availableDocuments = useMemo(
     () => documentsForWorkspace(recentDocuments, currentWorkspace?.id),
     [currentWorkspace?.id, recentDocuments],
@@ -206,22 +219,27 @@ export function LearnPage() {
     mutationFn: (input: ChatSubmission) => {
       const controller = new AbortController();
       abortControllerRef.current = controller;
-      return api.chat(
-        {
-          workspace_id: input.workspaceId,
-          learner_id: input.learnerId,
-          session_id: input.sessionId,
-          client_request_id: input.clientRequestId,
-          message: input.text,
-          attachment_ids: input.attachmentIds,
-          requested_mode: input.requestedMode,
-        },
-        controller.signal,
-      );
+      return api
+        .chat(
+          {
+            workspace_id: input.workspaceId,
+            learner_id: input.learnerId,
+            session_id: input.sessionId,
+            client_request_id: input.clientRequestId,
+            message: input.text,
+            attachment_ids: input.attachmentIds,
+            requested_mode: input.requestedMode,
+          },
+          controller.signal,
+        )
+        .finally(() => {
+          if (abortControllerRef.current !== controller) return;
+          inFlightRef.current = false;
+          abortControllerRef.current = null;
+        });
     },
     onSuccess: async (result, input) => {
-      const submissionKey = `${input.workspaceId}:${input.learnerId}:${input.sessionId}`;
-      if (submissionKey !== activeContextRef.current) return;
+      if (input.viewKey !== activeViewRef.current) return;
       setMessages((current) => [
         ...current,
         {
@@ -262,10 +280,6 @@ export function LearnPage() {
         current === targetId ? null : current,
       );
     },
-    onSettled: () => {
-      inFlightRef.current = false;
-      abortControllerRef.current = null;
-    },
   });
 
   useEffect(() => {
@@ -301,9 +315,31 @@ export function LearnPage() {
     setUploadOperation(null);
     setNavigationTargetConfirmed(false);
     setSynchronizingInsightsTargetId(null);
+    setLearningStatusOpen(false);
     setMessage(learningTargetDraft(navigationTarget));
     setRequestCancelled(false);
   }, [chatMutation, navigationTarget, navigationTargetKey]);
+
+  useEffect(() => {
+    const composer = composerRef.current;
+    if (!composer) return;
+    const updateHeight = () => {
+      const next = Math.ceil(composer.getBoundingClientRect().height);
+      if (next > 0) setComposerHeight(next);
+    };
+    updateHeight();
+    if (!("ResizeObserver" in window)) return;
+    const observer = new ResizeObserver(updateHeight);
+    observer.observe(composer);
+    return () => observer.disconnect();
+  }, [currentLearner?.id, currentWorkspace?.id]);
+
+  useEffect(() => {
+    messageEndRef.current?.scrollIntoView?.({
+      block: "nearest",
+      behavior: preferences.reducedMotion ? "auto" : "smooth",
+    });
+  }, [chatMutation.isPending, messages.length, preferences.reducedMotion]);
 
   if (!currentWorkspace || !currentLearner) {
     return (
@@ -332,41 +368,58 @@ export function LearnPage() {
     replaceAttachments([...current, id]);
   };
 
-  const processUpload = async (file: File) => {
+  const processUpload = async (
+    file: File,
+    resumeUploaded?: Awaited<ReturnType<typeof api.uploadDocument>>,
+  ) => {
     if (chatMutation.isPending || uploadOperation?.pending) return;
+    const operationViewKey = viewKey;
     setUploadOperation({
       fileName: file.name,
-      stage: "upload",
+      file,
+      ...(resumeUploaded ? { uploaded: resumeUploaded } : {}),
+      stage: resumeUploaded ? "ingest" : "upload",
       pending: true,
       error: null,
     });
-    let uploaded;
-    try {
-      uploaded = await api.uploadDocument(currentWorkspace.id, file);
-      rememberDocument(uploaded);
-    } catch (error) {
-      setUploadOperation({
-        fileName: file.name,
-        stage: "upload",
-        pending: false,
-        error,
-      });
-      return;
+    let uploaded = resumeUploaded;
+    if (!uploaded) {
+      try {
+        uploaded = await api.uploadDocument(currentWorkspace.id, file);
+        if (operationViewKey !== activeViewRef.current) return;
+        rememberDocument(uploaded);
+      } catch (error) {
+        if (operationViewKey !== activeViewRef.current) return;
+        setUploadOperation({
+          fileName: file.name,
+          file,
+          stage: "upload",
+          pending: false,
+          error,
+        });
+        return;
+      }
     }
 
     if (uploaded.status !== "INGESTED") {
       setUploadOperation({
         fileName: file.name,
+        file,
+        uploaded,
         stage: "ingest",
         pending: true,
         error: null,
       });
       try {
         await api.ingestDocument(uploaded.id);
+        if (operationViewKey !== activeViewRef.current) return;
         rememberDocument({ ...uploaded, status: "INGESTED" });
       } catch (error) {
+        if (operationViewKey !== activeViewRef.current) return;
         setUploadOperation({
           fileName: file.name,
+          file,
+          uploaded,
           stage: "ingest",
           pending: false,
           error,
@@ -375,10 +428,13 @@ export function LearnPage() {
       }
     }
 
+    if (operationViewKey !== activeViewRef.current) return;
     const current = attachmentIdsRef.current;
     if (!current.includes(uploaded.id) && current.length >= 20) {
       setUploadOperation({
         fileName: file.name,
+        file,
+        uploaded,
         stage: "attachment",
         pending: false,
         error: new Error("资料已摄取，但本轮附件已达到 20 份上限。"),
@@ -390,6 +446,8 @@ export function LearnPage() {
     }
     setUploadOperation({
       fileName: file.name,
+      file,
+      uploaded,
       stage: "attachment",
       pending: false,
       error: null,
@@ -419,6 +477,7 @@ export function LearnPage() {
     setShowAttachments(false);
     chatMutation.mutate({
       clientRequestId: crypto.randomUUID(),
+      viewKey,
       text,
       attachmentIds,
       requestedMode: mode,
@@ -482,9 +541,26 @@ export function LearnPage() {
   const currentKnowledgePoint =
     learningInsightsResult.insights.targetKnowledgePoint?.name;
   const currentLevel = latestResult?.cognitive_level ?? 1;
+  const retryUpload = (() => {
+    const operation = uploadOperation;
+    const file = operation?.file;
+    if (!operation || !file || operation.stage === "attachment") return undefined;
+    return () =>
+      void processUpload(
+        file,
+        operation.stage === "ingest" ? operation.uploaded : undefined,
+      );
+  })();
 
   return (
-    <div className="min-h-[calc(100vh-8rem)]">
+    <div
+      className="min-h-[calc(100vh-8rem)]"
+      style={
+        {
+          "--learn-composer-height": `${composerHeight}px`,
+        } as CSSProperties
+      }
+    >
       <PageHeader
         eyebrow="Teaching workspace"
         title="学习空间"
@@ -606,20 +682,20 @@ export function LearnPage() {
           </ContextPanel>
         </aside>
 
-        <section className="flex min-h-[520px] min-w-0 flex-col overflow-hidden rounded-xl border border-slate-200 bg-white dark:border-slate-800 dark:bg-slate-900 lg:min-h-[680px]">
-          <div className="flex items-center justify-between border-b border-slate-100 px-5 py-3 dark:border-slate-800">
-            <div className="flex items-center gap-2">
+        <section className="grid min-h-[520px] min-w-0 grid-rows-[auto_minmax(0,1fr)_auto] overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-sm shadow-slate-200/40 dark:border-slate-800 dark:bg-slate-900 dark:shadow-none lg:min-h-[480px] xl:h-[calc(100dvh-16.5rem)] xl:min-h-[560px] xl:max-h-[760px] xl:self-start">
+          <div className="flex items-center justify-between gap-3 border-b border-slate-100 px-4 py-3 dark:border-slate-800 sm:px-5">
+            <div className="flex min-w-0 items-center gap-2">
               <span className="flex h-8 w-8 items-center justify-center rounded-lg bg-indigo-50 text-[#3157D5] dark:bg-indigo-950">
                 <Sparkles className="h-4 w-4" />
               </span>
-              <div>
+              <div className="min-w-0">
                 <p className="text-sm font-medium">结构化教学内容</p>
                 <p className="text-[11px] text-slate-600 dark:text-slate-400">
                   教师讲解与掌握检测分开呈现
                 </p>
               </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex shrink-0 items-center gap-2">
               <span className="hidden text-[11px] text-slate-600 dark:text-slate-400 sm:inline">
                 {currentKnowledgePoint ?? "等待服务器确认当前知识点"}
               </span>
@@ -647,8 +723,11 @@ export function LearnPage() {
           </div>
 
           <div
-            className="flex-1 space-y-5 overflow-y-auto p-5 pb-72 lg:pb-5"
+            className="min-h-0 flex-1 space-y-5 overflow-y-auto p-4 pb-[calc(var(--learn-composer-height)+1rem)] sm:p-5 xl:pb-5"
+            tabIndex={0}
+            aria-label="学习对话记录"
             aria-live="polite"
+            aria-busy={chatMutation.isPending}
           >
             {messages.length === 0 ? (
               <div className="flex min-h-80 flex-col items-center justify-center text-center">
@@ -671,23 +750,45 @@ export function LearnPage() {
             )}
             {chatMutation.isPending && (
               <div
-                className="flex items-center gap-2 text-sm text-slate-600 dark:text-slate-400"
+                className="flex items-center gap-3 rounded-xl border border-indigo-200 bg-indigo-50 px-3 py-3 text-sm text-indigo-800 dark:border-indigo-900/60 dark:bg-indigo-950/30 dark:text-indigo-200"
                 role="status"
               >
-                <LoaderCircle className="h-4 w-4 animate-spin" />
-                正在生成讲解、检查掌握并更新模型…
+                <LoaderCircle className="h-4 w-4 shrink-0 animate-spin" />
+                <span className="min-w-0 flex-1">
+                  正在生成讲解、检查掌握并同步学习模型…
+                </span>
                 <button
                   type="button"
                   onClick={cancelSubmission}
-                  className="quiet-button ml-auto min-h-8 border border-slate-200 px-2 text-xs dark:border-slate-700"
+                  className="quiet-button min-h-8 shrink-0 border border-indigo-200 bg-white px-2 text-xs dark:border-indigo-800 dark:bg-slate-900"
                 >
                   <StopCircle className="h-3.5 w-3.5" /> 取消
                 </button>
               </div>
             )}
             {requestCancelled && !chatMutation.isPending && (
-              <div role="status" className="rounded-lg bg-slate-100 px-3 py-2 text-sm text-slate-600 dark:bg-slate-800 dark:text-slate-300">
-                本轮请求已取消。草稿和附件仍保留，可直接重新发送。
+              <div
+                role="status"
+                className="flex flex-wrap items-center gap-3 rounded-xl border border-slate-200 bg-slate-50 px-3 py-3 text-sm text-slate-700 dark:border-slate-700 dark:bg-slate-800 dark:text-slate-200"
+              >
+                <span className="min-w-[12rem] flex-1">
+                  本轮请求已取消，草稿和附件仍保留。
+                </span>
+                <button
+                  type="button"
+                  className="secondary-button min-h-8 px-3 py-1 text-xs"
+                  onClick={retryLastSubmission}
+                >
+                  <RotateCcw className="h-3.5 w-3.5" />
+                  重试本轮
+                </button>
+                <button
+                  type="button"
+                  className="quiet-button min-h-8 px-2 text-xs"
+                  onClick={() => inputRef.current?.focus()}
+                >
+                  修改草稿
+                </button>
               </div>
             )}
             {chatMutation.isError && !requestCancelled && (
@@ -696,9 +797,14 @@ export function LearnPage() {
                 onRetry={retryLastSubmission}
               />
             )}
+            <div ref={messageEndRef} aria-hidden="true" />
           </div>
 
-          <div className="fixed inset-x-0 bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-20 border-t border-slate-100 bg-white p-3 shadow-[0_-8px_24px_rgba(15,23,42,0.08)] dark:border-slate-800 dark:bg-slate-900 lg:static lg:z-auto lg:p-4 lg:shadow-none">
+          <div
+            ref={composerRef}
+            className="fixed inset-x-0 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-30 max-h-[calc(100dvh-7.5rem)] shrink-0 overflow-y-auto overscroll-contain border-t border-slate-200 bg-white/95 p-3 shadow-[0_-12px_30px_rgba(15,23,42,0.12)] backdrop-blur-xl dark:border-slate-800 dark:bg-slate-900/95 lg:bottom-0 lg:left-60 lg:right-0 xl:static xl:z-auto xl:max-h-none xl:overflow-visible xl:p-4 xl:shadow-none"
+            aria-label="学习消息编辑器"
+          >
             <div className="mb-3 flex flex-wrap gap-2" aria-label="快捷教学操作">
               {quickTeachingActions.map((action) => (
                 <button
@@ -732,8 +838,9 @@ export function LearnPage() {
                 rows={3}
                 maxLength={20_000}
                 placeholder="输入你的问题或回答…"
-                className="form-input resize-none pr-12"
+                className="form-input min-h-20 resize-none pr-12 text-base leading-6 sm:text-sm"
                 aria-label="学习消息"
+                aria-describedby="learning-message-help"
                 disabled={chatMutation.isPending}
               />
               <button
@@ -755,6 +862,8 @@ export function LearnPage() {
                   disabled={chatMutation.isPending}
                   className="quiet-button min-h-8 px-2 text-xs"
                   aria-expanded={showAttachments}
+                  aria-controls="learning-attachment-menu"
+                  aria-haspopup="menu"
                 >
                   <Paperclip className="h-3.5 w-3.5" />
                   选择已有资料
@@ -770,6 +879,7 @@ export function LearnPage() {
                     documents={availableDocuments}
                     selected={attachments}
                     onToggle={toggleAttachment}
+                    onClose={() => setShowAttachments(false)}
                   />
                 )}
               </div>
@@ -818,13 +928,19 @@ export function LearnPage() {
                   event.currentTarget.value = "";
                 }}
               />
-              <span className="ml-auto text-[10px] text-slate-600 dark:text-slate-400">
+              <span
+                id="learning-message-help"
+                className="ml-auto text-[10px] text-slate-600 dark:text-slate-400"
+              >
                 Enter 发送 · Shift+Enter 换行
               </span>
             </div>
 
             {uploadOperation && (
-              <UploadStatus operation={uploadOperation} />
+              <UploadStatus
+                operation={uploadOperation}
+                onRetry={retryUpload}
+              />
             )}
             {attachments.length > 0 && (
               <div className="mt-3 flex flex-wrap gap-2" aria-label="本轮附件">
@@ -986,8 +1102,11 @@ export function LearnPage() {
 function UserTurn({ message }: { message: ConversationMessage }) {
   return (
     <div className="flex justify-end">
-      <div className="max-w-[88%] rounded-2xl bg-[#3157D5] px-4 py-3 text-sm leading-7 text-white">
-        <p className="whitespace-pre-wrap">{message.text}</p>
+      <div className="max-w-[94%] rounded-2xl rounded-br-md bg-[#3157D5] px-4 py-3 text-sm leading-7 text-white shadow-sm sm:max-w-[88%]">
+        <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-indigo-100">
+          你
+        </p>
+        <p className="whitespace-pre-wrap break-words">{message.text}</p>
         {message.attachmentNames && message.attachmentNames.length > 0 && (
           <p className="mt-2 border-t border-white/20 pt-2 text-[11px] text-indigo-100">
             附件：{message.attachmentNames.join("、")}
@@ -1000,7 +1119,7 @@ function UserTurn({ message }: { message: ConversationMessage }) {
 
 export function TeachingTurn({ result }: { result: ChatResponse }) {
   return (
-    <article className="space-y-3" aria-label="教师教学响应">
+    <article className="min-w-0 space-y-3" aria-label="教师教学响应">
       <div className="flex flex-wrap items-center gap-2">
         <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-indigo-50 text-[#3157D5] dark:bg-indigo-950">
           <Sparkles className="h-4 w-4" />
@@ -1011,10 +1130,13 @@ export function TeachingTurn({ result }: { result: ChatResponse }) {
           {teachingActionLabel(result.teaching_action)}
         </span>
       </div>
-      <section className="rounded-xl border border-slate-200 bg-slate-50 px-4 py-4 dark:border-slate-700 dark:bg-slate-800/70">
-        <p className="mb-2 text-[11px] text-slate-600 dark:text-slate-400">
-          目标知识点 · {result.target_knowledge_point.name}
-        </p>
+      <section className="min-w-0 rounded-xl border border-slate-200 border-l-indigo-400 bg-slate-50 px-4 py-4 dark:border-slate-700 dark:border-l-indigo-500 dark:bg-slate-800/70">
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-2 dark:border-slate-700">
+          <p className="text-[11px] font-medium text-slate-600 dark:text-slate-300">
+            目标知识点 · {result.target_knowledge_point.name}
+          </p>
+          <span className="text-[10px] text-slate-500">可复制回答、代码与公式</span>
+        </div>
         <TeachingResponse content={result.response} />
       </section>
       {result.model_fallback && (
@@ -1039,6 +1161,44 @@ export function TeachingTurn({ result }: { result: ChatResponse }) {
           {result.assessment.question}
         </p>
       </section>
+      <details className="group rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
+        <summary className="cursor-pointer list-none rounded-xl px-4 py-3 text-sm font-medium text-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 dark:text-slate-200 [&::-webkit-details-marker]:hidden">
+          <span className="flex items-center justify-between gap-3">
+            <span>本轮来源与学习模型变化</span>
+            <span className="text-xs font-normal text-slate-500">
+              {result.sources.length} 个来源 · 掌握度 {Math.round(result.learner_update.mastery_score * 100)}%
+            </span>
+          </span>
+        </summary>
+        <div className="grid gap-4 border-t border-slate-100 p-4 dark:border-slate-800 sm:grid-cols-2">
+          <section aria-label="本轮来源">
+            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              来源
+            </h3>
+            {result.sources.length > 0 ? (
+              <SourceList sources={result.sources} />
+            ) : (
+              <PanelEmpty text="本轮没有返回外部来源；模型生成事实仍按未确认信息处理。" />
+            )}
+          </section>
+          <section aria-label="本轮学习模型变化">
+            <h3 className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500">
+              学习模型变化
+            </h3>
+            <MasteryBar
+              value={result.learner_update.mastery_score}
+              confidence={result.learner_update.confidence}
+              label="本轮掌握度"
+            />
+            <p className="mt-3 text-xs font-medium text-slate-700 dark:text-slate-200">
+              {learnerDecisionLabel(result.learner_update.decision)}
+            </p>
+            <p className="mt-1 text-xs leading-5 text-slate-500">
+              {result.learner_update.reason}
+            </p>
+          </section>
+        </div>
+      </details>
     </article>
   );
 }
@@ -1047,13 +1207,26 @@ function AttachmentMenu({
   documents,
   selected,
   onToggle,
+  onClose,
 }: {
   documents: ReturnType<typeof documentsForWorkspace>;
   selected: UUID[];
   onToggle: (id: UUID) => void;
+  onClose: () => void;
 }) {
   return (
-    <div className="absolute bottom-10 left-0 z-20 w-80 rounded-xl border border-slate-200 bg-white p-2 shadow-xl dark:border-slate-700 dark:bg-slate-900">
+    <div
+      id="learning-attachment-menu"
+      role="menu"
+      aria-label="选择本轮资料"
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          onClose();
+        }
+      }}
+      className="absolute bottom-10 left-0 z-20 max-h-72 w-[min(20rem,calc(100vw-1.5rem))] overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 shadow-xl dark:border-slate-700 dark:bg-slate-900"
+    >
       {documents.length === 0 ? (
         <p className="px-3 py-4 text-xs text-slate-500">
           本设备还没有该 Workspace 的资料索引。
@@ -1067,9 +1240,13 @@ function AttachmentMenu({
             <button
               type="button"
               key={document.id}
-              onClick={() => onToggle(document.id)}
+              onClick={() => {
+                onToggle(document.id);
+                onClose();
+              }}
+              role="menuitemcheckbox"
               className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs hover:bg-indigo-50 focus:outline-none focus:ring-2 focus:ring-indigo-400 dark:hover:bg-indigo-950/50"
-              aria-pressed={selected.includes(document.id)}
+              aria-checked={selected.includes(document.id)}
             >
               <span
                 className={cn(
@@ -1098,7 +1275,13 @@ function AttachmentMenu({
   );
 }
 
-function UploadStatus({ operation }: { operation: UploadOperation }) {
+function UploadStatus({
+  operation,
+  onRetry,
+}: {
+  operation: UploadOperation;
+  onRetry?: () => void;
+}) {
   const stageLabels: Record<UploadStage, string> = {
     upload: "上传",
     ingest: "摄取",
@@ -1111,12 +1294,22 @@ function UploadStatus({ operation }: { operation: UploadOperation }) {
         role="alert"
       >
         <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
-        <span>
+        <span className="min-w-0 flex-1">
           {stageLabels[operation.stage]}失败 · {operation.fileName}：
           {operation.error instanceof Error
             ? operation.error.message
             : "请求失败，请重试。"}
         </span>
+        {onRetry && (
+          <button
+            type="button"
+            onClick={onRetry}
+            className="quiet-button min-h-8 shrink-0 border border-red-200 bg-white px-2 text-xs dark:border-red-800 dark:bg-slate-900"
+          >
+            <RotateCcw className="h-3.5 w-3.5" />
+            重试
+          </button>
+        )}
       </div>
     );
   }

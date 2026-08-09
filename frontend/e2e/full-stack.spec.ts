@@ -207,7 +207,9 @@ test("real stack persists ingestion, tutoring, graphs, and versions across an AP
     name: /附加资料|附件|选择已有资料/,
   });
   await attachmentButton.first().click();
-  await page.getByRole("button", { name: new RegExp(filename) }).last().click();
+  await page
+    .getByRole("menuitemcheckbox", { name: new RegExp(filename) })
+    .click();
   const learningInput = page.getByLabel("学习消息", { exact: true });
   await learningInput.fill("Teach me conditional probability foundation.");
   const prerequisiteChat = await captureJson<ChatPayload>(

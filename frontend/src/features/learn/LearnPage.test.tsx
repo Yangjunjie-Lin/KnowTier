@@ -264,6 +264,29 @@ describe("LearnPage", () => {
     expect(api.chat).not.toHaveBeenCalled();
   });
 
+  it("retries ingestion without uploading the same file twice", async () => {
+    vi.mocked(api.uploadDocument).mockResolvedValue(uploadedDocument);
+    vi.mocked(api.ingestDocument)
+      .mockRejectedValueOnce(new Error("摄取服务暂时不可用"))
+      .mockResolvedValueOnce(ingestionReport);
+    renderPage();
+
+    const file = new File(["retry me"], "retry.txt", { type: "text/plain" });
+    fireEvent.change(screen.getByLabelText("上传学习资料"), {
+      target: { files: [file] },
+    });
+
+    expect(await screen.findByText(/摄取失败.*摄取服务暂时不可用/)).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "重试" }));
+
+    expect(
+      await screen.findByText("retry.txt 已完成摄取并加入本轮附件"),
+    ).toBeVisible();
+    expect(api.uploadDocument).toHaveBeenCalledTimes(1);
+    expect(api.ingestDocument).toHaveBeenCalledTimes(2);
+    expect(api.ingestDocument).toHaveBeenNthCalledWith(2, uploadedDocument.id);
+  });
+
   it("locks session and attachment controls while a turn is in flight", async () => {
     vi.mocked(api.chat).mockImplementation(
       () => new Promise<ChatResponse>(() => undefined),
@@ -316,8 +339,8 @@ describe("LearnPage", () => {
     expect(second?.client_request_id).toBe(first?.client_request_id);
   });
 
-  it("cancels an in-flight request without losing the draft", async () => {
-    vi.mocked(api.chat).mockImplementation(
+  it("cancels without losing the draft and retries the same request id", async () => {
+    vi.mocked(api.chat).mockImplementationOnce(
       (_input, signal) =>
         new Promise<ChatResponse>((_resolve, reject) => {
           signal?.addEventListener(
@@ -326,7 +349,7 @@ describe("LearnPage", () => {
             { once: true },
           );
         }),
-    );
+    ).mockResolvedValueOnce(chatResponse);
     renderPage();
     fireEvent.change(screen.getByLabelText("学习消息"), {
       target: { value: "取消后保留我" },
@@ -337,6 +360,11 @@ describe("LearnPage", () => {
     expect(await screen.findByText(/本轮请求已取消/)).toBeVisible();
     expect(screen.getByLabelText("学习消息")).toHaveValue("取消后保留我");
     expect(screen.getByLabelText("学习消息")).toBeEnabled();
+    fireEvent.click(screen.getByRole("button", { name: "重试本轮" }));
+    expect(await screen.findByText("这是教师讲解。")).toBeVisible();
+    const first = vi.mocked(api.chat).mock.calls[0]?.[0];
+    const second = vi.mocked(api.chat).mock.calls[1]?.[0];
+    expect(second?.client_request_id).toBe(first?.client_request_id);
   });
 
   it("clears draft and mismatched state for a new session", async () => {

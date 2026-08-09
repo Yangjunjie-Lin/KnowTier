@@ -8,6 +8,7 @@ import httpx
 import pytest
 
 from cognigraph.config import Settings
+from cognigraph.ingestion.models import VisionDocumentOutput
 from cognigraph.llm.gateway import ModelGateway
 from cognigraph.llm.openai_compatible import (
     OpenAICompatibleError,
@@ -61,6 +62,86 @@ def chat_payload(content: str) -> dict[str, object]:
         ],
         "usage": {"prompt_tokens": 8, "completion_tokens": 12},
     }
+
+
+@pytest.mark.contract
+async def test_vision_multimodal_structured_output_flows_through_model_gateway() -> None:
+    image_url = "data:image/png;base64,iVBORw0KGgo="
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path == "/v1/chat/completions"
+        payload = json.loads(request.content)
+        assert payload["model"] == "discovered-vision-model"
+        assert payload["messages"] == [
+            {
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": "Extract visible learning content."},
+                    {"type": "image_url", "image_url": {"url": image_url}},
+                ],
+            }
+        ]
+        response_format = payload["response_format"]
+        assert response_format["type"] == "json_schema"
+        schema = response_format["json_schema"]["schema"]
+        assert "blocks" in schema["properties"]
+        return httpx.Response(
+            200,
+            json=chat_payload(
+                json.dumps(
+                    {
+                        "language": "en",
+                        "blocks": [
+                            {
+                                "text": "Retrieval augmented generation",
+                                "block_type": "heading",
+                                "page_number": 1,
+                                "confidence": 0.97,
+                            }
+                        ],
+                        "warnings": [],
+                    }
+                )
+            ),
+        )
+
+    model_provider = provider(handler)
+    gateway = ModelGateway(
+        Settings(
+            _env_file=None,
+            use_mock_llm=False,
+            vision_model="discovered-vision-model",
+            fallback_models=(),
+            llm_max_retries=0,
+            llm_timeout_seconds=0.2,
+        ),
+        model_provider,
+    )
+    try:
+        value, result = await gateway.generate_structured(
+            role=ModelRole.VISION,
+            messages=[
+                ChatMessage(
+                    role="user",
+                    content=[
+                        {"type": "text", "text": "Extract visible learning content."},
+                        {"type": "image_url", "image_url": {"url": image_url}},
+                    ],
+                )
+            ],
+            response_model=VisionDocumentOutput,
+            context=ModelCallContext(
+                workspace_id=uuid4(),
+                document_id=uuid4(),
+                prompt_name="vision_parser",
+            ),
+        )
+    finally:
+        await model_provider.aclose()
+
+    assert value.blocks[0].text == "Retrieval augmented generation"
+    assert result.model == "discovered-vision-model"
+    assert result.provider == "contract"
 
 
 @pytest.mark.contract

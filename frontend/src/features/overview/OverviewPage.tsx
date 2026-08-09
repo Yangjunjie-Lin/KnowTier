@@ -120,7 +120,7 @@ export function OverviewPage() {
           可用模块仍显示真实数据；对应区块可以单独重试。
         </PartialSuccess>
       )}
-      <section className="mt-5 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      <section className="mt-5 grid grid-cols-2 gap-3 xl:grid-cols-4" aria-label="学习概览指标">
         <MetricCard
           icon={<Network className="h-4 w-4" />}
           label="领域知识点"
@@ -189,7 +189,7 @@ export function OverviewPage() {
         />
       </section>
       <div className="mt-5 grid gap-5 xl:grid-cols-[1.35fr_1fr]">
-        <section className="rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+        <section className="surface-card p-4 sm:p-5">
           <div className="mb-5 flex items-center justify-between">
             <div>
               <h2 className="text-base font-semibold">当前掌握概况</h2>
@@ -206,7 +206,7 @@ export function OverviewPage() {
             </Link>
           </div>
           {model.isLoading ? (
-            <div className="space-y-4">
+            <div className="divide-y divide-slate-100 dark:divide-slate-800">
               <Skeleton className="h-10 w-full" />
               <Skeleton className="h-10 w-full" />
               <Skeleton className="h-10 w-full" />
@@ -228,7 +228,7 @@ export function OverviewPage() {
               {items.slice(0, 5).map((item) => (
                 <div
                   key={item.knowledge_point_id}
-                  className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_180px_auto] sm:items-center"
+                  className="grid gap-2 py-3 first:pt-0 last:pb-0 sm:grid-cols-[minmax(0,1fr)_180px_auto] sm:items-center"
                 >
                   <div className="min-w-0">
                     <p className="truncate text-sm font-medium">
@@ -254,7 +254,7 @@ export function OverviewPage() {
           )}
         </section>
         <section className="space-y-5">
-          <div className="rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+          <div className="surface-card p-4 sm:p-5">
             <div className="mb-4 flex items-center gap-2">
               <TrendingUp className="h-4 w-4 text-[#3157D5]" />
               <h2 className="text-base font-semibold">最近图谱版本</h2>
@@ -274,7 +274,7 @@ export function OverviewPage() {
               unavailable={revisions.isError}
             />
           </div>
-          <div className="rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+          <div className="surface-card p-4 sm:p-5">
             <div className="mb-3 flex items-center justify-between">
               <div>
                 <h2 className="text-base font-semibold">学习提醒</h2>
@@ -314,7 +314,7 @@ export function OverviewPage() {
           </div>
         </section>
       </div>
-      <div className="mt-5 rounded-xl border border-slate-200 bg-white px-5 py-4 text-xs text-slate-500 dark:border-slate-800 dark:bg-slate-900">
+      <div className="surface-card mt-5 px-4 py-3.5 text-xs leading-5 text-slate-500 sm:px-5">
         <span className="font-medium text-slate-700 dark:text-slate-200">
           数据边界：
         </span>
@@ -353,7 +353,7 @@ function MetricCard({
   tone?: "default" | "amber" | "red";
 }) {
   return (
-    <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
+    <article className="surface-card min-w-0 p-3.5 transition-[transform,box-shadow] hover:-translate-y-0.5 hover:shadow-[0_10px_28px_rgba(15,23,42,0.07)] sm:p-4">
       <div className="flex items-center justify-between text-xs text-slate-500">
         <span>{label}</span>
         <span
@@ -368,11 +368,11 @@ function MetricCard({
           {icon}
         </span>
       </div>
-      <div className="mt-2 min-h-8 text-2xl font-semibold tracking-tight">
+      <div className="mt-2 min-h-8 text-2xl font-bold tracking-tight">
         {value}
       </div>
-      <p className="mt-1 text-[11px] text-slate-600 dark:text-slate-400">{caption}</p>
-    </div>
+      <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-slate-600 dark:text-slate-400">{caption}</p>
+    </article>
   );
 }
 
@@ -392,7 +392,7 @@ function RevisionLine({
   return (
     <Link
       to={href}
-      className="flex items-center justify-between border-t border-slate-100 py-3 first:border-t-0 dark:border-slate-800"
+      className="group flex items-center justify-between rounded-lg border-t border-slate-100 px-2 py-3 transition-colors first:border-t-0 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800/60"
     >
       <div>
         <p className="text-sm font-medium">{label}</p>

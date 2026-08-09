@@ -35,7 +35,7 @@ function EvidenceCard({ item }: { item: EvidenceInsight }) {
             {item.evidenceForm}
           </p>
           <p className="mt-0.5 text-[10px] text-slate-400">
-            类型 {item.evidenceType} · {item.cognitiveLevel ? `L${item.cognitiveLevel}` : "认知层级未提供"}
+            掌握证据 · {item.cognitiveLevel ? `认知层级 L${item.cognitiveLevel}` : "认知层级未提供"}
           </p>
         </div>
         <span className="shrink-0 rounded-full bg-indigo-50 px-2 py-0.5 text-[10px] text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-200">
@@ -60,7 +60,7 @@ function EvidenceCard({ item }: { item: EvidenceInsight }) {
           ))}
         </dl>
       ) : (
-        <p className="mt-2 text-[11px] text-slate-400">评分维度由后端未提供</p>
+        <p className="mt-2 text-[11px] text-slate-400">后端未提供评分维度</p>
       )}
       <p className="mt-2 text-[11px] leading-5 text-slate-500">
         回答摘要：{item.answerSummary ?? "后端未提供"}

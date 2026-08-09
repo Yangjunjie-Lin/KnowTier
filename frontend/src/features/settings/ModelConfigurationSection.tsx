@@ -79,7 +79,7 @@ function emptyForm(): ProfileForm {
     provider: "siliconflow",
     baseUrl: SILICONFLOW_BASE_URL,
     allowLocal: false,
-    credentialStorage: "session",
+    credentialStorage: isDesktopRuntime() ? "os_keyring" : "session",
     models: { ...EMPTY_MODELS },
     timeoutSeconds: 30,
     maxRetries: 2,
@@ -162,6 +162,8 @@ export function ModelConfigurationSection() {
   const [unifiedModel, setUnifiedModel] = useState("");
   const [availableModels, setAvailableModels] = useState<string[]>([]);
   const [configurationToken, setConfigurationToken] = useState("");
+  const [actionFeedback, setActionFeedback] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<Error | null>(null);
   const profiles = useMemo(
     () => configuration.data?.profiles ?? [],
     [configuration.data?.profiles],
@@ -206,6 +208,14 @@ export function ModelConfigurationSection() {
     ]);
   };
 
+  const beginAction = () => {
+    setActionFeedback(null);
+    setActionError(null);
+  };
+  const recordActionError = (error: unknown) => {
+    setActionError(error instanceof Error ? error : new Error("模型配置操作失败。"));
+  };
+
   const persist = async (): Promise<ModelProfile> => {
     if (!form.name.trim()) throw new Error("请输入配置名称。");
     const input: ModelProfileInput = {
@@ -231,7 +241,12 @@ export function ModelConfigurationSection() {
     return saved;
   };
 
-  const saveMutation = useMutation({ mutationFn: persist });
+  const saveMutation = useMutation({
+    mutationFn: persist,
+    onMutate: beginAction,
+    onSuccess: () => setActionFeedback("配置已安全保存。"),
+    onError: recordActionError,
+  });
   const discoverMutation = useMutation({
     mutationFn: async () => {
       const saved = await persist();
@@ -239,6 +254,7 @@ export function ModelConfigurationSection() {
     },
     onSuccess: (result) => {
       setAvailableModels(result.models);
+      setActionFeedback(`已从供应商发现 ${result.models.length} 个可用模型。`);
       setForm((current) => {
         const currentEmbedding = current.models.embedding;
         const shouldSuggest =
@@ -255,6 +271,8 @@ export function ModelConfigurationSection() {
           : current;
       });
     },
+    onMutate: beginAction,
+    onError: recordActionError,
   });
   const testMutation = useMutation({
     mutationFn: async () => {
@@ -264,42 +282,54 @@ export function ModelConfigurationSection() {
     onSuccess: async (result) => {
       setAvailableModels(result.models);
       await refreshConfiguration();
+      setActionFeedback(`连接测试成功，供应商返回 ${result.models.length} 个模型。`);
     },
-    onError: refreshConfiguration,
+    onMutate: beginAction,
+    onError: async (error) => {
+      recordActionError(error);
+      await refreshConfiguration();
+    },
   });
   const activateMutation = useMutation({
     mutationFn: async () => {
       const saved = await persist();
       return api.activateModelProfile(saved.id);
     },
-    onSuccess: refreshConfiguration,
+    onMutate: beginAction,
+    onSuccess: async () => {
+      await refreshConfiguration();
+      setActionFeedback("配置已启用，新的模型调用将使用此映射。");
+    },
+    onError: recordActionError,
   });
   const deleteCredentialMutation = useMutation({
     mutationFn: async () => {
       if (!selectedProfile) throw new Error("请先选择配置。");
       return api.deleteModelCredential(selectedProfile.id);
     },
-    onSuccess: refreshConfiguration,
+    onMutate: beginAction,
+    onSuccess: async () => {
+      setApiKey("");
+      await refreshConfiguration();
+      setActionFeedback("已删除该配置保存的 API Key。");
+    },
+    onError: recordActionError,
   });
   const deleteProfileMutation = useMutation({
     mutationFn: async () => {
       if (!selectedProfile) throw new Error("请先选择配置。");
       await api.deleteModelProfile(selectedProfile.id);
     },
+    onMutate: beginAction,
     onSuccess: async () => {
       setSelectedId(null);
       await refreshConfiguration();
+      setActionFeedback("模型配置已删除。");
     },
+    onError: recordActionError,
   });
 
-  const mutationError = [
-    saveMutation.error,
-    discoverMutation.error,
-    testMutation.error,
-    activateMutation.error,
-    deleteCredentialMutation.error,
-    deleteProfileMutation.error,
-  ].find((error) => error instanceof Error);
+  const mutationError = actionError;
   const busy =
     saveMutation.isPending ||
     discoverMutation.isPending ||
@@ -317,6 +347,7 @@ export function ModelConfigurationSection() {
   );
 
   const setProvider = (provider: ModelProviderKind) => {
+    beginAction();
     setForm((current) => ({
       ...current,
       provider,
@@ -407,8 +438,9 @@ export function ModelConfigurationSection() {
 
   return (
     <section
-      className="mb-5 rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900"
+      className="mb-5 rounded-2xl border border-slate-200 bg-white p-4 shadow-sm shadow-slate-200/40 dark:border-slate-800 dark:bg-slate-900 dark:shadow-none sm:p-5"
       aria-labelledby="model-configuration-heading"
+      aria-busy={busy}
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
@@ -423,7 +455,10 @@ export function ModelConfigurationSection() {
         <button
           type="button"
           className="secondary-button"
-          onClick={() => setSelectedId(NEW_PROFILE)}
+          onClick={() => {
+            beginAction();
+            setSelectedId(NEW_PROFILE);
+          }}
         >
           <Plus className="h-4 w-4" /> 新建配置
         </button>
@@ -435,7 +470,7 @@ export function ModelConfigurationSection() {
             <ShieldCheck className="h-4 w-4" /> 当前启用：{active.name}
           </span>
           <span className="text-slate-600 dark:text-slate-300">
-            Teacher · {active.provider} / {active.models.teacher}
+            Teacher · {providerLabel(active.provider)} / {active.models.teacher}
           </span>
           <span className="text-xs text-slate-500">
             {active.connection_status === "connected"
@@ -446,14 +481,21 @@ export function ModelConfigurationSection() {
       )}
 
       <div className="mt-5 grid gap-5 xl:grid-cols-[240px_minmax(0,1fr)]">
-        <nav aria-label="模型配置" className="space-y-2">
+        <nav
+          aria-label="模型配置"
+          className="grid gap-2 sm:grid-cols-2 xl:block xl:space-y-2"
+        >
           {profiles.map((profile) => (
             <button
               type="button"
               key={profile.id}
-              onClick={() => setSelectedId(profile.id)}
+              onClick={() => {
+                beginAction();
+                setSelectedId(profile.id);
+              }}
               className={`w-full rounded-lg border px-3 py-3 text-left transition-colors ${selectedId === profile.id ? "border-[#3157D5] bg-indigo-50 dark:bg-indigo-950/40" : "border-slate-200 hover:bg-slate-50 dark:border-slate-800 dark:hover:bg-slate-800"}`}
               aria-current={profile.active ? "true" : undefined}
+              aria-pressed={selectedId === profile.id}
             >
               <span className="flex items-center justify-between gap-2">
                 <span className="truncate text-sm font-medium">{profile.name}</span>
@@ -527,6 +569,7 @@ export function ModelConfigurationSection() {
                 <input
                   className="form-input font-mono"
                   aria-label="API Key"
+                  aria-describedby="model-api-key-safety"
                   type="password"
                   autoComplete="new-password"
                   value={apiKey}
@@ -537,6 +580,9 @@ export function ModelConfigurationSection() {
                       : "输入 API Key"
                   }
                 />
+                <span id="model-api-key-safety" className="sr-only">
+                  默认遮蔽。密钥只发送给 KnowTier 后端，不会写入浏览器本地存储。
+                </span>
               </Field>
               <Field label="凭据保存方式">
                 <select
@@ -556,10 +602,12 @@ export function ModelConfigurationSection() {
                 </select>
               </Field>
               {form.provider === "custom_openai_compatible" && (
-                <label className="flex items-center gap-2 self-end rounded-lg border border-slate-200 px-3 py-2.5 text-sm dark:border-slate-700">
+                <label className="flex items-start gap-2 self-end rounded-lg border border-slate-200 px-3 py-2.5 text-sm dark:border-slate-700">
                   <input
                     type="checkbox"
+                    className="mt-0.5"
                     checked={form.allowLocal}
+                    aria-describedby="allow-local-provider-help"
                     onChange={(event) =>
                       setForm((current) => ({
                         ...current,
@@ -567,7 +615,15 @@ export function ModelConfigurationSection() {
                       }))
                     }
                   />
-                  明确允许 localhost HTTP 供应商
+                  <span>
+                    明确允许 localhost HTTP 供应商
+                    <span
+                      id="allow-local-provider-help"
+                      className="mt-0.5 block text-[11px] leading-4 text-slate-500"
+                    >
+                      仅用于本机开发服务；其他地址仍必须使用 HTTPS。
+                    </span>
+                  </span>
                 </label>
               )}
             </div>
@@ -579,6 +635,7 @@ export function ModelConfigurationSection() {
                 <h3 className="text-sm font-semibold">角色模型映射</h3>
                 <p className="mt-1 text-xs text-slate-500">
                   模型列表通过供应商 GET /models 动态发现。
+                  {availableModels.length > 0 && ` 已加载 ${availableModels.length} 个模型。`}
                 </p>
               </div>
               <div className="flex gap-2">
@@ -720,13 +777,22 @@ export function ModelConfigurationSection() {
           </div>
 
           {(selectedProfile?.error_summary || mutationError) && (
-            <div role="alert" className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700 dark:bg-red-950/30 dark:text-red-300">
+            <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300">
               {mutationError instanceof Error
                 ? mutationError.message
                 : selectedProfile?.error_summary}
             </div>
           )}
-          <div className="flex flex-wrap gap-2">
+          {actionFeedback && !mutationError && (
+            <div
+              role="status"
+              className="flex items-center gap-2 rounded-lg border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-800 dark:border-emerald-900/60 dark:bg-emerald-950/30 dark:text-emerald-200"
+            >
+              <CheckCircle2 className="h-4 w-4 shrink-0" />
+              {actionFeedback}
+            </div>
+          )}
+          <div className="grid grid-cols-2 gap-2 sm:flex sm:flex-wrap">
             <button
               type="button"
               className="primary-button"
@@ -738,7 +804,7 @@ export function ModelConfigurationSection() {
               ) : (
                 <ServerCog className="h-4 w-4" />
               )}
-              保存配置
+              {saveMutation.isPending ? "正在保存" : "保存配置"}
             </button>
             <button
               type="button"
@@ -747,15 +813,20 @@ export function ModelConfigurationSection() {
               onClick={() => discoverMutation.mutate()}
             >
               <RefreshCw className={`h-4 w-4 ${discoverMutation.isPending ? "animate-spin" : ""}`} />
-              刷新模型
+              {discoverMutation.isPending ? "正在刷新" : "刷新模型"}
             </button>
             <button
               type="button"
               className="secondary-button"
-              disabled={busy || form.provider === "mock"}
+              disabled={busy}
               onClick={() => testMutation.mutate()}
             >
-              <Wifi className="h-4 w-4" /> 测试连接
+              {testMutation.isPending ? (
+                <LoaderCircle className="h-4 w-4 animate-spin" />
+              ) : (
+                <Wifi className="h-4 w-4" />
+              )}
+              {testMutation.isPending ? "正在测试" : "测试连接"}
             </button>
             <button
               type="button"
@@ -771,7 +842,15 @@ export function ModelConfigurationSection() {
                   type="button"
                   className="secondary-button border-amber-200 text-amber-800"
                   disabled={busy}
-                  onClick={() => deleteCredentialMutation.mutate()}
+                  onClick={() => {
+                    if (
+                      window.confirm(
+                        `删除模型配置“${selectedProfile.name}”保存的 API Key？`,
+                      )
+                    ) {
+                      deleteCredentialMutation.mutate();
+                    }
+                  }}
                 >
                   <KeyRound className="h-4 w-4" /> 删除凭据
                 </button>
@@ -808,9 +887,13 @@ function Field({
 }) {
   return (
     <label className="mt-3 block space-y-1.5">
-      <span className="flex items-center justify-between gap-2 text-xs font-medium text-slate-600 dark:text-slate-300">
+      <span className="flex flex-wrap items-start justify-between gap-x-2 gap-y-1 text-xs font-medium text-slate-600 dark:text-slate-300">
         {label}
-        {hint && <span className="font-normal text-slate-500">{hint}</span>}
+        {hint && (
+          <span className="break-all text-right font-normal text-slate-500">
+            {hint}
+          </span>
+        )}
       </span>
       {children}
     </label>
@@ -852,13 +935,19 @@ function ConnectionDot({
 }: {
   status: ModelProfile["connection_status"];
 }) {
+  const label =
+    status === "connected" ? "连接成功" : status === "error" ? "连接失败" : "未测试";
   return (
     <span
-      title={
-        status === "connected" ? "连接成功" : status === "error" ? "连接失败" : "未测试"
-      }
-      className={`h-2.5 w-2.5 shrink-0 rounded-full ${status === "connected" ? "bg-emerald-500" : status === "error" ? "bg-red-500" : "bg-slate-300"}`}
-    />
+      title={label}
+      className="inline-flex shrink-0 items-center"
+    >
+      <span
+        aria-hidden="true"
+        className={`h-2.5 w-2.5 rounded-full ${status === "connected" ? "bg-emerald-500" : status === "error" ? "bg-red-500" : "bg-slate-300"}`}
+      />
+      <span className="sr-only">{label}</span>
+    </span>
   );
 }
 
@@ -870,8 +959,10 @@ function providerLabel(provider: ModelProviderKind): string {
 
 function formatDate(value: string | null): string {
   if (!value) return "从未";
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return "时间不可用";
   return new Intl.DateTimeFormat("zh-CN", {
     dateStyle: "short",
     timeStyle: "short",
-  }).format(new Date(value));
+  }).format(parsed);
 }

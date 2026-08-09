@@ -2,8 +2,9 @@
 
 This record covers the product-release candidate built from remote `main` baseline
 `5ea7d59525db69a5b9d386c8eb3f0fc004596d75`. It records only checks that were actually executed.
-The candidate remains `v1.0.0-rc.1`: unsigned local Windows artifacts passed, but the current source
-change set still requires a fresh GitHub Actions three-platform run and draft-release assembly before
+The previously packaged candidate was `v1.0.0-rc.1`. The source candidate is now
+`v1.0.0-rc.2` because the existing RC.1 tag is immutable and points to the baseline commit. RC.2
+must complete a fresh GitHub Actions three-platform build and draft-release assembly before
 general-availability `v1.0.0` can be considered.
 
 ## Page — function — API — data — test matrix
@@ -41,6 +42,18 @@ general-availability `v1.0.0` can be considered.
    timeout, `finish_reason=length`, malformed JSON or validation failures.
 7. Provider errors collapsed to generic 500 and client retry could append a duplicate user turn.
 8. A first `/models` refresh on an empty profile unexpectedly switched the UI into advanced mapping.
+9. Workspace/Learner/Session/target changes could retain a stale local teaching view; the workbench
+   now keys transient state by the complete active context and clears mismatched requests.
+10. The three-column learning workbench could compress the composer or cover it with mobile
+    navigation; the center column now owns a bounded viewport and the mobile editor honors the safe
+    area and bottom navigation.
+11. Selecting an existing attachment left its menu above the editor, and the full-stack test queried
+    its old generic button role. Selection now closes the menu and the test uses the accessible
+    `menuitemcheckbox` role.
+12. The frontend Docker context included the complete Tauri target and Sidecar, sending 4.43 GB to
+    Docker before a web-only build. `src-tauri` is now excluded; the verified context was 6.26 MB.
+13. Runtime model badges exposed provider enum values such as `openai_compatible`; all visible model
+    badges now use product-facing provider names.
 
 The fixes preserve the existing graph, evidence, learner, revision and audit boundaries. Compact
 model output is schema-validated and deterministically expanded; model-only facts remain
@@ -53,19 +66,21 @@ non-confirmed. No API or model output is accepted as arbitrary Cypher.
 | `uv lock --check` | Pass |
 | `uv run ruff format --check src tests scripts` and `uv run ruff check src tests scripts` | Pass |
 | `uv run mypy src/cognigraph` | Pass, 107 source files |
-| Offline unit + contract + desktop pytest selection | Pass, 143 tests |
+| Offline unit + contract + desktop pytest selection | Pass, 144 tests |
 | Offline integration + e2e pytest selection | Pass, 69 tests; 13 environment-marked tests deselected |
 | `npm ci` | Pass, lock unchanged, 0 vulnerabilities reported |
-| `npm run typecheck`, `npm run lint`, `npm run test`, `npm run build` | Pass; Vitest 19 files / 75 tests |
-| `npm run e2e` | Pass, 12/12 across desktop/tablet/mobile, including axe and visual snapshots |
+| `npm run typecheck`, `npm run lint`, `npm run test`, `npm run build` | Pass; Vitest 19 files / 77 tests; no 500 kB chunk warning |
+| `npm run e2e` | Pass in normal mode on Windows and Linux, 12/12 on each across desktop/tablet/mobile, including axe and visual snapshots |
+| `npx playwright test --config=playwright.full-stack.config.ts` | Pass, 1/1 in 38.5 s: React, FastAPI, PostgreSQL, Neo4j, Mock LLM and API-restart recovery |
 | Rust `fmt --check`, `clippy -D warnings`, `test` | Pass; 3 Rust tests |
 | Frozen Sidecar Smoke | Pass: ready, 401 anonymous, 200 authenticated, create Workspace/Learner, Mock RAG chat 200, graceful exit 0 |
 | Portable package Smoke | Pass twice with persistence and no orphan sidecar |
-| Installed NSIS package Smoke | Pass twice; silent uninstall and reinstall 0; user data retained |
+| Installed NSIS package Smoke | Pass with a 30-second cold-start window and two launches; silent uninstall and reinstall 0; data retained; post-reinstall two-launch smoke passed |
 
-Production-shaped PostgreSQL/Neo4j/Mock full-stack and three-platform packaging are configured in
-`.github/workflows/release-desktop.yml`; the baseline main run passed them. A fresh run against this
-candidate is still required before publishing its GitHub Draft Release.
+The production-shaped PostgreSQL/Neo4j/Mock full-stack passed locally against this candidate,
+including an API container restart. Three-platform packaging remains configured in
+`.github/workflows/release-desktop.yml`; a fresh GitHub-hosted run is still required before the RC.2
+Draft Release can be considered assembled.
 
 ## Model configuration and credential security
 
@@ -105,12 +120,13 @@ Locally verified unsigned Windows RC assets:
 
 | Artifact | SHA-256 |
 | --- | --- |
-| `KnowTier-Setup-1.0.0-rc.1-windows-x64.exe` | `9341AA408737A275A1E4F6E876014A4ECBE510235AC9D67E5D0DE0AD21CD8AD7` |
-| `KnowTier-Portable-1.0.0-rc.1-windows-x64.zip` | `24F29D423C7AEE84F19C59D3D970A2E21A68A51B0188EB56A54B3E3EF5B67780` |
+| `KnowTier-Setup-1.0.0-rc.2-windows-x64.exe` | `BE6F28B6C00A2D66220E4465DFECC365F8835FD69DC56E0999403902AFD6FD92` |
+| `KnowTier-Portable-1.0.0-rc.2-windows-x64.zip` | `AAB8F61C8D35C6AFAD801D2C08BD5DBA9FCA497AD277F953ACD3D4F35F7FA882` |
 
-`SHA256SUMS.txt` was checked against 11 release files. Node 1.6, Python 1.5 and Rust 1.5
-CycloneDX SBOMs contain 165, 116 and 475 components respectively. Windows Authenticode status is
-`NotSigned`; no claim of signing is made.
+The local two-entry `SHA256SUMS.txt` was verified immediately after packaging. GitHub Actions will
+generate the cross-platform checksum manifest and locked Node/Python/Rust CycloneDX SBOMs for the
+Draft Release; those files are not claimed as locally complete. Windows Authenticode status is
+`NotSigned` for the installer, shell and Sidecar, and the assets include `UNSIGNED-windows.txt`.
 
 ## Remaining release limits
 
@@ -121,5 +137,5 @@ CycloneDX SBOMs contain 165, 116 and 475 components respectively. Windows Authen
   deterministic graph semantics remain available.
 - Vision capability is user-mapped but the connection test directly exercises Teacher structured
   output and Embedding; a provider can still reject an incorrectly chosen Vision model at runtime.
-- The Learn page production chunk is slightly above the Vite 500 kB warning threshold; this is a
-  performance warning, not a functional or packaging failure.
+- The earlier opt-in SiliconFlow run remains valid evidence, but the new RC.2 commit has not yet run
+  the paid, manually gated live workflow.

@@ -8,7 +8,7 @@ export function PartialSuccess({
   children: React.ReactNode;
 }) {
   return (
-    <div className="flex gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-900/70 dark:bg-amber-950/30 dark:text-amber-200">
+    <div className="flex gap-3 rounded-2xl border border-amber-200 bg-amber-50/90 px-4 py-3 text-sm text-amber-950 dark:border-amber-900/70 dark:bg-amber-950/30 dark:text-amber-200" role="status">
       <CheckCircle2
         className="h-5 w-5 shrink-0 text-amber-600"
         aria-hidden="true"

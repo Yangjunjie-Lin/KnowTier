@@ -29,5 +29,21 @@ export default defineConfig(({ mode }) => {
       host: '127.0.0.1',
       port: 4173,
     },
+    build: {
+      rollupOptions: {
+        output: {
+          manualChunks: {
+            'graph-rendering': ['cytoscape'],
+            'markdown-math': [
+              'katex',
+              'react-markdown',
+              'rehype-katex',
+              'remark-gfm',
+              'remark-math',
+            ],
+          },
+        },
+      },
+    },
   }
 })

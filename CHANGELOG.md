@@ -5,6 +5,8 @@ All notable changes to KnowTier are documented in this file. The format is based
 
 ## [Unreleased]
 
+## [1.0.0-rc.2] - 2026-08-09
+
 ### Added
 
 - Added a user-visible Model Provider center for Mock, SiliconFlow, and custom
@@ -12,7 +14,8 @@ All notable changes to KnowTier are documented in this file. The format is based
   selections, per-role mappings, connection tests, retry/timeout controls, and masked credential
   state.
 - Added provider contract coverage for structured chat, streaming, embeddings, rate limits,
-  invalid credentials/models, timeouts, and malformed responses.
+  invalid credentials/models, timeouts, malformed responses, and schema-validated multimodal
+  Vision requests without contacting a paid provider.
 - Added packaged Mock RAG chat, desktop logging, idempotent retry, accessibility, keyboard, and
   three-viewport visual regression coverage.
 
@@ -26,6 +29,10 @@ All notable changes to KnowTier are documented in this file. The format is based
   changing their dot products, norms, or cosine similarity.
 - Short tutoring questions use compact validated model schemas and deterministic expansion while
   preserving unverified-fact, graph-version, evidence, and audit semantics.
+- GitHub-hosted workflows use the latest verified stable Node 24 action runtimes, and desktop draft
+  creation refuses to move an existing release tag to another commit.
+- Graph rendering and markdown/math rendering are emitted as independent production chunks so the
+  learning workspace stays below Vite's 500 kB chunk budget.
 
 ### Fixed
 
@@ -74,5 +81,6 @@ All notable changes to KnowTier are documented in this file. The format is based
 - Mutable desktop data is kept outside the installed application, in the operating system's
   per-user application-data directory.
 
-[Unreleased]: https://github.com/Yangjunjie-Lin/KnowTier/compare/v1.0.0-rc.1...HEAD
+[Unreleased]: https://github.com/Yangjunjie-Lin/KnowTier/compare/v1.0.0-rc.2...HEAD
+[1.0.0-rc.2]: https://github.com/Yangjunjie-Lin/KnowTier/releases/tag/v1.0.0-rc.2
 [1.0.0-rc.1]: https://github.com/Yangjunjie-Lin/KnowTier/releases/tag/v1.0.0-rc.1

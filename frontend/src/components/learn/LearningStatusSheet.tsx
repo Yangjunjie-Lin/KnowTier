@@ -66,7 +66,7 @@ export function LearningStatusSheet({
       placement="responsive"
     >
       <div
-        className="mt-5 grid grid-cols-4 gap-1 rounded-lg bg-slate-100 p-1 dark:bg-slate-900"
+        className="mt-5 grid grid-cols-2 gap-1 rounded-xl bg-slate-100 p-1 dark:bg-slate-900 sm:grid-cols-4"
         role="tablist"
         aria-label="学习状态面板"
       >
@@ -94,6 +94,7 @@ export function LearningStatusSheet({
       <div
         className="mt-4"
         role="tabpanel"
+        tabIndex={0}
         id={`learning-status-panel-${tab}`}
         aria-labelledby={`learning-status-tab-${tab}`}
       >

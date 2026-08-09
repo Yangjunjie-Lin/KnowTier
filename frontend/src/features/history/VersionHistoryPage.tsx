@@ -68,16 +68,18 @@ function VersionHistoryPage({ kind }: { kind: "domain" | "learner" }) {
         title={kind === "domain" ? "领域图谱版本" : "学生图谱版本"}
         description="版本记录只读展示，不提供后端不存在的回滚、删除或编辑操作。"
         actions={
-          <div className="flex gap-1 rounded-lg border border-slate-200 bg-white p-1 dark:border-slate-700 dark:bg-slate-900">
+          <div className="flex gap-1 rounded-xl border border-slate-200 bg-white p-1 shadow-sm dark:border-slate-700 dark:bg-slate-900" role="group" aria-label="版本类型">
             <Link
               to="/history/domain"
-              className={`rounded px-2.5 py-1.5 text-xs ${kind === "domain" ? "bg-indigo-50 text-[#3157D5] dark:bg-indigo-950" : "text-slate-500"}`}
+              aria-current={kind === "domain" ? "page" : undefined}
+              className={`rounded-lg px-3 py-2 text-xs font-medium transition-colors ${kind === "domain" ? "bg-indigo-50 text-[#3157D5] dark:bg-indigo-950" : "text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800"}`}
             >
               领域
             </Link>
             <Link
               to="/history/learner"
-              className={`rounded px-2.5 py-1.5 text-xs ${kind === "learner" ? "bg-indigo-50 text-[#3157D5] dark:bg-indigo-950" : "text-slate-500"}`}
+              aria-current={kind === "learner" ? "page" : undefined}
+              className={`rounded-lg px-3 py-2 text-xs font-medium transition-colors ${kind === "learner" ? "bg-indigo-50 text-[#3157D5] dark:bg-indigo-950" : "text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800"}`}
             >
               学生
             </Link>
@@ -90,13 +92,13 @@ function VersionHistoryPage({ kind }: { kind: "domain" | "learner" }) {
           description="完成摄取或学习对话后，后端会创建版本记录。"
         />
       ) : (
-        <div className="grid gap-3">
+        <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
           {items.map((item) => (
             <button
               type="button"
               key={item.id}
               onClick={() => setSelected(item)}
-              className="flex w-full items-center gap-4 rounded-xl border border-slate-200 bg-white p-4 text-left hover:border-indigo-300 hover:shadow-sm dark:border-slate-800 dark:bg-slate-900"
+              className="surface-card group flex w-full items-center gap-4 p-4 text-left transition-[border-color,box-shadow,transform] hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-[#3157D5]/40"
             >
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-[#3157D5] dark:bg-indigo-950">
                 {kind === "domain" ? (
@@ -120,7 +122,7 @@ function VersionHistoryPage({ kind }: { kind: "domain" | "learner" }) {
                   {formatDate(item.created_at, true)}
                 </p>
               </div>
-              <ChevronRight className="h-4 w-4 text-slate-300" />
+              <ChevronRight className="h-4 w-4 text-slate-300 transition-transform group-hover:translate-x-0.5 group-hover:text-[#3157D5]" />
             </button>
           ))}
         </div>

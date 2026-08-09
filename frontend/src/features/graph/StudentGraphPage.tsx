@@ -147,7 +147,7 @@ export function StudentGraphPage() {
       <div className="mb-4">
         <RuntimeModelBadge role="graph" label="Graph" />
       </div>
-      <div className="mb-4 grid gap-3 rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900 md:grid-cols-[1fr_auto]">
+      <div className="toolbar-card mb-4 grid gap-3 md:grid-cols-[minmax(16rem,1fr)_auto]">
         <div className="relative">
           <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
           <input
@@ -165,11 +165,8 @@ export function StudentGraphPage() {
               type="button"
               key={type}
               onClick={() => toggleType(type)}
-              className={`rounded-md border px-2 py-1 ${
-                typeFilter.includes(type)
-                  ? "border-[#3157D5] bg-indigo-50 text-[#3157D5]"
-                  : "border-slate-200 bg-slate-100 text-slate-500 dark:border-slate-700 dark:bg-slate-800"
-              }`}
+              aria-pressed={typeFilter.includes(type)}
+              className={`filter-chip ${typeFilter.includes(type) ? "filter-chip-active" : ""}`}
             >
               {type}
             </button>

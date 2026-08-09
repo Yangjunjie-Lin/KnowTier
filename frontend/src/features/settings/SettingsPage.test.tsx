@@ -228,4 +228,24 @@ describe("SettingsPage learning preferences", () => {
     fireEvent.change(generation, { target: { value: "provider/next-chat" } });
     expect(embedding).toHaveValue("Qwen/Qwen3-Embedding-0.6B");
   });
+
+  it("runs an explicit offline connection test for the Mock provider", async () => {
+    vi.mocked(api.updateModelProfile).mockResolvedValue(mockProfile);
+    vi.mocked(api.testModelConnection).mockResolvedValue({
+      profile_id: mockProfile.id,
+      provider: "mock",
+      models: ["mock/default"],
+      tested_at: "2026-08-09T00:00:00Z",
+    });
+    renderPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: "测试连接" }));
+
+    await waitFor(() =>
+      expect(api.testModelConnection).toHaveBeenCalledWith(mockProfile.id),
+    );
+    expect(
+      await screen.findByText("连接测试成功，供应商返回 1 个模型。"),
+    ).toBeVisible();
+  });
 });

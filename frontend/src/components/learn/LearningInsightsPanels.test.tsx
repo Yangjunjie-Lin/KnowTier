@@ -83,7 +83,7 @@ const evidence: EvidenceInsight = {
 describe("learning insight panels", () => {
   it("renders missing grader dimensions without crashing", () => {
     render(<EvidencePanel target={target} items={[evidence]} state={panelState()} />);
-    expect(screen.getByText("评分维度由后端未提供")).toBeInTheDocument();
+    expect(screen.getByText("后端未提供评分维度")).toBeInTheDocument();
     expect(screen.getByText("回答摘要：后端未提供")).toBeInTheDocument();
     const details = screen.getByRole("button", { name: "查看评分与来源" });
     expect(details).toHaveAttribute("aria-expanded", "false");
