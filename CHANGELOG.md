@@ -33,6 +33,8 @@ All notable changes to KnowTier are documented in this file. The format is based
   creation refuses to move an existing release tag to another commit.
 - Graph rendering and markdown/math rendering are emitted as independent production chunks so the
   learning workspace stays below Vite's 500 kB chunk budget.
+- Inter and JetBrains Mono are bundled as offline variable fonts so web, CI, and desktop builds use
+  deterministic typography instead of platform-specific Linux font fallbacks.
 
 ### Fixed
 

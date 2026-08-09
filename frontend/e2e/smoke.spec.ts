@@ -284,6 +284,7 @@ async function expectVisualSnapshot(page: Page, name: string) {
       { timeout: 10_000 },
     )
     .toBeLessThanOrEqual(1);
+  await page.evaluate(() => document.fonts.ready);
   // Allow ResizeObserver-driven responsive layouts to commit after the
   // deterministic scroll reset before capturing the visual contract.
   await page.waitForTimeout(250);

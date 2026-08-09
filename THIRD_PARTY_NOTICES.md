@@ -32,6 +32,7 @@ the authoritative notice for the resolved version.
 | types-python-dateutil / typeshed stubs | Apache-2.0 |
 | uv | Apache-2.0 OR MIT |
 | ReportLab | BSD-3-Clause |
+| Inter Variable, JetBrains Mono Variable (Fontsource distributions) | SIL Open Font License 1.1 |
 
 Container and external runtime components are not copied into the Python wheel:
 
