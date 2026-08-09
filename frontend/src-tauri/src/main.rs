@@ -26,7 +26,10 @@ const PORT_ANNOUNCEMENT_PREFIX: &str = "KNOWTIER_DESKTOP_PORT=";
 // clean Windows machine, especially while antivirus scans the embedded archive.
 const PORT_ANNOUNCEMENT_TIMEOUT: Duration = Duration::from_secs(120);
 const READY_TIMEOUT: Duration = Duration::from_secs(120);
-const WINDOW_CREATION_TIMEOUT: Duration = Duration::from_secs(10);
+// WebView2 performs a first-run bootstrap on a clean Windows profile. That
+// bootstrap can exceed ten seconds on a packaged build while Defender scans
+// the freshly installed binaries, even though the event loop remains healthy.
+const WINDOW_CREATION_TIMEOUT: Duration = Duration::from_secs(60);
 const PAGE_LOAD_TIMEOUT: Duration = Duration::from_secs(30);
 const SHUTDOWN_TIMEOUT: Duration = Duration::from_secs(5);
 

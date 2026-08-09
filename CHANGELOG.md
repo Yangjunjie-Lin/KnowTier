@@ -38,6 +38,9 @@ All notable changes to KnowTier are documented in this file. The format is based
 
 ### Fixed
 
+- Allow the packaged desktop shell enough time to initialize WebView2 on a clean Windows profile,
+  while retaining bounded failure handling and Sidecar cleanup.
+
 - Fixed the Windows desktop black window caused by an over-restrictive WebView navigation policy
   and a startup race that reloaded the hidden window before the sidecar was ready.
 - Fixed `什么是 RAG` failures caused by Chinese/ASCII tokenization, multi-candidate target
