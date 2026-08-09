@@ -52,6 +52,13 @@ const ROLE_FIELDS: Array<{
   { key: "vision", label: "Vision", description: "图片与扫描件理解" },
   { key: "embedding", label: "Embedding", description: "语义向量" },
 ];
+const GENERATION_ROLE_KEYS: Array<Exclude<keyof RoleModels, "embedding">> = [
+  "teacher",
+  "extractor",
+  "grader",
+  "graph",
+  "vision",
+];
 
 interface ProfileForm {
   name: string;
@@ -104,6 +111,41 @@ function roleModelValues(models: RoleModels): string[] {
   return ROLE_FIELDS.map((role) => models[role.key]);
 }
 
+function generationModelValues(models: RoleModels): string[] {
+  return GENERATION_ROLE_KEYS.map((role) => models[role]);
+}
+
+function embeddingModelScore(model: string): number {
+  const normalized = model.toLocaleLowerCase();
+  if (
+    ["rerank", "vl-embedding", "vision", "image", "audio", "speech"].some(
+      (token) => normalized.includes(token),
+    )
+  ) {
+    return -1;
+  }
+  const capability = ["embedding", "embed", "bge", "gte", "e5"].some(
+    (token) => normalized.includes(token),
+  );
+  if (!capability) return -1;
+  let score = 10;
+  if (normalized.includes("qwen") && normalized.includes("embedding")) score += 5;
+  if (normalized.includes("multilingual") || normalized.includes("m3")) score += 4;
+  if (normalized.includes("zh")) score += 2;
+  if (normalized.includes("embedding")) score += 1;
+  return score;
+}
+
+function suggestedEmbeddingModel(models: string[]): string | undefined {
+  return [...models]
+    .filter((model) => embeddingModelScore(model) >= 0)
+    .sort(
+      (left, right) =>
+        embeddingModelScore(right) - embeddingModelScore(left) ||
+        left.localeCompare(right),
+    )[0];
+}
+
 export function ModelConfigurationSection() {
   const queryClient = useQueryClient();
   const configuration = useQuery({
@@ -149,10 +191,12 @@ export function ModelConfigurationSection() {
     setForm(formFromProfile(profile));
     setApiKey("");
     setAvailableModels([]);
-    const values = roleModelValues(profile.models).filter(Boolean);
-    const unified = values.length === 6 && new Set(values).size === 1;
+    const values = generationModelValues(profile.models).filter(Boolean);
+    const unified =
+      values.length === 0 ||
+      (values.length === GENERATION_ROLE_KEYS.length && new Set(values).size === 1);
     setAdvanced(!unified);
-    setUnifiedModel(unified ? (values[0] ?? "") : "");
+    setUnifiedModel(unified && values.length > 0 ? (values[0] ?? "") : "");
   }, [profiles, selectedId]);
 
   const refreshConfiguration = async () => {
@@ -193,7 +237,24 @@ export function ModelConfigurationSection() {
       const saved = await persist();
       return api.discoverProviderModels(saved.id);
     },
-    onSuccess: (result) => setAvailableModels(result.models),
+    onSuccess: (result) => {
+      setAvailableModels(result.models);
+      setForm((current) => {
+        const currentEmbedding = current.models.embedding;
+        const shouldSuggest =
+          !currentEmbedding ||
+          generationModelValues(current.models).includes(currentEmbedding);
+        const suggestion = shouldSuggest
+          ? suggestedEmbeddingModel(result.models)
+          : undefined;
+        return suggestion
+          ? {
+              ...current,
+              models: { ...current.models, embedding: suggestion },
+            }
+          : current;
+      });
+    },
   });
   const testMutation = useMutation({
     mutationFn: async () => {
@@ -527,7 +588,7 @@ export function ModelConfigurationSection() {
                   aria-pressed={!advanced}
                   onClick={() => setAdvanced(false)}
                 >
-                  统一模型
+                  快速配置
                 </button>
                 <button
                   type="button"
@@ -545,29 +606,51 @@ export function ModelConfigurationSection() {
               ))}
             </datalist>
             {!advanced ? (
-              <Field label="所有角色使用">
-                <input
-                  className="form-input font-mono text-xs"
-                  list="provider-model-options"
-                  value={unifiedModel}
-                  onChange={(event) => {
-                    const model = event.target.value;
-                    setUnifiedModel(model);
-                    setForm((current) => ({
-                      ...current,
-                      models: {
-                        teacher: model,
-                        extractor: model,
-                        grader: model,
-                        graph: model,
-                        vision: model,
-                        embedding: model,
-                      },
-                    }));
-                  }}
-                  placeholder="先刷新模型，再搜索选择"
-                />
-              </Field>
+              <div className="mt-4 grid gap-3 md:grid-cols-2">
+                <Field
+                  label="统一生成模型"
+                  hint="Teacher / Extractor / Grader / Graph / Vision"
+                >
+                  <input
+                    className="form-input font-mono text-xs"
+                    list="provider-model-options"
+                    value={unifiedModel}
+                    onChange={(event) => {
+                      const model = event.target.value;
+                      setUnifiedModel(model);
+                      setForm((current) => ({
+                        ...current,
+                        models: {
+                          ...current.models,
+                          teacher: model,
+                          extractor: model,
+                          grader: model,
+                          graph: model,
+                          vision: model,
+                        },
+                      }));
+                    }}
+                    placeholder="先刷新模型，再搜索选择"
+                  />
+                </Field>
+                <Field label="Embedding 模型" hint="必须支持 /embeddings">
+                  <input
+                    className="form-input font-mono text-xs"
+                    list="provider-model-options"
+                    value={form.models.embedding}
+                    onChange={(event) =>
+                      setForm((current) => ({
+                        ...current,
+                        models: {
+                          ...current.models,
+                          embedding: event.target.value,
+                        },
+                      }))
+                    }
+                    placeholder="刷新后自动建议，也可搜索选择"
+                  />
+                </Field>
+              </div>
             ) : (
               <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                 {ROLE_FIELDS.map((role) => (

@@ -116,6 +116,113 @@ class Ambiguity(DomainModel):
     source_span_ids: list[UUID] = Field(default_factory=list)
 
 
+class ChatTopicCandidate(DomainModel):
+    """Small, schema-validated seed expanded into a full unverified teaching plan."""
+
+    title: str = Field(min_length=1)
+    domain: str | None = None
+    canonical_name: str = Field(min_length=1)
+    plain_definition: str = Field(min_length=1)
+    formal_definition: str = Field(min_length=1)
+    must_cover: list[str] = Field(min_length=1, max_length=6)
+    common_confusions: list[str] = Field(default_factory=list, max_length=6)
+    applicability: list[str] = Field(default_factory=list, max_length=6)
+    limitations: list[str] = Field(default_factory=list, max_length=6)
+    importance: float = Field(ge=0.0, le=1.0)
+    difficulty: float = Field(ge=0.0, le=1.0)
+    confidence: float = Field(ge=0.0, le=1.0)
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_bounded_provider_compatibility(cls, value: object) -> object:
+        if not isinstance(value, dict):
+            return value
+        normalized = dict(value)
+        for alias, canonical in (
+            ("formal", "formal_definition"),
+            ("must_cover_cover", "must_cover"),
+        ):
+            if alias in normalized:
+                normalized.setdefault(canonical, normalized[alias])
+                normalized.pop(alias, None)
+        # A missing score must never become high-confidence model knowledge.
+        normalized.setdefault("importance", 0.5)
+        normalized.setdefault("difficulty", 0.5)
+        normalized.setdefault("confidence", 0.4)
+        for field in (
+            "must_cover",
+            "common_confusions",
+            "applicability",
+            "limitations",
+        ):
+            if field in normalized:
+                normalized[field] = _bounded_topic_strings(normalized[field])
+        if not normalized.get("must_cover"):
+            canonical_name = normalized.get("canonical_name")
+            if isinstance(canonical_name, str) and canonical_name.strip():
+                normalized["must_cover"] = [canonical_name.strip()]
+        return normalized
+
+    @field_validator("canonical_name")
+    @classmethod
+    def normalize_name(cls, value: str) -> str:
+        normalized = " ".join(value.strip().split()).casefold()
+        if not normalized:
+            raise ValueError("canonical_name cannot be blank")
+        return normalized
+
+
+class ChatTopicSeed(DomainModel):
+    """Minimal provider response for a short learner question."""
+
+    canonical_name: str = Field(min_length=1, max_length=200)
+    plain_definition: str = Field(min_length=1, max_length=2000)
+
+    @model_validator(mode="before")
+    @classmethod
+    def normalize_provider_aliases(cls, value: object) -> object:
+        if not isinstance(value, dict):
+            return value
+        normalized = dict(value)
+        for alias, canonical in (
+            ("topic", "canonical_name"),
+            ("name", "canonical_name"),
+            ("title", "canonical_name"),
+            ("definition", "plain_definition"),
+            ("description", "plain_definition"),
+        ):
+            if alias in normalized and canonical not in normalized:
+                normalized[canonical] = normalized[alias]
+            normalized.pop(alias, None)
+        return normalized
+
+    @field_validator("canonical_name", "plain_definition")
+    @classmethod
+    def normalize_text(cls, value: str) -> str:
+        normalized = " ".join(value.strip().split())
+        if not normalized:
+            raise ValueError("chat topic seed text cannot be blank")
+        return normalized
+
+
+def _bounded_topic_strings(value: object) -> list[str]:
+    items = value if isinstance(value, list) else [value]
+    normalized: list[str] = []
+    for item in items[:6]:
+        candidate: str | None = item if isinstance(item, str) else None
+        if isinstance(item, dict):
+            candidate = next(
+                (nested for nested in item.values() if isinstance(nested, str) and nested.strip()),
+                None,
+            )
+        if candidate is None:
+            continue
+        text = " ".join(candidate.strip().split())
+        if text and text not in normalized:
+            normalized.append(text)
+    return normalized
+
+
 class KnowledgeBlueprint(DomainModel):
     title: str = Field(min_length=1)
     domain: str | None = None

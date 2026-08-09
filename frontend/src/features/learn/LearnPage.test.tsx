@@ -297,6 +297,25 @@ describe("LearnPage", () => {
     await waitFor(() => expect(api.chat).toHaveBeenCalledOnce());
   });
 
+  it("reuses one client request id when retrying a failed turn", async () => {
+    vi.mocked(api.chat)
+      .mockRejectedValueOnce(new Error("暂时无法完成教学请求"))
+      .mockResolvedValueOnce(chatResponse);
+    renderPage();
+    fireEvent.change(screen.getByLabelText("学习消息"), {
+      target: { value: "什么是 RAG" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送学习消息" }));
+
+    fireEvent.click(await screen.findByRole("button", { name: "重试" }));
+    await waitFor(() => expect(api.chat).toHaveBeenCalledTimes(2));
+
+    const first = vi.mocked(api.chat).mock.calls[0]?.[0];
+    const second = vi.mocked(api.chat).mock.calls[1]?.[0];
+    expect(first?.client_request_id).toBeTruthy();
+    expect(second?.client_request_id).toBe(first?.client_request_id);
+  });
+
   it("cancels an in-flight request without losing the draft", async () => {
     vi.mocked(api.chat).mockImplementation(
       (_input, signal) =>

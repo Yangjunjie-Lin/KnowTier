@@ -171,4 +171,61 @@ describe("SettingsPage learning preferences", () => {
       "never-persist-this-key",
     );
   });
+
+  it("keeps embedding separate from the unified generation model", async () => {
+    const siliconFlow: ModelProfile = {
+      ...mockProfile,
+      id: "22222222-2222-4222-8222-222222222222",
+      name: "SiliconFlow",
+      provider: "siliconflow",
+      base_url: "https://api.siliconflow.cn/v1",
+      models: {
+        teacher: "Qwen/Qwen2.5-7B-Instruct",
+        extractor: "Qwen/Qwen2.5-7B-Instruct",
+        grader: "Qwen/Qwen2.5-7B-Instruct",
+        graph: "Qwen/Qwen2.5-7B-Instruct",
+        vision: "Qwen/Qwen2.5-7B-Instruct",
+        embedding: "Qwen/Qwen2.5-7B-Instruct",
+      },
+      credential_present: true,
+      credential_masked: "••••••••",
+    };
+    vi.mocked(api.getModelConfiguration).mockResolvedValue({
+      profiles: [siliconFlow],
+      active_profile_id: siliconFlow.id,
+    });
+    vi.mocked(api.updateModelProfile).mockImplementation((_id, input) =>
+      Promise.resolve({
+        ...siliconFlow,
+        models: input.models,
+      }),
+    );
+    vi.mocked(api.discoverProviderModels).mockResolvedValue({
+      profile_id: siliconFlow.id,
+      provider: "siliconflow",
+      models: [
+        "Qwen/Qwen2.5-7B-Instruct",
+        "BAAI/bge-reranker-v2-m3",
+        "Qwen/Qwen3-Embedding-0.6B",
+        "BAAI/bge-m3",
+      ],
+      tested_at: "2026-08-08T00:00:00Z",
+    });
+
+    renderPage();
+    const generation = await screen.findByLabelText(/统一生成模型/);
+    const embedding = screen.getByLabelText(/Embedding 模型/);
+    await waitFor(() => {
+      expect(generation).toHaveValue("Qwen/Qwen2.5-7B-Instruct");
+      expect(embedding).toHaveValue("Qwen/Qwen2.5-7B-Instruct");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "刷新模型" }));
+    await waitFor(() =>
+      expect(embedding).toHaveValue("Qwen/Qwen3-Embedding-0.6B"),
+    );
+
+    fireEvent.change(generation, { target: { value: "provider/next-chat" } });
+    expect(embedding).toHaveValue("Qwen/Qwen3-Embedding-0.6B");
+  });
 });

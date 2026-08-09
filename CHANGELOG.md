@@ -5,6 +5,17 @@ All notable changes to KnowTier are documented in this file. The format is based
 
 ## [Unreleased]
 
+### Added
+
+- Added a user-visible Model Provider center for Mock, SiliconFlow, and custom
+  OpenAI-compatible endpoints with dynamic `/models` discovery, separate generation and embedding
+  selections, per-role mappings, connection tests, retry/timeout controls, and masked credential
+  state.
+- Added provider contract coverage for structured chat, streaming, embeddings, rate limits,
+  invalid credentials/models, timeouts, and malformed responses.
+- Added packaged Mock RAG chat, desktop logging, idempotent retry, accessibility, keyboard, and
+  three-viewport visual regression coverage.
+
 ### Changed
 
 - Desktop installers are held as draft releases until a maintainer has verified every platform
@@ -13,6 +24,28 @@ All notable changes to KnowTier are documented in this file. The format is based
   exact ID through `/models`; embedding models remain capability-discovered.
 - SiliconFlow native embedding vectors narrower than the 1536-wide store are zero-padded without
   changing their dot products, norms, or cosine similarity.
+- Short tutoring questions use compact validated model schemas and deterministic expansion while
+  preserving unverified-fact, graph-version, evidence, and audit semantics.
+
+### Fixed
+
+- Fixed the Windows desktop black window caused by an over-restrictive WebView navigation policy
+  and a startup race that reloaded the hidden window before the sidecar was ready.
+- Fixed `什么是 RAG` failures caused by Chinese/ASCII tokenization, multi-candidate target
+  selection, chat models being used for embeddings, missing frozen `owlrl` metadata, oversized
+  teacher schemas, and malformed provider responses.
+- Fixed duplicate user turns on retry by reusing a stable client request ID and cached successful
+  response, while retaining actionable request IDs for server failures.
+- Fixed new provider profiles switching unexpectedly from quick configuration to advanced mapping
+  after the first model refresh.
+
+### Security
+
+- Provider keys remain server-side, are masked in API responses, are excluded from browser storage,
+  URLs, logs, traces, screenshots, and ordinary profile files, and can use an OS credential vault or
+  session-only storage.
+- Desktop navigation remains limited to Tauri application origins and the authenticated random
+  loopback sidecar; provider failures are mapped to bounded, non-secret error responses.
 
 ## [1.0.0-rc.1] - 2026-08-06
 

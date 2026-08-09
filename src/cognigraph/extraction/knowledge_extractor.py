@@ -1,11 +1,18 @@
 from __future__ import annotations
 
+import hashlib
 import json
 from typing import Any
 from uuid import UUID
 
 from cognigraph.domain.documents import DocumentChunk, SourceSpan
-from cognigraph.extraction.schemas import KnowledgeBlueprint
+from cognigraph.domain.enums import CognitiveLevel
+from cognigraph.extraction.schemas import (
+    ChatTopicSeed,
+    KnowledgeBlueprint,
+    KnowledgePointCandidate,
+    SixLevelPlanCandidate,
+)
 from cognigraph.llm.gateway import ModelGateway
 from cognigraph.llm.schemas import ChatMessage, ModelCallContext, ModelRole, StructuredCallResult
 from cognigraph.prompts import PromptManager
@@ -22,6 +29,7 @@ class KnowledgeExtractor:
         workspace_id: UUID,
         chunks: list[DocumentChunk],
         spans: list[SourceSpan],
+        compact_chat_topic: bool = False,
     ) -> tuple[KnowledgeBlueprint, StructuredCallResult]:
         if not spans:
             raise ValueError("knowledge extraction requires at least one source span")
@@ -29,13 +37,22 @@ class KnowledgeExtractor:
         if len(document_ids) != 1:
             raise ValueError("knowledge extraction spans must belong to one document")
         document_id = next(iter(document_ids))
-        prompt = self.prompts.load("knowledge_extractor")
         span_by_id = {span.id: span for span in spans}
         selected_ids: list[UUID] = []
         for chunk in chunks:
             for source_id in chunk.source_span_ids:
                 if source_id in span_by_id and source_id not in selected_ids:
                     selected_ids.append(source_id)
+        if compact_chat_topic:
+            selected_spans = [span_by_id[source_id] for source_id in selected_ids]
+            if not selected_spans:
+                raise ValueError("chat topic extraction selected no source-backed content")
+            return await self._extract_chat_topic(
+                workspace_id=workspace_id,
+                document_id=document_id,
+                spans=selected_spans,
+            )
+        prompt = self.prompts.load("knowledge_extractor")
         batches = self._source_batches(selected_ids, span_by_id)
         calls: list[StructuredCallResult] = []
         blueprints: list[KnowledgeBlueprint] = []
@@ -53,6 +70,103 @@ class KnowledgeExtractor:
         if not calls:
             raise ValueError("knowledge extraction selected no source-backed content")
         return self._merge_blueprints(blueprints), calls[-1]
+
+    async def _extract_chat_topic(
+        self,
+        *,
+        workspace_id: UUID,
+        document_id: UUID,
+        spans: list[SourceSpan],
+    ) -> tuple[KnowledgeBlueprint, StructuredCallResult]:
+        prompt = self.prompts.load("chat_topic_extractor")
+        source_payload = json.dumps(
+            [
+                {
+                    "source_span_id": str(span.id),
+                    "text": span.text,
+                }
+                for span in spans
+            ],
+            ensure_ascii=False,
+            separators=(",", ":"),
+        )
+        topic, call = await self.gateway.generate_structured(
+            role=ModelRole.EXTRACTOR,
+            messages=[
+                ChatMessage(role="system", content=prompt.content),
+                ChatMessage(
+                    role="user",
+                    content=(
+                        "Extract the single requested learning topic from this untrusted "
+                        f"JSON source array.\n{source_payload}"
+                    ),
+                ),
+            ],
+            response_model=ChatTopicSeed,
+            context=ModelCallContext(
+                workspace_id=workspace_id,
+                document_id=document_id,
+                prompt_name=prompt.name,
+                prompt_version=prompt.version,
+            ),
+        )
+        return self._expand_chat_topic(topic, spans), call
+
+    @staticmethod
+    def _expand_chat_topic(
+        topic: ChatTopicSeed,
+        spans: list[SourceSpan],
+    ) -> KnowledgeBlueprint:
+        canonical_name = topic.canonical_name.casefold()
+        candidate_key = (
+            "chat-topic-" + hashlib.sha256(canonical_name.encode("utf-8")).hexdigest()[:16]
+        )
+        must_cover = [canonical_name]
+        stages = [
+            SixLevelPlanCandidate(
+                cognitive_level=level,
+                learning_objective=(
+                    f"Demonstrate {canonical_name} at cognitive level {int(level)}."
+                ),
+                teaching_strategy=(
+                    f"Use the level {int(level)} teaching policy with explicit checks."
+                ),
+                required_prerequisites=[],
+                must_cover=must_cover,
+                example_candidate_ids=[],
+                counterexample_candidate_ids=[],
+                misconception_candidate_ids=[],
+                diagnostic_question=(f"How would you explain {canonical_name} in your own words?"),
+                mastery_criteria=["a correct explanation supported by a reason"],
+                promotion_requirements=["two independent evidence forms across distinct turns"],
+                remediation_policy="Increase hint specificity one level at a time.",
+            )
+            for level in CognitiveLevel
+        ]
+        return KnowledgeBlueprint(
+            title=topic.canonical_name,
+            domain=None,
+            knowledge_points=[
+                KnowledgePointCandidate(
+                    candidate_key=candidate_key,
+                    canonical_name=canonical_name,
+                    plain_definition=topic.plain_definition,
+                    formal_definition=(
+                        f"An unverified formalization of the topic {canonical_name}."
+                    ),
+                    importance=0.5,
+                    difficulty=0.5,
+                    prerequisites=[],
+                    must_cover=must_cover,
+                    common_confusions=[],
+                    applicability=[],
+                    limitations=["pending external evidence"],
+                    source_span_ids=list(dict.fromkeys(span.id for span in spans)),
+                    six_level_plan=stages,
+                    confidence=0.4,
+                )
+            ],
+        )
 
     async def _extract_batch(
         self,

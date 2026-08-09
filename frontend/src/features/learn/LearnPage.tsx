@@ -90,6 +90,7 @@ interface UploadOperation {
 }
 
 interface ChatSubmission {
+  clientRequestId: UUID;
   text: string;
   attachmentIds: UUID[];
   requestedMode: RequestedMode;
@@ -210,6 +211,7 @@ export function LearnPage() {
           workspace_id: input.workspaceId,
           learner_id: input.learnerId,
           session_id: input.sessionId,
+          client_request_id: input.clientRequestId,
           message: input.text,
           attachment_ids: input.attachmentIds,
           requested_mode: input.requestedMode,
@@ -416,6 +418,7 @@ export function LearnPage() {
     ]);
     setShowAttachments(false);
     chatMutation.mutate({
+      clientRequestId: crypto.randomUUID(),
       text,
       attachmentIds,
       requestedMode: mode,
@@ -1014,6 +1017,14 @@ export function TeachingTurn({ result }: { result: ChatResponse }) {
         </p>
         <TeachingResponse content={result.response} />
       </section>
+      {result.model_fallback && (
+        <p
+          className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200"
+          role="status"
+        >
+          本轮模型响应未能通过格式校验，已使用当前来源的安全回退内容。
+        </p>
+      )}
       <section
         className="rounded-xl border border-amber-200 bg-amber-50/70 px-4 py-3 dark:border-amber-900/50 dark:bg-amber-950/20"
         aria-label="掌握检测"

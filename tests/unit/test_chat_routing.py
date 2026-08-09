@@ -1,10 +1,11 @@
 from __future__ import annotations
 
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from cognigraph.api.schemas import ChatRequest
-from cognigraph.domain.enums import CognitiveLevel, EvidenceType
+from cognigraph.domain.enums import CognitiveLevel, EpistemicStatus, EvidenceType, NodeType
 from cognigraph.domain.learner import MasteryEvidence
+from cognigraph.graph.applier import GraphNode
 from cognigraph.services.chat import ChatService, ChatTurnContext
 
 
@@ -58,3 +59,48 @@ def test_learning_request_and_self_report_classification_are_separate() -> None:
     assert ChatService._is_pure_self_report("I understand.")
     assert ChatService._is_pure_self_report("我明白了\uff01")
     assert not ChatService._is_pure_self_report("I understand because it is required first.")
+
+
+def test_search_terms_split_cjk_learning_prefix_from_ascii_topic() -> None:
+    assert ChatService._search_terms("我想学习什么是RAG") == ["rag"]
+    assert ChatService._search_terms("请解释条件概率") == ["条件概率"]
+
+
+def test_current_ingestion_target_selection_handles_multiple_knowledge_points() -> None:
+    workspace_id = uuid4()
+    revision_id = uuid4()
+    secondary = GraphNode(
+        id=UUID("00000000-0000-0000-0000-000000000001"),
+        workspace_id=workspace_id,
+        node_type=NodeType.KNOWLEDGE_POINT,
+        properties={
+            "canonical_name": "grounding evidence",
+            "summary": "Evidence supplied to a generator.",
+            "importance": 0.7,
+        },
+        epistemic_status=EpistemicStatus.UNVERIFIED,
+        source_confidence=0.85,
+        graph_revision_id=revision_id,
+    )
+    rag = GraphNode(
+        id=UUID("00000000-0000-0000-0000-000000000002"),
+        workspace_id=workspace_id,
+        node_type=NodeType.KNOWLEDGE_POINT,
+        properties={
+            "canonical_name": "retrieval-augmented generation",
+            "summary": "RAG retrieves evidence before generating an answer.",
+            "importance": 0.95,
+        },
+        epistemic_status=EpistemicStatus.UNVERIFIED,
+        source_confidence=0.9,
+        graph_revision_id=revision_id,
+    )
+
+    selected = ChatService._select_target(
+        [secondary, rag],
+        "什么是RAG",
+        allow_unmatched=True,
+    )
+
+    assert selected is not None
+    assert selected.id == rag.id

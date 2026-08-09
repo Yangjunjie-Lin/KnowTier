@@ -12,6 +12,7 @@ export default tseslint.config(
       'playwright-report',
       'playwright-report-full-stack',
       'test-results',
+      'src-tauri/target',
       'eslint.config.js',
     ],
   },

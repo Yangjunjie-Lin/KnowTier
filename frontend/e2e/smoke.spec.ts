@@ -269,8 +269,21 @@ async function expectNoSeriousAxeViolations(page: Page) {
 
 async function expectVisualSnapshot(page: Page, name: string) {
   await page.addStyleTag({ path: visualStylePath });
-  await page.evaluate(() => window.scrollTo(0, 0));
-  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+  await page.evaluate(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: "instant" });
+    document.scrollingElement?.scrollTo({ top: 0, left: 0, behavior: "instant" });
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+  });
+  await expect
+    .poll(
+      () =>
+        page.evaluate(() =>
+          Math.max(window.scrollY, document.scrollingElement?.scrollTop ?? 0),
+        ),
+      { timeout: 10_000 },
+    )
+    .toBeLessThanOrEqual(1);
   await expect(page).toHaveScreenshot(name, {
     fullPage: false,
     animations: "disabled",
@@ -1026,9 +1039,10 @@ test("SiliconFlow profile lifecycle is visible, dynamic and secret-safe", async 
   await page.getByLabel("API Key").fill("e2e-secret-never-persist-me");
 
   await page.getByRole("button", { name: "刷新模型" }).click();
-  await page.getByRole("button", { name: "统一模型" }).click();
-  await expect(page.getByLabel("所有角色使用")).toBeEnabled();
-  await page.getByLabel("所有角色使用").fill("sf-chat");
+  await expect(page.getByLabel(/统一生成模型/)).toBeVisible();
+  await page.getByLabel(/统一生成模型/).fill("sf-chat");
+  await page.getByRole("button", { name: "高级映射", exact: true }).click();
+  await expect(page.getByLabel(/Teacher/).first()).toHaveValue("sf-chat");
   await page.getByRole("button", { name: "启用配置" }).click();
   await expect(page.getByText("当前启用：SiliconFlow 验收")).toBeVisible();
   await expect(page.getByText(/Teacher · siliconflow \/ sf-chat/)).toBeVisible();

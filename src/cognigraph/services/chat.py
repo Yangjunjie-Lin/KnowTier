@@ -12,6 +12,7 @@ from dataclasses import dataclass, field
 from typing import cast
 from uuid import UUID
 
+from pydantic import ValidationError
 from sqlalchemy import select
 
 from cognigraph.api.schemas import (
@@ -59,7 +60,15 @@ from cognigraph.graph.query_tools import (
     graph_tool_definitions,
 )
 from cognigraph.learner.rule_estimator import EvidenceRuleEstimator
-from cognigraph.llm.schemas import ChatMessage, ModelCallContext, ModelRole, TeacherOutput
+from cognigraph.llm.gateway import ModelGatewayError
+from cognigraph.llm.schemas import (
+    ChatMessage,
+    ModelCallContext,
+    ModelRole,
+    TeacherAssessment,
+    TeacherOutput,
+    TeacherSeed,
+)
 from cognigraph.persistence.postgres.models import ConversationTurn
 from cognigraph.persistence.postgres.models import (
     LearnerKnowledgeState as LearnerStateRecord,
@@ -87,6 +96,10 @@ _PURE_SELF_REPORT_PATTERN = re.compile(
     re.IGNORECASE,
 )
 _SEARCH_TOKEN_PATTERN = re.compile(r"[\w\u3400-\u9fff]+", re.UNICODE)
+_CJK_ASCII_BOUNDARY_PATTERN = re.compile(
+    r"(?<=[\u3400-\u9fff])(?=[a-z0-9])|(?<=[a-z0-9])(?=[\u3400-\u9fff])",
+    re.IGNORECASE,
+)
 logger = logging.getLogger(__name__)
 _SEARCH_STOP_WORDS = frozenset(
     {
@@ -108,6 +121,23 @@ _SEARCH_STOP_WORDS = frozenset(
         "解释",
         "讲解",
     }
+)
+_CJK_LEARNING_PREFIXES = (
+    "我想学习",
+    "我想了解",
+    "什么是",
+    "请解释",
+    "请介绍",
+    "请讲解",
+    "我想学",
+    "想了解",
+    "教我",
+    "讲解",
+    "解释",
+    "介绍",
+    "复习",
+    "学习",
+    "请",
 )
 _EVIDENCE_FORMS: dict[CognitiveLevel, tuple[EvidenceType, EvidenceType]] = {
     CognitiveLevel.INTUITIVE_RECOGNITION: (
@@ -229,6 +259,7 @@ class ChatTurnContext:
     graph_update: GraphUpdateResponse | None = None
     learner_graph_update: LearnerGraphUpdateResponse | None = None
     tool_usage: ToolUsageResponse | None = None
+    model_fallback: bool = False
     semantic_projection_fallback: bool = False
     sources: list[dict[str, object]] = field(default_factory=list)
     response: ChatResponse | None = None
@@ -258,13 +289,72 @@ class ChatService:
 
     async def chat(self, request: ChatRequest) -> ChatResponse:
         async with self._session_locks.hold(request.session_id):
-            context = ChatTurnContext(request=request)
+            cached_response, existing_user_turn = await self._idempotent_request_state(request)
+            if cached_response is not None:
+                return cached_response
+            context = ChatTurnContext(request=request, user_turn=existing_user_turn)
             state: WorkflowState = {"context": context}
             result = await self.workflow.run(state, checkpoint_id=str(request.session_id))
             final_context = cast(ChatTurnContext, result["context"])
             if final_context.response is None:
                 raise RuntimeError("teaching workflow completed without a response")
             return final_context.response
+
+    async def _idempotent_request_state(
+        self,
+        request: ChatRequest,
+    ) -> tuple[ChatResponse | None, ConversationTurn | None]:
+        if request.client_request_id is None:
+            return None, None
+        async with self.runtime.database.unit_of_work() as unit:
+            session = await unit.sessions.get(request.session_id)
+            if session is None:
+                return None, None
+            if (
+                session.workspace_id != request.workspace_id
+                or session.learner_id != request.learner_id
+            ):
+                raise ValueError("session does not belong to the requested workspace and learner")
+            turns = await unit.turns.recent(request.session_id, limit=100)
+        request_id = str(request.client_request_id)
+        matching = [
+            turn for turn in turns if turn.metadata_json.get("client_request_id") == request_id
+        ]
+        if not matching:
+            return None, None
+        expected = self._client_request_metadata(request)
+        user_turn = next((turn for turn in matching if turn.role == "user"), None)
+        if user_turn is None:
+            raise RuntimeError("idempotent chat request is missing its user turn")
+        if user_turn.content != request.message or any(
+            user_turn.metadata_json.get(key) != value for key, value in expected.items()
+        ):
+            raise ValueError("client_request_id cannot be reused with a different chat request")
+        assistant_turn = next(
+            (turn for turn in reversed(matching) if turn.role == "assistant"),
+            None,
+        )
+        if assistant_turn is None:
+            return None, user_turn
+        cached = assistant_turn.metadata_json.get("chat_response")
+        if not isinstance(cached, Mapping):
+            raise ValueError(
+                "this teaching request already completed; start a new turn to continue"
+            )
+        try:
+            return ChatResponse.model_validate(cached), user_turn
+        except ValueError as exc:
+            raise RuntimeError("stored idempotent chat response is invalid") from exc
+
+    @staticmethod
+    def _client_request_metadata(request: ChatRequest) -> dict[str, object]:
+        if request.client_request_id is None:
+            return {}
+        return {
+            "client_request_id": str(request.client_request_id),
+            "attachment_ids": [str(item) for item in request.attachment_ids],
+            "requested_mode": request.requested_mode.value,
+        }
 
     async def _node_understand(self, state: WorkflowState) -> WorkflowState:
         context = self._context(state)
@@ -297,13 +387,15 @@ class ChatService:
                 None,
             )
             context.previous_hint_level = self._prior_hint_level(context.prior_assistant)
-            context.user_turn = await unit.turns.add(
-                workspace_id=request.workspace_id,
-                learner_id=request.learner_id,
-                session_id=session.id,
-                role="user",
-                content=request.message,
-            )
+            if context.user_turn is None:
+                context.user_turn = await unit.turns.add(
+                    workspace_id=request.workspace_id,
+                    learner_id=request.learner_id,
+                    session_id=session.id,
+                    role="user",
+                    content=request.message,
+                    metadata_json=self._client_request_metadata(request),
+                )
             await unit.commit()
 
         for attachment_id in request.attachment_ids:
@@ -335,18 +427,32 @@ class ChatService:
                     mime_type="text/plain",
                     content=request.message.encode("utf-8"),
                 )
-                context.graph_report = await self.runtime.ingestion.ingest(upload.document_id)
+                context.graph_report = await self.runtime.ingestion.ingest(
+                    upload.document_id,
+                    compact_chat_topic=True,
+                )
                 snapshot = await self.runtime.ensure_graph_loaded(request.workspace_id)
                 target = await self._find_semantic_target(snapshot, request.message)
                 if target is None:
-                    newly_added = [
+                    current_source_span_ids = {
+                        span.id
+                        for span in snapshot.source_spans
+                        if span.document_id == upload.document_id
+                    }
+                    ingested_candidates = [
                         node
                         for node in snapshot.nodes
                         if node.node_type is NodeType.KNOWLEDGE_POINT
-                        and node.id not in existing_knowledge_ids
+                        and (
+                            node.id not in existing_knowledge_ids
+                            or bool(current_source_span_ids.intersection(node.source_span_ids))
+                        )
                     ]
-                    if len(newly_added) == 1:
-                        target = newly_added[0]
+                    target = self._select_target(
+                        ingested_candidates,
+                        request.message,
+                        allow_unmatched=True,
+                    )
             context.target_node = target
             context.session_goal_knowledge_point_id = target.id if target is not None else None
             context.previous_hint_level = None
@@ -356,7 +462,12 @@ class ChatService:
             )
             context.session_goal_knowledge_point_id = self._prior_session_goal(context)
         if context.target_node is None:
-            raise LookupError("no teachable knowledge point could be selected")
+            if new_learning_request:
+                raise ValueError(
+                    "No teachable knowledge point could be identified. "
+                    "Ask about one specific topic or attach source material, then retry."
+                )
+            raise LookupError("the session teaching target no longer exists")
         await self._load_learner_context(context, context.target_node.id)
         return state
 
@@ -668,43 +779,125 @@ class ChatService:
             "directive": context.directive.model_dump(mode="json"),
             "untrusted_learner_message": context.request.message,
         }
-        teacher, result = await self.runtime.model_gateway.generate_structured(
-            role=ModelRole.TEACHER,
-            messages=[
-                ChatMessage(role="system", content=prompt.content),
-                ChatMessage(
-                    role="user",
-                    content=json.dumps(
-                        generation_payload,
-                        ensure_ascii=False,
-                        separators=(",", ":"),
-                        sort_keys=True,
+        try:
+            seed, result = await self.runtime.model_gateway.generate_structured(
+                role=ModelRole.TEACHER,
+                messages=[
+                    ChatMessage(role="system", content=prompt.content),
+                    ChatMessage(
+                        role="user",
+                        content=json.dumps(
+                            generation_payload,
+                            ensure_ascii=False,
+                            separators=(",", ":"),
+                            sort_keys=True,
+                        ),
                     ),
+                ],
+                response_model=TeacherSeed,
+                context=ModelCallContext(
+                    workspace_id=context.request.workspace_id,
+                    learner_id=context.request.learner_id,
+                    session_id=context.request.session_id,
+                    turn_id=context.user_turn.id if context.user_turn is not None else None,
+                    graph_revision_id=context.bundle.graph_revision,
+                    learner_graph_revision_id=context.learner_graph_revision_id,
+                    context_truncated=context.bundle.truncated,
+                    prompt_name=prompt.name,
+                    prompt_version=prompt.version,
                 ),
-            ],
-            response_model=TeacherOutput,
-            context=ModelCallContext(
-                workspace_id=context.request.workspace_id,
-                learner_id=context.request.learner_id,
-                session_id=context.request.session_id,
-                turn_id=context.user_turn.id if context.user_turn is not None else None,
-                graph_revision_id=context.bundle.graph_revision,
-                learner_graph_revision_id=context.learner_graph_revision_id,
-                context_truncated=context.bundle.truncated,
-                prompt_name=prompt.name,
-                prompt_version=prompt.version,
-            ),
-            tools=graph_tool_definitions(),
-            tool_executor=(
-                self.runtime.graph_queries
-                if context.semantic_projection_fallback
-                else self.runtime.semantic_queries
+                tools=graph_tool_definitions(),
+                tool_executor=(
+                    self.runtime.graph_queries
+                    if context.semantic_projection_fallback
+                    else self.runtime.semantic_queries
+                ),
+            )
+            context.tool_usage = ToolUsageResponse.model_validate(result.tool_usage)
+        except ModelGatewayError as exc:
+            if not isinstance(exc.cause, (ValidationError, json.JSONDecodeError)):
+                raise
+            logger.warning(
+                "teacher model fallback activated",
+                extra={"model_fallback": True, "error_type": type(exc).__name__},
+            )
+            seed = self._teacher_fallback_seed(context)
+            context.model_fallback = True
+            context.tool_usage = ToolUsageResponse(
+                enabled=False,
+                steps=0,
+                tools=[],
+                fallback=True,
+            )
+        acknowledgement = (
+            "我们先聚焦这个问题。"
+            if any("\u3400" <= character <= "\u9fff" for character in context.request.message)
+            else "Let's focus on this question."
+        )
+        teacher = TeacherOutput(
+            acknowledgement=acknowledgement,
+            core_explanation=seed.core_explanation,
+            illustration=seed.illustration,
+            key_takeaway=seed.key_takeaway,
+            assessment=TeacherAssessment(
+                type=context.directive.assessment_type,
+                question=seed.assessment_question,
             ),
         )
-        teacher.assessment.type = context.directive.assessment_type
         context.teacher_output = teacher
-        context.tool_usage = ToolUsageResponse.model_validate(result.tool_usage)
         return state
+
+    @staticmethod
+    def _teacher_fallback_seed(context: ChatTurnContext) -> TeacherSeed:
+        """Keep a failed provider from blocking a turn with unverified content."""
+
+        if context.target_node is None or context.directive is None:
+            raise RuntimeError("teacher fallback requires a target and directive")
+        properties = context.target_node.properties
+        name = ChatService._node_name(context.target_node)
+        definition = next(
+            (
+                str(properties.get(key)).strip()
+                for key in (
+                    "plain_language_definition",
+                    "plain_definition",
+                    "summary",
+                    "formal_definition",
+                )
+                if isinstance(properties.get(key), str) and str(properties.get(key)).strip()
+            ),
+            "",
+        )
+        core = definition[:12_000] if definition else f"当前学习目标是 {name}。"
+        source_excerpt = next(
+            (
+                str(item.get("excerpt")).strip()
+                for item in context.sources
+                if isinstance(item.get("excerpt"), str) and str(item.get("excerpt")).strip()
+            ),
+            "",
+        )
+        if source_excerpt:
+            illustration = f"当前来源摘录 (请核对): {source_excerpt[:2_000]}"
+        else:
+            illustration = core
+        is_cjk = any("\u3400" <= character <= "\u9fff" for character in context.request.message)
+        if is_cjk:
+            takeaway = "本轮只把能够由当前来源核对的内容作为暂定结论。"
+            question = "请用自己的话说明这个学习目标, 并给出一个支持你回答的依据。"
+        else:
+            takeaway = (
+                "Treat this as a provisional explanation until the current sources support it."
+            )
+            question = (
+                "In your own words, explain this learning objective and give one supporting reason."
+            )
+        return TeacherSeed(
+            core_explanation=core,
+            illustration=illustration,
+            key_takeaway=takeaway,
+            assessment_question=question,
+        )
 
     async def _node_persist(self, state: WorkflowState) -> WorkflowState:
         context = self._context(state)
@@ -764,6 +957,7 @@ class ChatService:
                 assessment=assessment,
                 context_revision_id=context.bundle.graph_revision,
                 metadata_json={
+                    **self._client_request_metadata(context.request),
                     "hint_level": int(context.directive.hint_level),
                     "assessment_target_knowledge_point_id": str(context.target_node.id),
                     "session_goal_knowledge_point_id": str(
@@ -803,7 +997,26 @@ class ChatService:
                 assertions_added=learner_graph_result.assertions_added,
                 assertions_superseded=learner_graph_result.assertions_superseded,
             )
+            self._finalize_response(context)
+            if context.response is None:
+                raise RuntimeError("teaching response was not assembled")
+            if context.request.client_request_id is not None:
+                context.assistant_turn.metadata_json = {
+                    **context.assistant_turn.metadata_json,
+                    "chat_response": context.response.model_dump(mode="json"),
+                }
             await unit.commit()
+        return state
+
+    def _finalize_response(self, context: ChatTurnContext) -> None:
+        if (
+            context.assistant_turn is None
+            or context.teacher_output is None
+            or context.target_node is None
+            or context.directive is None
+            or context.learner_state is None
+        ):
+            raise RuntimeError("teaching output is incomplete")
         snapshot = self.runtime.graph_applier.store.get_snapshot(context.request.workspace_id)
         revision = (
             context.graph_report.graph_revision_id if context.graph_report else snapshot.revision_id
@@ -851,9 +1064,9 @@ class ChatService:
             graph_update=context.graph_update,
             learner_graph_update=context.learner_graph_update,
             tool_usage=context.tool_usage,
+            model_fallback=context.model_fallback,
             sources=context.sources,
         )
-        return state
 
     @staticmethod
     def _learner_graph_drafts(
@@ -1217,11 +1430,7 @@ class ChatService:
         message: str,
     ) -> GraphNode | None:
         normalized_message = " ".join(message.casefold().split())
-        terms = [
-            term
-            for term in _SEARCH_TOKEN_PATTERN.findall(normalized_message)
-            if len(term) > 1 and term not in _SEARCH_STOP_WORDS
-        ]
+        terms = self._search_terms(normalized_message)
         query = " ".join(terms) or normalized_message[:500]
         semantic = await self.runtime.semantic_queries.search_knowledge_points(
             SearchKnowledgePointsParams(
@@ -1257,16 +1466,32 @@ class ChatService:
         # local score is a deterministic fallback for languages without word boundaries.
         return self._find_target(snapshot, message)
 
-    @staticmethod
-    def _find_target(snapshot: GraphSnapshot, message: str) -> GraphNode | None:
+    @classmethod
+    def _find_target(cls, snapshot: GraphSnapshot, message: str) -> GraphNode | None:
         nodes = [node for node in snapshot.nodes if node.node_type is NodeType.KNOWLEDGE_POINT]
+        return cls._select_target(nodes, message, allow_unmatched=False)
+
+    @classmethod
+    def _select_target(
+        cls,
+        nodes: list[GraphNode],
+        message: str,
+        *,
+        allow_unmatched: bool,
+    ) -> GraphNode | None:
+        """Rank only caller-scoped candidates, with deterministic tie-breaking.
+
+        ``allow_unmatched`` is reserved for candidates extracted from the current
+        chat input. Every such candidate is source-linked to that input, so choosing
+        the most important candidate is safer than selecting an unrelated node from
+        the wider workspace when a model used a translated or expanded name.
+        """
+
         normalized_message = " ".join(message.casefold().split())
-        terms = [
-            term
-            for term in _SEARCH_TOKEN_PATTERN.findall(normalized_message)
-            if len(term) > 1 and term not in _SEARCH_STOP_WORDS
-        ]
-        scored: list[tuple[int, GraphNode]] = []
+        message_compact = cls._compact_search_text(normalized_message)
+        terms = cls._search_terms(normalized_message)
+        topic_compact = "".join(cls._compact_search_text(term) for term in terms)
+        scored: list[tuple[int, float, float, str, GraphNode]] = []
         for node in nodes:
             names = [
                 str(node.properties.get(key, ""))
@@ -1276,26 +1501,84 @@ class ChatService:
                 )
                 if isinstance(node.properties.get(key), str)
             ]
-            text = " ".join(
+            aliases = node.properties.get("aliases")
+            if isinstance(aliases, list):
+                names.extend(str(alias) for alias in aliases if isinstance(alias, str))
+            text_values = [
                 str(node.properties.get(key, ""))
                 for key in (
                     "canonical_name",
                     "display_name",
                     "summary",
                     "plain_language_definition",
+                    "formal_definition",
                 )
-            ).casefold()
-            exact_name_score = sum(
-                100
-                for name in names
-                if name and " ".join(name.casefold().split()) in normalized_message
-            )
-            score = exact_name_score + sum(text.count(term) for term in terms)
-            if score:
-                scored.append((score, node))
-        if scored:
-            return sorted(scored, key=lambda item: (-item[0], str(item[1].id)))[0][1]
-        return None
+                if isinstance(node.properties.get(key), str)
+            ]
+            for key in ("must_cover", "applicability"):
+                value = node.properties.get(key)
+                if isinstance(value, list):
+                    text_values.extend(str(item) for item in value if isinstance(item, str))
+            text = " ".join(text_values).casefold()
+            compact_names = [cls._compact_search_text(name) for name in names if name]
+            name_score = 0
+            for compact_name in compact_names:
+                if not compact_name:
+                    continue
+                if topic_compact and compact_name == topic_compact:
+                    name_score = max(name_score, 400)
+                elif compact_name in message_compact:
+                    name_score = max(name_score, 300)
+                elif topic_compact and topic_compact in compact_name:
+                    name_score = max(name_score, 250)
+            term_score = sum(20 * text.count(term) for term in terms)
+            relevance = name_score + term_score
+            if relevance or allow_unmatched:
+                importance_value = node.properties.get("importance", 0.0)
+                importance = (
+                    float(importance_value)
+                    if isinstance(importance_value, int | float)
+                    and not isinstance(importance_value, bool)
+                    else 0.0
+                )
+                scored.append(
+                    (
+                        relevance,
+                        importance,
+                        node.source_confidence,
+                        str(node.id),
+                        node,
+                    )
+                )
+        if not scored:
+            return None
+        return sorted(
+            scored,
+            key=lambda item: (-item[0], -item[1], -item[2], item[3]),
+        )[0][4]
+
+    @staticmethod
+    def _compact_search_text(value: str) -> str:
+        return "".join(character for character in value.casefold() if character.isalnum())
+
+    @staticmethod
+    def _search_terms(message: str) -> list[str]:
+        normalized = " ".join(message.casefold().split())
+        segmented = _CJK_ASCII_BOUNDARY_PATTERN.sub(" ", normalized)
+        terms: list[str] = []
+        for raw_term in _SEARCH_TOKEN_PATTERN.findall(segmented):
+            term = raw_term
+            prefix_removed = True
+            while prefix_removed and term:
+                prefix_removed = False
+                for prefix in _CJK_LEARNING_PREFIXES:
+                    if term.startswith(prefix) and term != prefix:
+                        term = term[len(prefix) :]
+                        prefix_removed = True
+                        break
+            if len(term) > 1 and term not in _SEARCH_STOP_WORDS and term not in terms:
+                terms.append(term)
+        return terms
 
     @staticmethod
     def _node_name(node: GraphNode) -> str:

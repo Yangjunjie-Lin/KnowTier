@@ -22,9 +22,10 @@ def provider(
     retries: int = 0,
     dimensions: int = 3,
     request_dimensions: bool = True,
+    provider_name: str = "contract",
 ) -> OpenAICompatibleProvider:
     return OpenAICompatibleProvider(
-        provider_name="contract",
+        provider_name=provider_name,
         base_url="https://provider.example/v1",
         api_key="contract-test-key",
         timeout_seconds=0.1,
@@ -35,6 +36,19 @@ def provider(
         request_embedding_dimensions=request_dimensions,
         transport=httpx.MockTransport(handler),
     )
+
+
+@pytest.mark.contract
+async def test_siliconflow_uses_prefetched_context_without_undeclared_tools() -> None:
+    model_provider = provider(
+        lambda _request: httpx.Response(200, json=chat_payload('{"ok":true}')),
+        provider_name="siliconflow",
+    )
+
+    try:
+        assert model_provider.supports_tool_calling is False
+    finally:
+        await model_provider.aclose()
 
 
 def chat_payload(content: str) -> dict[str, object]:
@@ -104,6 +118,36 @@ async def test_chat_and_json_schema_flow_through_model_gateway() -> None:
     assert result.provider == "contract"
     assert result.model == "discovered-chat-model"
     assert result.usage.output_tokens == 12
+
+
+@pytest.mark.contract
+async def test_siliconflow_uses_json_object_mode_with_a_bounded_schema_instruction() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        assert payload["response_format"] == {"type": "json_object"}
+        messages = payload["messages"]
+        assert messages[0]["role"] == "system"
+        assert "exactly one concise JSON object" in messages[0]["content"]
+        assert '"ok"' in messages[0]["content"]
+        assert messages[-1] == {"role": "user", "content": "return the probe"}
+        return httpx.Response(200, json=chat_payload('{"ok":true}'))
+
+    model_provider = provider(handler, provider_name="siliconflow")
+    try:
+        response = await model_provider.complete(
+            model="discovered-chat-model",
+            messages=[ChatMessage(role="user", content="return the probe")],
+            response_schema={
+                "type": "object",
+                "properties": {"ok": {"type": "boolean"}},
+                "required": ["ok"],
+                "additionalProperties": False,
+            },
+        )
+    finally:
+        await model_provider.aclose()
+
+    assert response.content == '{"ok":true}'
 
 
 @pytest.mark.contract
