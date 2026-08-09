@@ -42,6 +42,8 @@ All notable changes to KnowTier are documented in this file. The format is based
   while retaining bounded failure handling and Sidecar cleanup.
 - Make the graph drawer keyboard contract wait for focus readiness before exercising Escape, avoiding
   a race with the dialog's dismiss listener without weakening the accessibility assertion.
+- Treat a missing release tag as absent even when GitHub CLI returns a structured API error body,
+  so a validated manual RC run can create its immutable tag and Draft Release.
 
 - Fixed the Windows desktop black window caused by an over-restrictive WebView navigation policy
   and a startup race that reloaded the hidden window before the sidecar was ready.

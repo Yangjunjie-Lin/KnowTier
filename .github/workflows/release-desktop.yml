@@ -1113,9 +1113,15 @@ jobs:
             echo "See docs/DESKTOP_RELEASE.md and CHANGELOG.md in commit $GITHUB_SHA."
           } > release-notes.md
 
-          existing="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft 2>/dev/null || true)"
+          existing=""
+          if release_state="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft 2>/dev/null)"; then
+            existing="$release_state"
+          fi
           if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
-            tagged_commit="$(gh api "repos/$GITHUB_REPOSITORY/commits/$tag" --jq .sha 2>/dev/null || true)"
+            tagged_commit=""
+            if commit_sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/$tag" --jq .sha 2>/dev/null)"; then
+              tagged_commit="$commit_sha"
+            fi
             if [[ -n "$tagged_commit" && "$tagged_commit" != "$GITHUB_SHA" ]]; then
               echo "Refusing to move existing tag $tag from $tagged_commit to $GITHUB_SHA; use a new RC version." >&2
               exit 1
