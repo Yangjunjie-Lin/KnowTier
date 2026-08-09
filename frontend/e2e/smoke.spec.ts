@@ -1140,9 +1140,11 @@ test("global search shortcut, graph keyboard list and responsive visuals", async
   await page.keyboard.press("ArrowDown");
   await expect(secondNode).toBeFocused();
   await page.keyboard.press("Enter");
-  await expect(page.getByRole("dialog")).toContainText("节点详情");
-  await page.keyboard.press("Escape");
-  await expect(page.getByRole("dialog")).toHaveCount(0);
+  const graphDetail = page.getByRole("dialog");
+  await expect(graphDetail).toContainText("节点详情");
+  await graphDetail.getByRole("button", { name: "关闭详情" }).focus();
+  await graphDetail.press("Escape");
+  await expect(graphDetail).toBeHidden();
 
   await expectNoHorizontalOverflow(page);
   await expectNoSeriousAxeViolations(page);
