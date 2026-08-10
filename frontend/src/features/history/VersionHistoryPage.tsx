@@ -9,6 +9,7 @@ import { Link } from "react-router-dom";
 import { api } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { formatDate } from "@/lib/utils";
+import { versionStatusLabel } from "@/lib/versionDetails";
 import { useAppStore } from "@/stores/AppContext";
 import type { LearnerRevision, RevisionSummary } from "@/types/api";
 import {
@@ -51,7 +52,21 @@ function VersionHistoryPage({ kind }: { kind: "domain" | "learner" }) {
     (kind === "domain" && !currentWorkspace) ||
     (kind === "learner" && !currentLearner)
   )
-    return <EmptyState title="尚未选择上下文" />;
+    return (
+      <EmptyState
+        title={kind === "domain" ? "尚未选择学习空间" : "尚未选择学习者"}
+        description={
+          kind === "domain"
+            ? "选择学习空间后可查看领域图谱的历史版本。"
+            : "选择学习者后可查看个人学习状态的历史版本。"
+        }
+        action={
+          <Link to="/init" className="primary-button">
+            前往选择
+          </Link>
+        }
+      />
+    );
   const query = kind === "domain" ? domain : learner;
   if (query.isLoading) return <LoadingState label="正在加载版本记录" />;
   if (query.isError)
@@ -64,9 +79,13 @@ function VersionHistoryPage({ kind }: { kind: "domain" | "learner" }) {
   return (
     <div>
       <PageHeader
-        eyebrow="Version history"
+        eyebrow="变化记录"
         title={kind === "domain" ? "领域图谱版本" : "学生图谱版本"}
-        description="版本记录只读展示，不提供后端不存在的回滚、删除或编辑操作。"
+        description={
+          kind === "domain"
+            ? "追踪知识点、关系和来源如何随资料处理逐步变化。"
+            : "追踪掌握度、误解、证据和推荐动作如何随学习更新。"
+        }
         actions={
           <div className="flex gap-1 rounded-xl border border-slate-200 bg-white p-1 shadow-sm dark:border-slate-700 dark:bg-slate-900" role="group" aria-label="版本类型">
             <Link
@@ -74,14 +93,14 @@ function VersionHistoryPage({ kind }: { kind: "domain" | "learner" }) {
               aria-current={kind === "domain" ? "page" : undefined}
               className={`rounded-lg px-3 py-2 text-xs font-medium transition-colors ${kind === "domain" ? "bg-indigo-50 text-[#3157D5] dark:bg-indigo-950" : "text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800"}`}
             >
-              领域
+              领域图谱
             </Link>
             <Link
               to="/history/learner"
               aria-current={kind === "learner" ? "page" : undefined}
               className={`rounded-lg px-3 py-2 text-xs font-medium transition-colors ${kind === "learner" ? "bg-indigo-50 text-[#3157D5] dark:bg-indigo-950" : "text-slate-500 hover:bg-slate-50 dark:hover:bg-slate-800"}`}
             >
-              学生
+              学生图谱
             </Link>
           </div>
         }
@@ -89,7 +108,19 @@ function VersionHistoryPage({ kind }: { kind: "domain" | "learner" }) {
       {items.length === 0 ? (
         <EmptyState
           title="暂无版本"
-          description="完成摄取或学习对话后，后端会创建版本记录。"
+          description={
+            kind === "domain"
+              ? "处理第一份学习资料后，这里会出现领域图谱版本。"
+              : "完成一次学习对话后，这里会出现个人学习版本。"
+          }
+          action={
+            <Link
+              to={kind === "domain" ? "/materials" : "/learn"}
+              className="primary-button"
+            >
+              {kind === "domain" ? "添加学习资料" : "开始学习"}
+            </Link>
+          }
         />
       ) : (
         <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
@@ -98,6 +129,7 @@ function VersionHistoryPage({ kind }: { kind: "domain" | "learner" }) {
               type="button"
               key={item.id}
               onClick={() => setSelected(item)}
+              aria-label={`查看${kind === "domain" ? "领域" : "学生"}图谱版本 v${item.sequence_number}`}
               className="surface-card group flex w-full items-center gap-4 p-4 text-left transition-[border-color,box-shadow,transform] hover:-translate-y-0.5 hover:border-indigo-300 hover:shadow-md focus:outline-none focus:ring-2 focus:ring-[#3157D5]/40"
             >
               <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-indigo-50 text-[#3157D5] dark:bg-indigo-950">
@@ -114,7 +146,7 @@ function VersionHistoryPage({ kind }: { kind: "domain" | "learner" }) {
                   </span>
                   <span className="rounded bg-slate-100 px-2 py-0.5 text-[10px] text-slate-500 dark:bg-slate-800">
                     {kind === "domain"
-                      ? (item as RevisionSummary).status
+                      ? versionStatusLabel((item as RevisionSummary).status)
                       : `${(item as LearnerRevision).assertions_added} 条新增`}
                   </span>
                 </div>
@@ -171,7 +203,10 @@ function RevisionDrawer({
         <LoadingState label="正在读取版本详情" />
       ) : detail.isError ? (
         <div className="mt-4">
-          <ErrorState error={detail.error} />
+          <ErrorState
+            error={detail.error}
+            onRetry={() => void detail.refetch()}
+          />
         </div>
       ) : (
         kind === "domain" ? (

@@ -4,10 +4,12 @@ import {
   ArrowUpAZ,
   Download,
   Filter,
+  LoaderCircle,
   Search,
   SlidersHorizontal,
 } from "lucide-react";
 import { useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { api } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import {
@@ -28,6 +30,7 @@ import {
 } from "@/components/shared/States";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { Sheet } from "@/components/shared/Sheet";
+import { readableAction } from "@/lib/learningPath";
 
 type SortKey = "name" | "mastery" | "confidence" | "review";
 
@@ -40,6 +43,7 @@ export function PersonalModelPage() {
   const [ascending, setAscending] = useState(false);
   const [selected, setSelected] = useState<LearnerModelItem | null>(null);
   const [downloadError, setDownloadError] = useState<unknown>(null);
+  const [downloading, setDownloading] = useState(false);
   const query = useQuery({
     queryKey: queryKeys.model(currentLearner?.id ?? ""),
     queryFn: ({ signal }) => api.getLearnerModel(currentLearner!.id, signal),
@@ -49,7 +53,7 @@ export function PersonalModelPage() {
     queryKey: queryKeys.evidence(currentLearner?.id ?? ""),
     queryFn: ({ signal }) =>
       api.getLearnerEvidence(currentLearner!.id, signal),
-    enabled: Boolean(currentLearner),
+    enabled: Boolean(currentLearner && selected),
   });
   const rows = useMemo(() => {
     const filtered = (query.data?.items ?? []).filter((item) => {
@@ -81,35 +85,75 @@ export function PersonalModelPage() {
       return factor * (a.mastery_score - b.mastery_score);
     });
   }, [ascending, level, query.data?.items, search, sort, status]);
-  if (!currentLearner) return <EmptyState title="尚未选择学习者" />;
+  if (!currentLearner)
+    return (
+      <EmptyState
+        title="尚未选择学习者"
+        description="先选择学习者，才能查看个人掌握情况。"
+        action={
+          <Link to="/init" className="primary-button">
+            选择学习者
+          </Link>
+        }
+      />
+    );
   if (query.isLoading) return <LoadingState label="正在读取个人模型" />;
   if (query.isError)
     return (
       <ErrorState error={query.error} onRetry={() => void query.refetch()} />
     );
   const downloadCsv = async () => {
+    setDownloading(true);
+    setDownloadError(null);
     try {
       const response = await api.downloadLearnerModelCsv(currentLearner.id);
       await triggerResponseDownload(response, `learner-${currentLearner.id}.csv`);
       setDownloadError(null);
     } catch (error) {
       setDownloadError(error);
+    } finally {
+      setDownloading(false);
     }
   };
+  if (!query.data?.items.length) {
+    return (
+      <div>
+        <PageHeader
+          eyebrow="学习进展"
+          title="个人模型"
+          description="集中查看每个知识点的掌握程度、复习安排、误解与支持证据。"
+        />
+        <EmptyState
+          title="还没有学习记录"
+          description="开始一次学习对话后，这里会持续更新掌握度与复习建议。"
+          action={
+            <Link to="/learn" className="primary-button">
+              开始学习
+            </Link>
+          }
+        />
+      </div>
+    );
+  }
   return (
     <div>
       <PageHeader
-        eyebrow="Learner model"
+        eyebrow="学习进展"
         title="个人模型"
-        description="知识点、认知层级、掌握度、置信度和前置状态均来自后端模型。"
+        description="集中查看每个知识点的掌握程度、复习安排、误解与支持证据。"
         actions={
           <button
             type="button"
             onClick={() => void downloadCsv()}
             className="secondary-button"
+            disabled={downloading}
           >
-            <Download className="h-4 w-4" />
-            下载 CSV
+            {downloading ? (
+              <LoaderCircle className="h-4 w-4 animate-spin" />
+            ) : (
+              <Download className="h-4 w-4" />
+            )}
+            {downloading ? "正在导出…" : "导出学习数据"}
           </button>
         }
       />
@@ -126,7 +170,7 @@ export function PersonalModelPage() {
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             className="form-input pl-9"
-            placeholder="搜索知识点名称或 ID"
+            placeholder="搜索知识点"
           />
         </div>
         <label className="flex min-w-0 items-center gap-2">
@@ -176,7 +220,7 @@ export function PersonalModelPage() {
           type="button"
           onClick={() => setAscending((value) => !value)}
           className="secondary-button"
-          aria-label="切换排序方向"
+          aria-label={`当前${ascending ? "升序" : "降序"}，切换排序方向`}
         >
           {ascending ? (
             <ArrowUpAZ className="h-4 w-4" />
@@ -201,7 +245,20 @@ export function PersonalModelPage() {
           <div className="p-5">
             <EmptyState
               title="没有匹配的知识点"
-              description="调整搜索或筛选条件，或者先完成一次学习对话。"
+              description="清除搜索词或筛选条件，再查看全部知识点。"
+              action={
+                <button
+                  type="button"
+                  className="secondary-button"
+                  onClick={() => {
+                    setSearch("");
+                    setLevel("all");
+                    setStatus("all");
+                  }}
+                >
+                  清除筛选
+                </button>
+              }
             />
           </div>
         ) : (
@@ -220,9 +277,6 @@ export function PersonalModelPage() {
                     <span className="block truncate text-sm font-semibold text-slate-900 dark:text-slate-100">
                       {item.knowledge_point}
                     </span>
-                    <span className="mt-1 block truncate font-mono text-[10px] text-slate-500">
-                      {item.knowledge_point_id}
-                    </span>
                   </span>
                   <CognitiveBadge level={item.current_level} size="xs" />
                 </span>
@@ -232,7 +286,7 @@ export function PersonalModelPage() {
                 <span className="mt-3 flex items-center justify-between gap-3 text-xs text-slate-500">
                   <span>证据 {item.evidence_count} · {formatDate(item.next_review_at)}</span>
                   <span className="shrink-0 font-medium text-[#3157D5]">
-                    {item.recommended_action}
+                    {readableAction(item.recommended_action)}
                   </span>
                 </span>
               </button>
@@ -267,9 +321,6 @@ export function PersonalModelPage() {
                         <span className="block font-medium text-slate-800 dark:text-slate-100">
                           {item.knowledge_point}
                         </span>
-                        <span className="mt-0.5 block font-mono text-[10px] text-slate-600 dark:text-slate-400">
-                          {item.knowledge_point_id}
-                        </span>
                       </button>
                     </td>
                     <td className="px-3 py-3">
@@ -288,7 +339,7 @@ export function PersonalModelPage() {
                       {formatDate(item.next_review_at)}
                     </td>
                     <td className="px-3 py-3 text-[11px] font-medium text-[#3157D5]">
-                      {item.recommended_action}
+                      {readableAction(item.recommended_action)}
                     </td>
                   </tr>
                 ))}
@@ -389,7 +440,7 @@ function ModelDrawer({
               </div>
             ) : (
               <p className="mt-2 text-xs text-slate-600 dark:text-slate-400">
-                后端未返回前置知识。
+                该知识点没有已记录的前置要求。
               </p>
             )}
           </div>
@@ -431,7 +482,7 @@ function ModelDrawer({
                       <span>{formatDate(entry.created_at, true)}</span>
                     </div>
                     <p className="mt-1 leading-5 text-slate-600 dark:text-slate-300">
-                      {entry.grader_explanation || "后端未提供解释。"}
+                      {entry.grader_explanation || "暂无评分说明。"}
                     </p>
                   </div>
                 ))}

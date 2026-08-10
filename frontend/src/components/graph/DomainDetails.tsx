@@ -82,12 +82,12 @@ export function DomainNodeDetail({
 
       <DetailSection icon={Shapes} title="所属理论或领域">
         <p className="text-sm text-slate-700 dark:text-slate-200">
-          {detail.domain ?? "后端未提供所属领域"}
+          {detail.domain ?? "暂无所属领域记录"}
         </p>
         {detail.theories.length > 0 ? (
           <NodePills nodes={detail.theories} />
         ) : (
-          <Unavailable>后端未返回关联理论</Unavailable>
+          <Unavailable>暂无关联理论</Unavailable>
         )}
       </DetailSection>
 
@@ -96,14 +96,14 @@ export function DomainNodeDetail({
           {detail.prerequisites.length > 0 ? (
             <NodePills nodes={detail.prerequisites} />
           ) : (
-            <Unavailable>后端未列出前置知识</Unavailable>
+            <Unavailable>暂无前置知识</Unavailable>
           )}
         </DetailSection>
         <DetailSection icon={Network} title="相关节点">
           {detail.relatedNodes.length > 0 ? (
             <NodePills nodes={detail.relatedNodes} />
           ) : (
-            <Unavailable>后端未列出相关节点</Unavailable>
+            <Unavailable>暂无相关知识点</Unavailable>
           )}
         </DetailSection>
       </div>
@@ -137,7 +137,7 @@ export function DomainNodeDetail({
                         : "教学层级未提供"}
                   </p>
                   <p className="mt-1 text-sm text-slate-700 dark:text-slate-200">
-                    {stage.objective ?? "后端未提供学习目标"}
+                    {stage.objective ?? "暂无学习目标说明"}
                   </p>
                   {stage.strategy && (
                     <p className="mt-1 text-xs text-slate-500">
@@ -154,7 +154,7 @@ export function DomainNodeDetail({
             })}
           </div>
         ) : (
-          <Unavailable>后端未返回教学阶段</Unavailable>
+          <Unavailable>暂无教学阶段建议</Unavailable>
         )}
       </DetailSection>
 
@@ -165,7 +165,7 @@ export function DomainNodeDetail({
       <div className="rounded-lg border border-slate-200 px-3 py-2 text-xs text-slate-500 dark:border-slate-700">
         图谱版本：
         <span className="ml-1 break-all font-mono text-slate-700 dark:text-slate-200">
-          {detail.graphRevision ?? "后端未提供"}
+          {detail.graphRevision ?? "暂无记录"}
         </span>
       </div>
 
@@ -226,7 +226,7 @@ export function DomainAssertionDetail({ data }: { data: unknown }) {
             label="置信度"
             value={
               detail.confidence === null
-                ? "后端未提供"
+                ? "暂无记录"
                 : displayPercent(detail.confidence)
             }
           />
@@ -238,7 +238,7 @@ export function DomainAssertionDetail({ data }: { data: unknown }) {
             label="当前有效"
             value={
               detail.isActive === null
-                ? "后端未提供"
+                ? "暂无记录"
                 : detail.isActive
                   ? "是"
                   : "否"
@@ -252,7 +252,7 @@ export function DomainAssertionDetail({ data }: { data: unknown }) {
           <Fact label="开始" value={formatDate(detail.validFrom, true)} />
           <Fact
             label="结束"
-            value={detail.validTo ? formatDate(detail.validTo, true) : "仍有效或后端未提供"}
+            value={detail.validTo ? formatDate(detail.validTo, true) : "仍然有效"}
           />
         </dl>
       </DetailSection>
@@ -267,7 +267,7 @@ export function DomainAssertionDetail({ data }: { data: unknown }) {
         ) : (
           <p className="flex items-center gap-2 text-sm text-emerald-700 dark:text-emerald-300">
             <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
-            后端未返回冲突记录
+            暂无冲突记录
           </p>
         )}
       </DetailSection>
@@ -277,14 +277,14 @@ export function DomainAssertionDetail({ data }: { data: unknown }) {
           {detail.supersedes.length > 0 ? (
             <HistoryList items={detail.supersedes} />
           ) : (
-            <Unavailable>后端未返回被本关系替代的历史</Unavailable>
+            <Unavailable>暂无由本关系替代的历史记录</Unavailable>
           )}
         </DetailSection>
         <DetailSection icon={History} title="Superseded by 历史">
           {detail.supersededBy.length > 0 ? (
             <HistoryList items={detail.supersededBy} />
           ) : (
-            <Unavailable>后端未返回替代本关系的新版本</Unavailable>
+            <Unavailable>暂无替代本关系的新版本</Unavailable>
           )}
         </DetailSection>
       </div>
@@ -292,7 +292,7 @@ export function DomainAssertionDetail({ data }: { data: unknown }) {
       <div className="rounded-lg border border-slate-200 px-3 py-2 text-xs text-slate-500 dark:border-slate-700">
         图谱版本：
         <span className="ml-1 break-all font-mono text-slate-700 dark:text-slate-200">
-          {detail.graphRevision ?? "后端未提供"}
+          {detail.graphRevision ?? "暂无记录"}
         </span>
       </div>
       <RawDetail value={detail.raw} />
@@ -325,7 +325,7 @@ function DefinitionBlock({ label, value }: { label: string; value: string | null
     <div className="rounded-lg bg-slate-50 p-3 dark:bg-slate-800/60">
       <p className="text-[10px] font-semibold text-slate-400">{label}</p>
       <p className="mt-1 text-sm leading-6 text-slate-700 dark:text-slate-200">
-        {value ?? "后端未提供"}
+        {value ?? "暂无记录"}
       </p>
     </div>
   );
@@ -351,7 +351,7 @@ function NodePills({ nodes }: { nodes: DomainNodeSummary[] }) {
 }
 
 function RelationList({ items }: { items: DomainRelationSummary[] }) {
-  if (!items.length) return <Unavailable>后端未返回关系</Unavailable>;
+  if (!items.length) return <Unavailable>暂无关系</Unavailable>;
   return (
     <div className="space-y-2">
       {items.map((item, index) => (
@@ -373,7 +373,7 @@ function RelationList({ items }: { items: DomainRelationSummary[] }) {
 }
 
 function SourceList({ items }: { items: DomainSourceSummary[] }) {
-  if (!items.length) return <Unavailable>后端未提供来源</Unavailable>;
+  if (!items.length) return <Unavailable>暂无来源</Unavailable>;
   return (
     <div className="space-y-2">
       {items.map((item, index) => (
@@ -485,7 +485,7 @@ function RawDetail({ value }: { value: unknown }) {
     <details className="rounded-xl border border-slate-200 p-4 dark:border-slate-700">
       <summary className="flex cursor-pointer list-none items-center gap-2 text-xs font-medium text-slate-500">
         <Braces className="h-4 w-4" aria-hidden="true" />
-        原始数据（调试）
+        技术原始数据
       </summary>
       <pre className="mt-3 max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-slate-50 p-3 font-mono text-[11px] leading-5 text-slate-600 dark:bg-slate-900 dark:text-slate-300">
         {jsonText(value)}
@@ -497,7 +497,7 @@ function RawDetail({ value }: { value: unknown }) {
 function InvalidDetail({ kind, value }: { kind: string; value: unknown }) {
   return (
     <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
-      后端返回的{kind}详情不是对象，无法生成类型化视图。
+      {kind}详情格式异常，暂时无法生成结构化视图。
       <RawDetail value={value} />
     </div>
   );

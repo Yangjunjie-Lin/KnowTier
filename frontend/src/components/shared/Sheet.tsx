@@ -25,12 +25,12 @@ export function Sheet({
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
-        <Dialog.Overlay className="fixed inset-0 z-40 bg-slate-950/45 backdrop-blur-[2px]" />
+        <Dialog.Overlay className="fixed inset-0 z-40 overscroll-contain bg-slate-950/45 backdrop-blur-[2px]" />
         <Dialog.Content
           className={cn(
-            "fixed z-50 w-full overflow-y-auto border-slate-200 bg-white p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] shadow-2xl outline-none dark:border-slate-800 dark:bg-slate-950 sm:p-6",
+            "fixed z-50 w-full max-w-full overflow-y-auto overscroll-contain border-slate-200 bg-white p-5 pb-[max(1.25rem,env(safe-area-inset-bottom))] pt-[max(1.25rem,env(safe-area-inset-top))] shadow-2xl outline-none dark:border-slate-800 dark:bg-slate-950 sm:p-6 sm:pb-[max(1.5rem,env(safe-area-inset-bottom))] sm:pt-[max(1.5rem,env(safe-area-inset-top))]",
             placement === "right" &&
-              "inset-y-0 right-0 h-full border-l sm:rounded-l-2xl",
+              "inset-y-0 right-0 h-full max-h-[100dvh] border-l sm:rounded-l-2xl",
             placement === "bottom" &&
               "inset-x-0 bottom-0 max-h-[88dvh] rounded-t-3xl border-t",
             placement === "responsive" &&

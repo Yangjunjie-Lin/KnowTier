@@ -44,9 +44,9 @@ function isReviewDue(item: LearnerModelItem, now: Date): boolean {
   return Number.isFinite(dueAt) && dueAt <= now.getTime();
 }
 
-function readableAction(value: string): string {
+export function readableAction(value: string): string {
   const normalized = value.trim();
-  if (!normalized) return "后端未提供";
+  if (!normalized) return "暂无建议";
   return actionLabels[normalized] ?? normalized.replaceAll("_", " ").toLowerCase();
 }
 
@@ -79,7 +79,7 @@ export function calculateLearningPathStates(
         statusLabel: statusLabels.not_started,
         blockingPrerequisites: [],
         reason: "后端尚未提供该知识点的学生状态，使用中性状态展示。",
-        recommendedAction: "后端未提供",
+        recommendedAction: "暂无建议",
       };
     }
 

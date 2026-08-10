@@ -5,6 +5,38 @@ All notable changes to KnowTier are documented in this file. The format is based
 
 ## [Unreleased]
 
+## [1.0.0-rc.3] - 2026-08-10
+
+### Changed
+
+- Simplified first-run setup, overview, materials, graph, learner model, learning path, version,
+  search, and provider screens around learner-facing language and clear next actions.
+- Made mobile graph views list-first, moved implementation identifiers into collapsed technical
+  details, and localized graph relationships and model-role labels.
+- Refreshed the Windows desktop, tablet, and mobile visual contracts after manual review at
+  1440×900, 1024×768, and 390×844.
+- Standardized the application shell, focus states, dark semantic colors, safe-area handling,
+  learner-facing empty states, ingestion summaries, and provider guidance for a cleaner,
+  lower-friction desktop and mobile experience.
+
+### Fixed
+
+- Preserved the active Workspace request scope across Vite hot reloads, page refreshes, and deep
+  links so initialization can immediately create a learner and later API calls cannot lose their
+  tenant header.
+- Corrected theme-button accessibility semantics, document-detail tab semantics, graph keyboard
+  labels, mobile search controls, and mobile learning-composer clearance.
+- Prevented credential-less provider profiles from appearing connected and kept generation and
+  embedding model choices visibly separate.
+- Updated the full-stack browser contract for the simplified onboarding and accessible material
+  tabs while retaining the strict two-knowledge-point Mock tutoring and API-restart assertions.
+- Added a safe whole-application recovery surface so a runtime view failure cannot leave a blank
+  desktop window, and hardened IME submission, draft-discard confirmation, model export, and
+  loading/retry feedback.
+- Prevented small disconnected graphs from over-zooming until long node labels overlap, removed
+  invalid Cytoscape selectors and hardware-specific wheel sensitivity, and kept the keyboard-first
+  list view available at every size.
+
 ## [1.0.0-rc.2] - 2026-08-09
 
 ### Added
@@ -90,6 +122,7 @@ All notable changes to KnowTier are documented in this file. The format is based
 - Mutable desktop data is kept outside the installed application, in the operating system's
   per-user application-data directory.
 
-[Unreleased]: https://github.com/Yangjunjie-Lin/KnowTier/compare/v1.0.0-rc.2...HEAD
+[Unreleased]: https://github.com/Yangjunjie-Lin/KnowTier/compare/v1.0.0-rc.3...HEAD
+[1.0.0-rc.3]: https://github.com/Yangjunjie-Lin/KnowTier/releases/tag/v1.0.0-rc.3
 [1.0.0-rc.2]: https://github.com/Yangjunjie-Lin/KnowTier/releases/tag/v1.0.0-rc.2
 [1.0.0-rc.1]: https://github.com/Yangjunjie-Lin/KnowTier/releases/tag/v1.0.0-rc.1

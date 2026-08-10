@@ -91,6 +91,9 @@ describe("SettingsPage learning preferences", () => {
 
   it("persists local teaching preferences and applies font size", async () => {
     const view = renderPage();
+    expect(
+      await screen.findByRole("button", { name: "浅色" }),
+    ).toHaveAttribute("aria-pressed", "true");
     fireEvent.change(screen.getByLabelText("默认教学模式"), {
       target: { value: "research" },
     });
@@ -157,9 +160,13 @@ describe("SettingsPage learning preferences", () => {
 
     expect(await screen.findByText("模型与供应商")).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "新建配置" }));
-    fireEvent.change(screen.getByLabelText("API Key"), {
+    const apiKeyInput = screen.getByLabelText("API Key");
+    expect(apiKeyInput).toHaveAttribute("type", "password");
+    fireEvent.change(apiKeyInput, {
       target: { value: "never-persist-this-key" },
     });
+    fireEvent.click(screen.getByRole("button", { name: "显示密钥内容" }));
+    expect(apiKeyInput).toHaveAttribute("type", "text");
     fireEvent.click(screen.getByRole("button", { name: "保存配置" }));
 
     await waitFor(() =>
@@ -170,6 +177,18 @@ describe("SettingsPage learning preferences", () => {
     expect(localStorage.getItem("knowtier.app-state.v1")).not.toContain(
       "never-persist-this-key",
     );
+  });
+
+  it("preserves a custom profile name when the provider changes", async () => {
+    renderPage();
+    const name = await screen.findByLabelText("配置名称");
+    fireEvent.change(name, { target: { value: "课程专用模型" } });
+
+    fireEvent.change(screen.getByLabelText("供应商"), {
+      target: { value: "custom_openai_compatible" },
+    });
+
+    expect(name).toHaveValue("课程专用模型");
   });
 
   it("keeps embedding separate from the unified generation model", async () => {
@@ -214,7 +233,7 @@ describe("SettingsPage learning preferences", () => {
 
     renderPage();
     const generation = await screen.findByLabelText(/统一生成模型/);
-    const embedding = screen.getByLabelText(/Embedding 模型/);
+    const embedding = screen.getByLabelText(/^向量模型/);
     await waitFor(() => {
       expect(generation).toHaveValue("Qwen/Qwen2.5-7B-Instruct");
       expect(embedding).toHaveValue("Qwen/Qwen2.5-7B-Instruct");
@@ -239,6 +258,9 @@ describe("SettingsPage learning preferences", () => {
     });
     renderPage();
 
+    await waitFor(() =>
+      expect(screen.getByLabelText("配置名称")).toHaveValue("Mock Provider"),
+    );
     fireEvent.click(await screen.findByRole("button", { name: "测试连接" }));
 
     await waitFor(() =>
@@ -247,5 +269,17 @@ describe("SettingsPage learning preferences", () => {
     expect(
       await screen.findByText("连接测试成功，供应商返回 1 个模型。"),
     ).toBeVisible();
+  });
+
+  it("explains required SiliconFlow setup before sending a connection test", async () => {
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "新建配置" }));
+    fireEvent.click(screen.getByRole("button", { name: "测试连接" }));
+
+    expect(
+      await screen.findByText("请先输入 API Key，再刷新模型或测试连接。"),
+    ).toBeVisible();
+    expect(api.createModelProfile).not.toHaveBeenCalled();
+    expect(api.testModelConnection).not.toHaveBeenCalled();
   });
 });

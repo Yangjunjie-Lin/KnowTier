@@ -14,6 +14,8 @@ import { useQuery } from "@tanstack/react-query";
 import { api } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { formatDate, percent } from "@/lib/utils";
+import { readableAction } from "@/lib/learningPath";
+import { isApiError } from "@/lib/api/errors";
 import { useAppStore } from "@/stores/AppContext";
 import {
   CognitiveBadge,
@@ -28,7 +30,7 @@ import {
 import { PageHeader } from "@/components/shared/PageHeader";
 
 export function OverviewPage() {
-  const { currentWorkspace, currentLearner } = useAppStore();
+  const { currentWorkspace, currentLearner, clearLocalHistory } = useAppStore();
   const workspaceId = currentWorkspace?.id;
   const learnerId = currentLearner?.id;
   const manifest = useQuery({
@@ -63,7 +65,7 @@ export function OverviewPage() {
     return (
       <EmptyState
         title="尚未完成初始化"
-        description="先连接 Workspace 和学习者，才能加载学习状态。"
+        description="先连接学习空间和学习者，才能加载学习状态。"
         action={
           <Link to="/init" className="primary-button">
             开始初始化
@@ -79,6 +81,19 @@ export function OverviewPage() {
           void manifest.refetch();
           void model.refetch();
         }}
+        action={
+          [manifest.error, model.error].some(
+            (error) => isApiError(error) && error.status === 404,
+          ) ? (
+            <button
+              type="button"
+              className="inline-flex min-h-9 items-center rounded-lg bg-red-700 px-3 py-1.5 text-xs font-semibold text-white hover:bg-red-800 focus:outline-none focus:ring-2 focus:ring-red-400"
+              onClick={clearLocalHistory}
+            >
+              重新初始化
+            </button>
+          ) : undefined
+        }
       />
     );
   const manifestData = manifest.data?.data;
@@ -98,12 +113,19 @@ export function OverviewPage() {
     : 0;
   const latestLearnerRevision = revisions.data?.items?.[0];
   const latestDomainRevision = domainRevisions.data?.items?.[0];
+  const refreshing = [
+    manifest,
+    model,
+    evidence,
+    revisions,
+    domainRevisions,
+  ].some((query) => query.isFetching);
   return (
     <div>
       <PageHeader
-        eyebrow="Workspace overview"
-        title={`早上好，${currentLearner?.display_name}`}
-        description="这里汇总当前学习状态、证据和两个图谱的最新版本。"
+        eyebrow="学习总览"
+        title={`欢迎回来，${currentLearner?.display_name}`}
+        description="从今天的掌握概况开始，或直接继续上次的学习。"
         actions={
           <Link to="/learn" className="primary-button">
             <BookOpen className="h-4 w-4" />
@@ -122,6 +144,7 @@ export function OverviewPage() {
       )}
       <section className="mt-5 grid grid-cols-2 gap-3 xl:grid-cols-4" aria-label="学习概览指标">
         <MetricCard
+          href="/graph/domain"
           icon={<Network className="h-4 w-4" />}
           label="领域知识点"
           value={
@@ -140,6 +163,7 @@ export function OverviewPage() {
           }
         />
         <MetricCard
+          href="/model"
           icon={<Brain className="h-4 w-4" />}
           label="个人模型"
           value={
@@ -154,6 +178,7 @@ export function OverviewPage() {
           caption={model.isError ? "个人模型读取失败" : `平均掌握度 ${Math.round(avgMastery)}%`}
         />
         <MetricCard
+          href="/learning-path"
           icon={<CalendarClock className="h-4 w-4" />}
           label="待复习"
           value={
@@ -169,6 +194,7 @@ export function OverviewPage() {
           tone={dueItems.length > 0 ? "amber" : "default"}
         />
         <MetricCard
+          href="/model"
           icon={<AlertTriangle className="h-4 w-4" />}
           label="误解记录"
           value={
@@ -181,14 +207,16 @@ export function OverviewPage() {
             )
           }
           caption={
-            evidence.isError
+            evidence.isLoading
+              ? "正在读取证据"
+              : evidence.isError
               ? "证据读取失败"
               : `证据 ${evidence.data?.items.length ?? 0} 条`
           }
           tone={misconceptionCount > 0 ? "red" : "default"}
         />
       </section>
-      <div className="mt-5 grid gap-5 xl:grid-cols-[1.35fr_1fr]">
+      <div className="mt-5 grid items-start gap-5 xl:grid-cols-[1.35fr_1fr]">
         <section className="surface-card p-4 sm:p-5">
           <div className="mb-5 flex items-center justify-between">
             <div>
@@ -246,7 +274,7 @@ export function OverviewPage() {
                     confidence={item.confidence}
                   />
                   <span className="text-right font-mono text-xs text-slate-500">
-                    {item.recommended_action}
+                    {readableAction(item.recommended_action)}
                   </span>
                 </div>
               ))}
@@ -264,6 +292,7 @@ export function OverviewPage() {
               revision={latestDomainRevision?.sequence_number}
               date={latestDomainRevision?.created_at}
               href="/history/domain"
+              loading={domainRevisions.isLoading}
               unavailable={domainRevisions.isError}
             />
             <RevisionLine
@@ -271,6 +300,7 @@ export function OverviewPage() {
               revision={latestLearnerRevision?.sequence_number}
               date={latestLearnerRevision?.created_at}
               href="/history/learner"
+              loading={revisions.isLoading}
               unavailable={revisions.isError}
             />
           </div>
@@ -282,9 +312,32 @@ export function OverviewPage() {
                   根据实时个人模型计算
                 </p>
               </div>
-              <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+              {model.isLoading ? (
+                <RefreshCw className="h-5 w-5 animate-spin text-slate-400" />
+              ) : dueItems.length > 0 || misconceptionCount > 0 ? (
+                <AlertTriangle
+                  className={`h-5 w-5 ${misconceptionCount > 0 ? "text-red-500" : "text-amber-500"}`}
+                />
+              ) : (
+                <CheckCircle2 className="h-5 w-5 text-emerald-500" />
+              )}
             </div>
-            {dueItems.length === 0 && misconceptionCount === 0 ? (
+            {model.isLoading ? (
+              <p className="text-sm text-slate-500" role="status">
+                正在读取学习提醒…
+              </p>
+            ) : model.isError ? (
+              <div className="flex flex-wrap items-center justify-between gap-2 text-sm text-amber-800 dark:text-amber-300">
+                <span>学习提醒暂不可用。</span>
+                <button
+                  type="button"
+                  className="quiet-button min-h-8 px-2 text-xs"
+                  onClick={() => void model.refetch()}
+                >
+                  重试
+                </button>
+              </div>
+            ) : dueItems.length === 0 && misconceptionCount === 0 ? (
               <p className="text-sm text-slate-500">
                 当前没有需要特别关注的项目。
               </p>
@@ -316,13 +369,14 @@ export function OverviewPage() {
       </div>
       <div className="surface-card mt-5 px-4 py-3.5 text-xs leading-5 text-slate-500 sm:px-5">
         <span className="font-medium text-slate-700 dark:text-slate-200">
-          数据边界：
+          实时数据：
         </span>
-        总览没有固定指标；以上数值由 Manifest、Model、Evidence
-        和版本接口实时组合。
+        掌握度、证据与图谱版本均来自当前学习记录。
         <button
           type="button"
-          className="ml-2 inline-flex items-center gap-1 text-[#3157D5]"
+          className="ml-2 inline-flex min-h-8 items-center gap-1 rounded-lg px-2 text-[#3157D5] hover:bg-indigo-50 focus:outline-none focus:ring-2 focus:ring-[#3157D5]/40 disabled:cursor-wait disabled:opacity-60 dark:hover:bg-indigo-950/40"
+          disabled={refreshing}
+          aria-live="polite"
           onClick={() => {
             void manifest.refetch();
             void model.refetch();
@@ -331,8 +385,10 @@ export function OverviewPage() {
             void domainRevisions.refetch();
           }}
         >
-          <RefreshCw className="h-3 w-3" />
-          刷新
+          <RefreshCw
+            className={`h-3 w-3 ${refreshing ? "animate-spin" : ""}`}
+          />
+          {refreshing ? "正在刷新" : "刷新"}
         </button>
       </div>
     </div>
@@ -340,12 +396,14 @@ export function OverviewPage() {
 }
 
 function MetricCard({
+  href,
   icon,
   label,
   value,
   caption,
   tone = "default",
 }: {
+  href: string;
   icon: React.ReactNode;
   label: string;
   value: React.ReactNode;
@@ -353,7 +411,10 @@ function MetricCard({
   tone?: "default" | "amber" | "red";
 }) {
   return (
-    <article className="surface-card min-w-0 p-3.5 transition-[transform,box-shadow] hover:-translate-y-0.5 hover:shadow-[0_10px_28px_rgba(15,23,42,0.07)] sm:p-4">
+    <Link
+      to={href}
+      className="surface-card group min-w-0 p-3.5 transition-[transform,box-shadow,border-color] hover:-translate-y-0.5 hover:border-indigo-200 hover:shadow-[0_10px_28px_rgba(15,23,42,0.07)] focus:outline-none focus:ring-2 focus:ring-[#3157D5]/40 sm:p-4 dark:hover:border-indigo-800"
+    >
       <div className="flex items-center justify-between text-xs text-slate-500">
         <span>{label}</span>
         <span
@@ -372,7 +433,8 @@ function MetricCard({
         {value}
       </div>
       <p className="mt-1 line-clamp-2 text-[11px] leading-4 text-slate-600 dark:text-slate-400">{caption}</p>
-    </article>
+      <span className="sr-only">打开详情</span>
+    </Link>
   );
 }
 
@@ -381,12 +443,14 @@ function RevisionLine({
   revision,
   date,
   href,
+  loading = false,
   unavailable = false,
 }: {
   label: string;
   revision?: number;
   date?: string;
   href: string;
+  loading?: boolean;
   unavailable?: boolean;
 }) {
   return (
@@ -397,11 +461,23 @@ function RevisionLine({
       <div>
         <p className="text-sm font-medium">{label}</p>
         <p className="mt-0.5 text-[11px] text-slate-600 dark:text-slate-400">
-          {unavailable ? "版本读取失败" : date ? formatDate(date, true) : "暂无版本"}
+          {loading
+            ? "正在读取版本"
+            : unavailable
+              ? "版本读取失败"
+              : date
+                ? formatDate(date, true)
+                : "暂无版本"}
         </p>
       </div>
       <span className="font-mono text-xs text-[#3157D5]">
-        {unavailable ? "不可用" : revision !== undefined ? `v${revision}` : "—"}
+        {loading
+          ? "…"
+          : unavailable
+            ? "不可用"
+            : revision !== undefined
+              ? `v${revision}`
+              : "—"}
       </span>
     </Link>
   );

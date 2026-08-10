@@ -55,13 +55,34 @@ export function GlobalSearchPage() {
     setParams(next.length >= 2 ? { q: next } : {});
   };
 
+  const pageHeader = (
+    <PageHeader
+      eyebrow="快速查找"
+      title="全局搜索"
+      description="一次搜索当前学习空间中的知识点、资料内容和个人学习状态。"
+    />
+  );
+
+  if (!currentWorkspace || !currentLearner) {
+    return (
+      <div>
+        {pageHeader}
+        <EmptyState
+          title="还不能开始搜索"
+          description="先选择学习空间和学习者，搜索结果才会限定在正确的数据范围内。"
+          action={
+            <Link to="/init" className="primary-button">
+              前往选择
+            </Link>
+          }
+        />
+      </div>
+    );
+  }
+
   return (
     <div>
-      <PageHeader
-        eyebrow="Global search"
-        title="全局搜索"
-        description="在当前 Workspace 的知识图谱、资料内容与个人模型中进行有边界的搜索。"
-      />
+      {pageHeader}
       <form
         className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900"
         onSubmit={(event) => {
@@ -73,41 +94,47 @@ export function GlobalSearchPage() {
         <label className="block text-xs font-medium text-slate-600 dark:text-slate-300" htmlFor="global-search-input">
           搜索知识、资料或学习状态
         </label>
-        <div className="relative mt-2 flex gap-2">
-          <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-slate-400" />
-          <input
-            id="global-search-input"
-            ref={inputRef}
-            className="form-input pl-9 pr-9"
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            placeholder="至少输入两个字符"
-          />
-          {draft && (
-            <button
-              type="button"
-              className="absolute right-24 top-2 rounded-md p-1 text-slate-400 hover:text-slate-700"
-              onClick={() => {
-                setDraft("");
-                setParams({});
-                inputRef.current?.focus();
-              }}
-              aria-label="清空搜索"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          )}
+        <div className="mt-2 flex gap-2">
+          <div className="relative min-w-0 flex-1">
+            <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-slate-400" />
+            <input
+              id="global-search-input"
+              ref={inputRef}
+              className="form-input min-w-0 pl-9 pr-9"
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              placeholder="例如：检索增强生成"
+              aria-describedby="global-search-help"
+            />
+            {draft && (
+              <button
+                type="button"
+                className="absolute right-2 top-2 rounded-md p-1 text-slate-400 hover:text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#3157D5]/40"
+                onClick={() => {
+                  setDraft("");
+                  setParams({});
+                  inputRef.current?.focus();
+                }}
+                aria-label="清空搜索"
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
+          </div>
           <button type="submit" className="primary-button shrink-0" disabled={draft.trim().length < 2}>
             搜索
           </button>
         </div>
+        <p id="global-search-help" className="mt-2 text-[11px] text-slate-500">
+          输入至少两个字符，按 Enter 即可搜索。
+        </p>
       </form>
 
       <section className="mt-5" aria-live="polite" aria-label="全局搜索结果">
         {!query && (
           <EmptyState
             title="输入搜索词"
-            description="搜索只在当前 Workspace 和学习者范围内执行。"
+            description="可搜索知识点名称、资料正文和个人掌握状态。"
           />
         )}
         {query && query.length < 2 && (
@@ -121,6 +148,19 @@ export function GlobalSearchPage() {
           <EmptyState
             title="没有找到结果"
             description={`当前范围内没有与“${search.data.query}”匹配的内容。`}
+            action={
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => {
+                  setDraft("");
+                  setParams({});
+                  inputRef.current?.focus();
+                }}
+              >
+                清除搜索
+              </button>
+            }
           />
         )}
         {search.data && search.data.items.length > 0 && (
@@ -147,7 +187,7 @@ export function GlobalSearchPage() {
                     <span className="mt-0.5 block text-sm font-semibold text-slate-800 dark:text-slate-100">
                       {item.title}
                     </span>
-                    <span className="mt-1 block text-xs leading-5 text-slate-500">
+                    <span className="mt-1 block break-words text-xs leading-5 text-slate-500">
                       {item.description}
                     </span>
                   </span>

@@ -83,7 +83,7 @@ describe("adaptKnowledgeBlueprint", () => {
     expect(point.examples.at(0)?.content).toBe("A grounded example.");
     expect(point.assessments.at(0)?.question).toContain("everyday words");
     expect(point.graphNodeId).toBeNull();
-    expect(point.graphLinkReason).toContain("候选键");
+    expect(point.graphLinkReason).toContain("候选标识");
     expect(blueprint!.sourceSpanIds).toEqual(
       expect.arrayContaining(["span-point", "span-example", "span-question"]),
     );
@@ -121,7 +121,7 @@ describe("adaptKnowledgeBlueprint", () => {
     expect(
       adaptKnowledgeBlueprint({ title: 42, knowledge_points: "future-shape" }),
     ).toMatchObject({
-      title: "未命名 Knowledge Blueprint",
+      title: "未命名知识蓝图",
       knowledgePoints: [],
       theories: [],
     });

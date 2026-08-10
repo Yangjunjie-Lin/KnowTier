@@ -178,7 +178,7 @@ export function adaptKnowledgeBlueprint(
         ? null
         : explicitNodeId
           ? "后端返回的图节点 ID 不是有效 UUID。"
-          : "Knowledge Blueprint 仅提供候选键，后端未返回正式图节点 ID。",
+          : "知识蓝图当前只有候选标识，尚未生成可打开的正式图谱节点。",
     } satisfies BlueprintKnowledgePoint;
   });
 
@@ -199,7 +199,7 @@ export function adaptKnowledgeBlueprint(
   ]);
 
   return {
-    title: firstText(raw, "title") ?? "未命名 Knowledge Blueprint",
+    title: firstText(raw, "title") ?? "未命名知识蓝图",
     domain: firstText(raw, "domain"),
     theories,
     knowledgePoints,
@@ -244,7 +244,7 @@ function adaptExample(item: UnknownRecord, counterexample: boolean): BlueprintEx
   return {
     candidateKey: key,
     knowledgePointCandidateId: firstText(item, "knowledge_point_candidate_id"),
-    content: firstText(item, "content") ?? "后端未提供内容",
+    content: firstText(item, "content") ?? "暂无内容",
     boundaryExplained: counterexample
       ? firstText(item, "boundary_explained")
       : null,
@@ -257,7 +257,7 @@ function adaptMisconception(item: UnknownRecord): BlueprintMisconception {
   return {
     candidateKey: key,
     knowledgePointCandidateId: firstText(item, "knowledge_point_candidate_id"),
-    statement: firstText(item, "statement") ?? "后端未提供误解描述",
+    statement: firstText(item, "statement") ?? "暂无误解描述",
     correction: firstText(item, "correction"),
     sourceSpanIds: textArray(item.source_span_ids),
   };
@@ -269,7 +269,7 @@ function adaptAssessment(item: UnknownRecord): BlueprintAssessment {
     candidateKey: key,
     knowledgePointCandidateId: firstText(item, "knowledge_point_candidate_id"),
     cognitiveLevel: firstNumber(item, "cognitive_level"),
-    question: firstText(item, "question") ?? "后端未提供检测问题",
+    question: firstText(item, "question") ?? "暂无检测问题",
     successCriteria: textArray(item.success_criteria),
     sourceSpanIds: textArray(item.source_span_ids),
   };

@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import { ArrowRight, GitBranch, ListOrdered, Target } from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router-dom";
@@ -38,8 +38,20 @@ export function LearningPathPage() {
     queryFn: ({ signal }) =>
       api.getLearningPath(currentLearner!.id, target || undefined, signal),
     enabled: Boolean(currentLearner),
+    placeholderData: keepPreviousData,
   });
-  if (!currentLearner) return <EmptyState title="尚未选择学习者" />;
+  if (!currentLearner)
+    return (
+      <EmptyState
+        title="尚未选择学习者"
+        description="先选择学习者，才能生成与其掌握状态匹配的学习路径。"
+        action={
+          <Link to="/init" className="primary-button">
+            选择学习者
+          </Link>
+        }
+      />
+    );
   if (path.isLoading || model.isLoading)
     return <LoadingState label="正在计算前置链" />;
   if (path.isError)
@@ -55,6 +67,34 @@ export function LearningPathPage() {
   const modelMap = new Map<string, LearnerModelItem>(
     (model.data?.items ?? []).map((item) => [item.knowledge_point_id, item]),
   );
+  if (ids.length === 0 && modelMap.size === 0) {
+    return (
+      <div>
+        <PageHeader
+          eyebrow="下一步学什么"
+          title="学习路径"
+          description="按前置关系和当前掌握程度安排学习顺序，直接从可学习的知识点开始。"
+        />
+        <EmptyState
+          title="暂时没有可生成的路径"
+          description="先添加学习资料建立知识点，或开始一次学习来生成掌握记录。"
+          action={
+            <div className="flex flex-wrap justify-center gap-2">
+              <Link
+                to="/materials"
+                className={target ? "secondary-button" : "primary-button"}
+              >
+                添加学习资料
+              </Link>
+              <Link to="/learn" className="secondary-button">
+                开始学习
+              </Link>
+            </div>
+          }
+        />
+      </div>
+    );
+  }
   const graph = (() => {
     const graphNodes = data?.nodes ?? [];
     const assertions = data?.assertions ?? [];
@@ -88,14 +128,19 @@ export function LearningPathPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Learning path"
+        eyebrow="下一步学什么"
         title="学习路径"
-        description="使用后端返回的目标知识点与前置链，支持线性和图谱视图。"
+        description="按前置关系和当前掌握程度安排学习顺序，直接从可学习的知识点开始。"
         actions={
-          <div className="flex rounded-lg border border-slate-200 bg-white p-1 dark:border-slate-700 dark:bg-slate-900">
+          <div
+            className="flex rounded-lg border border-slate-200 bg-white p-1 dark:border-slate-700 dark:bg-slate-900"
+            role="group"
+            aria-label="学习路径显示方式"
+          >
             <button
               type="button"
               onClick={() => setView("linear")}
+              aria-pressed={view === "linear"}
               className={`inline-flex items-center gap-1 rounded px-2.5 py-1.5 text-xs ${view === "linear" ? "bg-indigo-50 text-[#3157D5] dark:bg-indigo-950" : "text-slate-500"}`}
             >
               <ListOrdered className="h-3.5 w-3.5" />
@@ -104,6 +149,7 @@ export function LearningPathPage() {
             <button
               type="button"
               onClick={() => setView("graph")}
+              aria-pressed={view === "graph"}
               className={`inline-flex items-center gap-1 rounded px-2.5 py-1.5 text-xs ${view === "graph" ? "bg-indigo-50 text-[#3157D5] dark:bg-indigo-950" : "text-slate-500"}`}
             >
               <GitBranch className="h-3.5 w-3.5" />
@@ -116,14 +162,14 @@ export function LearningPathPage() {
         <label className="flex flex-col gap-2 text-xs font-medium text-slate-600 sm:flex-row sm:items-center dark:text-slate-300">
           <span className="inline-flex items-center gap-1">
             <Target className="h-4 w-4 text-[#3157D5]" />
-            目标知识点（可选）
+            我想学习
           </span>
           <select
             value={target}
             onChange={(event) => setTarget(event.target.value)}
             className="form-input sm:max-w-md"
           >
-            <option value="">后端自动选择未掌握目标</option>
+            <option value="">为我推荐下一步</option>
             {(model.data?.items ?? []).map((item) => (
               <option
                 key={item.knowledge_point_id}
@@ -133,12 +179,43 @@ export function LearningPathPage() {
               </option>
             ))}
           </select>
+          {path.isFetching && (
+            <span
+              className="text-[11px] font-normal text-slate-500"
+              role="status"
+            >
+              正在更新路径…
+            </span>
+          )}
         </label>
       </div>
       {ids.length === 0 ? (
         <EmptyState
-          title="暂时没有可生成的路径"
-          description="请先摄取资料或在学习空间建立知识点。"
+          title={target ? "没有通往该目标的可用路径" : "暂时没有可生成的路径"}
+          description={
+            target
+              ? "当前知识关系中无法生成这条前置链。可恢复智能推荐，或先补充相关资料。"
+              : "先添加学习资料建立知识点，或开始一次学习来生成掌握记录。"
+          }
+          action={
+            <div className="flex flex-wrap justify-center gap-2">
+              {target && (
+                <button
+                  type="button"
+                  className="primary-button"
+                  onClick={() => setTarget("")}
+                >
+                  恢复智能推荐
+                </button>
+              )}
+              <Link to="/materials" className="primary-button">
+                添加学习资料
+              </Link>
+              <Link to="/learn" className="secondary-button">
+                开始学习
+              </Link>
+            </div>
+          }
         />
       ) : view === "linear" ? (
         <LinearPath states={pathStates} names={names} />
@@ -161,7 +238,10 @@ function LinearPath({
   names: ReadonlyMap<string, string>;
 }) {
   return (
-    <div className="relative space-y-3 pl-5 before:absolute before:bottom-5 before:left-[11px] before:top-5 before:w-px before:bg-indigo-200 dark:before:bg-indigo-900">
+    <div
+      className="relative space-y-3 pl-5 before:absolute before:bottom-5 before:left-[11px] before:top-5 before:w-px before:bg-indigo-200 dark:before:bg-indigo-900"
+      aria-label="推荐学习顺序"
+    >
       {states.map((state, index) => {
         const { id, item } = state;
         const canStart = state.status !== "blocked";
@@ -186,9 +266,10 @@ function LinearPath({
                   <CognitiveBadge level={item.current_level} size="xs" />
                 )}
               </div>
-              <p className="mt-1 font-mono text-[10px] text-slate-400">{id}</p>
               <p className="mt-2 text-xs leading-5 text-slate-600 dark:text-slate-300">
-                {state.reason}
+                {item
+                  ? state.reason
+                  : "还没有该知识点的个人学习记录，可直接开始学习。"}
               </p>
               {item && (
                 <div className="mt-3 max-w-md">
@@ -208,7 +289,7 @@ function LinearPath({
             <div className="min-w-0 rounded-lg bg-slate-50 p-3 text-xs dark:bg-slate-950">
               <p className="font-semibold text-slate-600 dark:text-slate-300">前置知识</p>
               {!item ? (
-                <p className="mt-1 text-slate-400">后端未提供</p>
+                <p className="mt-1 text-slate-400">暂无掌握记录</p>
               ) : item.prerequisites.length === 0 ? (
                 <p className="mt-1 text-slate-500">无前置要求</p>
               ) : (
@@ -224,7 +305,11 @@ function LinearPath({
                 </ul>
               )}
               <p className="mt-3 font-semibold text-slate-600 dark:text-slate-300">推荐动作</p>
-              <p className="mt-1 leading-5 text-slate-500">{state.recommendedAction}</p>
+              <p className="mt-1 leading-5 text-slate-500">
+                {item
+                  ? state.recommendedAction
+                  : "开始学习并建立第一条掌握记录"}
+              </p>
             </div>
             <div className="flex items-center gap-2 lg:flex-col lg:items-stretch lg:justify-center">
               {canStart ? (
@@ -232,7 +317,7 @@ function LinearPath({
                   to="/learn"
                   state={{ learningTarget: { id, name, source: "learning-path" } }}
                   className="primary-button whitespace-nowrap"
-                  aria-label={`开始学习${name}`}
+                  aria-label={`开始学习：${name}`}
                 >
                   {state.status === "needs_review" || state.status === "mastered" ? "开始复习" : "开始学习"}
                 </Link>

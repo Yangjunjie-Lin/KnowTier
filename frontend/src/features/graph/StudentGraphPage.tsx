@@ -24,6 +24,15 @@ import {
 import { PageHeader } from "@/components/shared/PageHeader";
 import { RuntimeModelBadge } from "@/components/shared/RuntimeModelBadge";
 import { Sheet } from "@/components/shared/Sheet";
+import { domainNodeTypeLabel } from "@/lib/domainDetails";
+import { learnerRelationLabel } from "@/lib/versionDetails";
+
+const graderLabels = {
+  correctness: "正确性",
+  reasoning: "推理",
+  independence: "独立完成",
+  transfer: "迁移应用",
+} as const;
 
 export function StudentGraphPage() {
   const { currentLearner, preferences } = useAppStore();
@@ -72,7 +81,18 @@ export function StudentGraphPage() {
       ).sort(),
     [graph.data],
   );
-  if (!currentLearner) return <EmptyState title="尚未选择学习者" />;
+  if (!currentLearner)
+    return (
+      <EmptyState
+        title="尚未选择学习者"
+        description="先选择学习者，才能查看对应的掌握状态图谱。"
+        action={
+          <Link to="/init" className="primary-button">
+            选择学习者
+          </Link>
+        }
+      />
+    );
   if (graph.isLoading) return <LoadingState label="正在加载学生知识图谱" />;
   if (graph.isError)
     return (
@@ -82,7 +102,7 @@ export function StudentGraphPage() {
     return (
       <EmptyState
         title="学生图谱还为空"
-        description="完成学习对话后，后端会记录掌握状态、证据关系与版本历史。"
+        description="完成学习对话后，这里会展示掌握状态、证据关系与版本变化。"
         action={
           <Link to="/learn" className="primary-button">
             开始学习
@@ -125,16 +145,16 @@ export function StudentGraphPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Learner graph"
+        eyebrow="学习状态"
         title="学生知识图谱"
-        description="仅展示当前学习者的掌握状态、证据和可追溯关系，不与领域图数据混用。"
+        description="查看当前学习者的掌握状态、证据和知识联系。点击任意节点可展开详情。"
         actions={
           <div className="flex flex-wrap gap-2">
             <button type="button" className="secondary-button" onClick={exportGraph}>
-              <Download className="h-4 w-4" /> 导出 JSON
+              <Download className="h-4 w-4" /> 导出数据
             </button>
             <Link to="/history/learner" className="secondary-button">
-              查看学生版本
+              查看版本记录
             </Link>
           </div>
         }
@@ -145,7 +165,7 @@ export function StudentGraphPage() {
         </div>
       )}
       <div className="mb-4">
-        <RuntimeModelBadge role="graph" label="Graph" />
+        <RuntimeModelBadge role="graph" label="图谱分析" />
       </div>
       <div className="toolbar-card mb-4 grid gap-3 md:grid-cols-[minmax(16rem,1fr)_auto]">
         <div className="relative">
@@ -155,11 +175,12 @@ export function StudentGraphPage() {
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             className="form-input pl-9"
-            placeholder="搜索学生图节点"
+            placeholder="搜索知识点或学习状态"
           />
         </div>
         <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
           <Filter className="h-4 w-4" />
+          <span>类型</span>
           {types.map((type) => (
             <button
               type="button"
@@ -168,11 +189,20 @@ export function StudentGraphPage() {
               aria-pressed={typeFilter.includes(type)}
               className={`filter-chip ${typeFilter.includes(type) ? "filter-chip-active" : ""}`}
             >
-              {type}
+              {domainNodeTypeLabel(type)}
             </button>
           ))}
-          <span className="font-mono">
-            {graph.data.elements.edges.length} assertions
+          {typeFilter.length > 0 && (
+            <button
+              type="button"
+              className="quiet-button min-h-8 px-2"
+              onClick={() => setTypeFilter([])}
+            >
+              清除筛选
+            </button>
+          )}
+          <span className="ml-auto whitespace-nowrap">
+            {graph.data.elements.edges.length} 条关系
           </span>
         </div>
       </div>
@@ -198,6 +228,10 @@ export function StudentGraphPage() {
           loading={nodeDetail.isLoading || edgeDetail.isLoading}
           error={nodeDetail.error ?? edgeDetail.error}
           kind={selectedNode ? "node" : "edge"}
+          onRetry={() => {
+            if (selectedNode) void nodeDetail.refetch();
+            else void edgeDetail.refetch();
+          }}
           onClose={() => setDetailOpen(false)}
         />
       )}
@@ -211,6 +245,7 @@ function StudentDetailDrawer({
   loading,
   error,
   kind,
+  onRetry,
   onClose,
 }: {
   title: string;
@@ -218,6 +253,7 @@ function StudentDetailDrawer({
   loading: boolean;
   error: unknown;
   kind: "node" | "edge";
+  onRetry: () => void;
   onClose: () => void;
 }) {
   return (
@@ -233,7 +269,7 @@ function StudentDetailDrawer({
         <LoadingState label="正在读取学生详情" />
       ) : error ? (
         <div className="mt-4">
-          <ErrorState error={error} />
+          <ErrorState error={error} onRetry={onRetry} />
         </div>
       ) : (
         <div className="mt-5 space-y-5">
@@ -244,7 +280,7 @@ function StudentDetailDrawer({
           )}
           <details className="rounded-lg border border-slate-100 dark:border-slate-800">
             <summary className="cursor-pointer px-3 py-2 text-xs text-slate-500">
-              原始 JSON
+              技术数据（JSON）
             </summary>
             <pre className="whitespace-pre-wrap break-words border-t border-slate-100 p-3 font-mono text-[11px] leading-5 text-slate-600 dark:border-slate-800 dark:text-slate-300">
               {jsonText(data)}
@@ -268,7 +304,9 @@ function NodeSummary({ data }: { data: JsonObject }) {
       <div>
         <p className="text-xs text-slate-500">节点类型</p>
         <p className="mt-1 text-sm font-medium">
-          {typeof data.type === "string" ? data.type : "未知"}
+          {typeof data.type === "string"
+            ? domainNodeTypeLabel(data.type)
+            : "未知"}
         </p>
       </div>
       {level !== null && <CognitiveBadge level={level as 1 | 2 | 3 | 4 | 5 | 6} />}
@@ -281,7 +319,7 @@ function NodeSummary({ data }: { data: JsonObject }) {
             相关关系
           </h3>
           <p className="mt-1 text-xs text-slate-500">
-            {data.assertions.length} 条活跃 Assertion
+            {data.assertions.length} 条有效关系
           </p>
         </div>
       )}
@@ -326,9 +364,9 @@ function EdgeSummary({ data }: { data: JsonObject }) {
         <p className="text-xs text-slate-500">关系类型</p>
         <p className="mt-1 font-medium">
           {typeof data.relation_type === "string"
-            ? data.relation_type
+            ? learnerRelationLabel(data.relation_type)
             : typeof data.predicate === "string"
-              ? data.predicate
+              ? learnerRelationLabel(data.predicate)
               : "—"}
         </p>
         <p className="mt-1 font-mono text-[10px] text-slate-400">
@@ -373,8 +411,8 @@ function EdgeSummary({ data }: { data: JsonObject }) {
             {typeof sourceTurn.content === "string"
               ? sourceTurn.content
               : typeof sourceTurn.id === "string"
-                ? `Turn ${sourceTurn.id}`
-                : "后端未返回回答正文"}
+                ? `学习轮次 ${sourceTurn.id}`
+                : "暂无回答正文"}
           </p>
         </div>
       )}
@@ -391,7 +429,7 @@ function EdgeSummary({ data }: { data: JsonObject }) {
                     key={key}
                     className="rounded bg-slate-50 px-2 py-1.5 dark:bg-slate-900"
                   >
-                    <dt className="text-slate-400">{key}</dt>
+                    <dt className="text-slate-500">{graderLabels[key]}</dt>
                     <dd className="font-mono">{displayPercent(grader[key])}</dd>
                   </div>
                 ) : null,

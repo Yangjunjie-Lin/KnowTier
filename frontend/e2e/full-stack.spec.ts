@@ -124,7 +124,6 @@ test("real stack persists ingestion, tutoring, graphs, and versions across an AP
 }, testInfo) => {
   const suffix = `${Date.now()}-${testInfo.retry}`;
   const workspaceName = `Full-stack E2E ${suffix}`;
-  const workspaceSlug = `full-stack-e2e-${suffix}`;
   const learnerName = `E2E Learner ${suffix}`;
   const filename = `bayes-${suffix}.txt`;
 
@@ -132,12 +131,11 @@ test("real stack persists ingestion, tutoring, graphs, and versions across an AP
   await page
     .getByPlaceholder("例如：机器学习基础")
     .fill(workspaceName);
-  await page.getByPlaceholder("machine-learning").fill(workspaceSlug);
   const workspace = await captureJson<IdentifiedPayload>(
     page,
     "POST",
     "/v1/workspaces",
-    () => page.getByRole("button", { name: /创建 Workspace/ }).click(),
+    () => page.getByRole("button", { name: /创建学习空间/ }).click(),
   );
   expect(workspace.id).toMatch(
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
@@ -190,7 +188,7 @@ test("real stack persists ingestion, tutoring, graphs, and versions across an AP
     page,
     "GET",
     `/v1/documents/${document.id}/extracted-knowledge`,
-    () => page.getByRole("button", { name: "抽取知识" }).click(),
+    () => page.getByRole("tab", { name: "抽取知识" }).click(),
   );
   expect(JSON.stringify(extractedKnowledge.blueprint)).toContain(
     "bayesian updating target",

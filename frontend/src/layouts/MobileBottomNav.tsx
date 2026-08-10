@@ -22,7 +22,7 @@ export function MobileBottomNav() {
               key={item.key}
               to={item.path}
               className={cn(
-                "group flex min-h-16 min-w-0 flex-col items-center justify-center gap-1 text-[10px] font-medium focus:outline-none focus:ring-2 focus:ring-inset focus:ring-[#3157D5]/45",
+                "group flex min-h-16 min-w-0 flex-col items-center justify-center gap-1 text-[10px] font-medium focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#3157D5]/45",
                 active
                   ? "text-[#3157D5]"
                   : "text-slate-600 dark:text-slate-400",

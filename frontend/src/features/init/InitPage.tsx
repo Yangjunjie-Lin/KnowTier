@@ -7,7 +7,7 @@ import {
   Plus,
   UserRound,
 } from "lucide-react";
-import { useState } from "react";
+import { useState, type ChangeEvent } from "react";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { useNavigate } from "react-router-dom";
@@ -18,7 +18,7 @@ import { useAppStore } from "@/stores/AppContext";
 import { ErrorState } from "@/components/shared/States";
 
 const workspaceSchema = z.object({
-  name: z.string().trim().min(1, "请输入 Workspace 名称").max(200),
+  name: z.string().trim().min(1, "请输入学习空间名称").max(200),
   slug: z
     .string()
     .trim()
@@ -32,6 +32,26 @@ const learnerSchema = z.object({
 });
 type WorkspaceValues = z.infer<typeof workspaceSchema>;
 type LearnerValues = z.infer<typeof learnerSchema>;
+
+function workspaceSlugFromName(name: string): string {
+  const normalized = name
+    .normalize("NFKD")
+    .toLowerCase()
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "")
+    .slice(0, 72)
+    .replace(/-+$/g, "");
+  if (normalized) return normalized;
+  const trimmed = name.trim();
+  if (!trimmed) return "";
+  let hash = 2_166_136_261;
+  for (const character of trimmed) {
+    hash ^= character.codePointAt(0) ?? 0;
+    hash = Math.imul(hash, 16_777_619);
+  }
+  return `study-${(hash >>> 0).toString(36)}`;
+}
 
 export function InitPage() {
   const navigate = useNavigate();
@@ -101,7 +121,7 @@ export function InitPage() {
   const chooseExistingWorkspace = () => {
     const id = existingWorkspaceId.trim();
     if (!isUuid(id)) {
-      setError(new Error("请输入有效的 Workspace UUID。"));
+      setError(new Error("请输入有效的学习空间 ID。"));
       return;
     }
     void connectExistingWorkspace(id);
@@ -109,7 +129,7 @@ export function InitPage() {
 
   const handleLearner = async (values: LearnerValues) => {
     if (!currentWorkspace) {
-      setError(new Error("请先选择 Workspace。"));
+      setError(new Error("请先选择学习空间。"));
       return;
     }
     setBusy(true);
@@ -140,7 +160,7 @@ export function InitPage() {
       const learner = await api.getLearner(learnerId);
       if (learner.workspace_id !== currentWorkspace.id)
         throw new ApiError({
-          message: "该学习者不属于当前 Workspace。",
+          message: "该学习者不属于当前学习空间。",
           status: 403,
           kind: "forbidden",
         });
@@ -154,9 +174,9 @@ export function InitPage() {
   };
 
   return (
-    <div className="min-h-screen bg-[#F6F7F9] px-4 py-8 dark:bg-slate-950 sm:px-6 lg:px-10">
+    <div className="min-h-screen bg-[#F6F7F9] px-4 py-5 dark:bg-slate-950 sm:px-6 sm:py-8 lg:px-10">
       <div className="mx-auto max-w-5xl">
-        <div className="mb-10 flex items-center gap-3">
+        <div className="mb-6 flex items-center gap-3 sm:mb-10">
           <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-[#3157D5] text-lg font-bold text-white">
             K
           </div>
@@ -167,7 +187,7 @@ export function InitPage() {
             <p className="text-xs text-slate-500">认知学习工作台</p>
           </div>
         </div>
-        <div className="grid gap-8 lg:grid-cols-[1fr_1.25fr]">
+        <div className="grid gap-5 lg:grid-cols-[1fr_1.25fr] lg:gap-8">
           <section className="pt-3">
             <p className="mb-3 text-xs font-medium uppercase tracking-[0.16em] text-[#3157D5]">
               开始使用
@@ -176,12 +196,11 @@ export function InitPage() {
               建立你的学习空间
             </h1>
             <p className="mt-3 max-w-md text-sm leading-6 text-slate-500">
-              连接一个 Workspace 和学习者，KnowTier
-              会将每次对话、证据与图谱版本保存到真实后端。
+              创建学习空间和个人档案后，即可上传资料、开始学习并持续追踪掌握变化。
             </p>
-            <div className="mt-8 space-y-4">
+            <div className="mt-8 hidden space-y-4 sm:block">
               {[
-                "Workspace 隔离与知识域",
+                "资料、对话与知识域彼此隔离",
                 "六级认知层级追踪",
                 "可追溯的学习者图谱",
               ].map((item, index) => (
@@ -200,15 +219,28 @@ export function InitPage() {
               ))}
             </div>
           </section>
-          <section className="rounded-2xl border border-slate-200 bg-white p-6 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:p-8">
-            <div className="mb-7 flex items-center gap-2">
-              <div
-                className={`h-1.5 flex-1 rounded-full ${step === "workspace" ? "bg-[#3157D5]" : "bg-emerald-500"}`}
-              />
-              <div
-                className={`h-1.5 flex-1 rounded-full ${step === "learner" ? "bg-[#3157D5]" : "bg-slate-100 dark:bg-slate-800"}`}
-              />
-            </div>
+          <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:p-8" aria-busy={busy}>
+            <ol className="mb-6 grid grid-cols-2 gap-2" aria-label="设置进度">
+              {[
+                { id: "workspace", number: "1", label: "学习空间" },
+                { id: "learner", number: "2", label: "学习者" },
+              ].map((item) => {
+                const active = step === item.id;
+                const complete = step === "learner" && item.id === "workspace";
+                return (
+                  <li
+                    key={item.id}
+                    className={`flex items-center gap-2 rounded-xl px-3 py-2 text-xs font-medium ${active ? "bg-indigo-50 text-[#3157D5] dark:bg-indigo-950/50 dark:text-indigo-300" : complete ? "text-emerald-700 dark:text-emerald-300" : "text-slate-400"}`}
+                    aria-current={active ? "step" : undefined}
+                  >
+                    <span className={`flex h-6 w-6 items-center justify-center rounded-full ${active ? "bg-[#3157D5] text-white" : complete ? "bg-emerald-100 text-emerald-700 dark:bg-emerald-950" : "bg-slate-100 dark:bg-slate-800"}`}>
+                      {complete ? <Check className="h-3.5 w-3.5" /> : item.number}
+                    </span>
+                    {item.label}
+                  </li>
+                );
+              })}
+            </ol>
             {step === "workspace" ? (
               <WorkspaceStep
                 form={workspaceForm}
@@ -274,16 +306,29 @@ function WorkspaceStep({
   const {
     register,
     handleSubmit,
+    getFieldState,
+    setValue,
     formState: { errors },
   } = form;
+  const nameField = register("name", {
+    onChange: (event: ChangeEvent<HTMLInputElement>) => {
+      if (!getFieldState("slug").isDirty) {
+        const slug = workspaceSlugFromName(event.target.value);
+        setValue("slug", slug, {
+          shouldDirty: false,
+          shouldValidate: Boolean(slug),
+        });
+      }
+    },
+  });
   return (
     <div>
       <div className="mb-6">
         <h2 className="text-xl font-semibold text-slate-900 dark:text-white">
-          Workspace
+          学习空间
         </h2>
         <p className="mt-1 text-sm text-slate-500">
-          创建新的知识域，或连接本设备记录的 Workspace。
+          创建一个空间来归档你的资料、对话与学习记录。
         </p>
       </div>
       <form
@@ -292,17 +337,10 @@ function WorkspaceStep({
       >
         <Field label="名称" error={errors.name?.message}>
           <input
-            {...register("name")}
+            {...nameField}
             placeholder="例如：机器学习基础"
             className="form-input"
             autoFocus
-          />
-        </Field>
-        <Field label="Slug" error={errors.slug?.message}>
-          <input
-            {...register("slug")}
-            placeholder="machine-learning"
-            className="form-input"
           />
         </Field>
         <Field label="默认语言">
@@ -311,38 +349,55 @@ function WorkspaceStep({
             <option value="en">English</option>
           </select>
         </Field>
-        <Field label="Provisioning Token（生产环境按需）">
-          <div className="relative">
-            <KeyRound className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-slate-400" />
-            <input
-              {...register("provisioningToken")}
-              type="password"
-              autoComplete="off"
-              placeholder="仅本次请求使用"
-              className="form-input pl-9"
-            />
+        <details className="rounded-xl border border-slate-200 px-3 py-2 dark:border-slate-700">
+          <summary className="cursor-pointer text-xs font-medium text-slate-600 dark:text-slate-300">
+            高级设置（通常无需修改）
+          </summary>
+          <div className="mt-3 space-y-4">
+            <Field
+              label="空间标识（已自动生成，可修改）"
+              error={errors.slug?.message}
+            >
+              <input
+                {...register("slug")}
+                placeholder="machine-learning"
+                className="form-input font-mono text-xs"
+              />
+            </Field>
+            <Field label="部署凭据（如管理员提供）">
+              <div className="relative">
+                <KeyRound className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-slate-400" />
+                <input
+                  {...register("provisioningToken")}
+                  type="password"
+                  autoComplete="off"
+                  placeholder="仅用于本次创建"
+                  className="form-input pl-9"
+                />
+              </div>
+            </Field>
           </div>
-        </Field>
+        </details>
         <button type="submit" disabled={busy} className="primary-button w-full">
           {busy ? (
             <LoaderCircle className="h-4 w-4 animate-spin" />
           ) : (
             <Plus className="h-4 w-4" />
           )}
-          创建 Workspace
+          创建学习空间
           <ChevronRight className="ml-auto h-4 w-4" />
         </button>
       </form>
       <div className="my-6 flex items-center gap-3 text-xs text-slate-400">
         <span className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
-        或连接已有 ID
+        或使用已有学习空间
         <span className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
       </div>
       <div className="flex gap-2">
         <input
           value={existingId}
           onChange={(event) => setExistingId(event.target.value)}
-          placeholder="Workspace UUID"
+          placeholder="学习空间 ID"
           className="form-input font-mono text-xs"
         />
         <button
@@ -425,7 +480,7 @@ function LearnerStep({
           onClick={onBack}
           className="text-xs text-slate-400 hover:text-slate-700"
         >
-          返回 Workspace
+          返回学习空间
         </button>
       </div>
       <div className="mb-5 grid grid-cols-2 gap-2 rounded-lg bg-slate-100 p-1 dark:bg-slate-800">

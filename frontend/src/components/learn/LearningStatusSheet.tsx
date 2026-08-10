@@ -137,7 +137,7 @@ function TurnSummary({ result }: { result?: ChatResponse }) {
   }
   return (
     <div className="space-y-4">
-      <RuntimeModelBadge role="teacher" label="Teacher" />
+      <RuntimeModelBadge role="teacher" label="教学模型" />
       <section className="rounded-lg border border-slate-200 p-4 dark:border-slate-700">
         <div className="mb-3 flex flex-wrap items-center gap-2">
           <h3 className="text-sm font-semibold">掌握与模型变化</h3>

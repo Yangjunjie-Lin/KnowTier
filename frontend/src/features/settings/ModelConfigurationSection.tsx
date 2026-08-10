@@ -5,6 +5,8 @@ import {
 } from "@tanstack/react-query";
 import {
   CheckCircle2,
+  Eye,
+  EyeOff,
   KeyRound,
   LoaderCircle,
   Plus,
@@ -45,12 +47,12 @@ const ROLE_FIELDS: Array<{
   label: string;
   description: string;
 }> = [
-  { key: "teacher", label: "Teacher", description: "教学响应与引导" },
-  { key: "extractor", label: "Extractor", description: "资料知识抽取" },
-  { key: "grader", label: "Grader", description: "回答与掌握评估" },
-  { key: "graph", label: "Graph", description: "图谱比较与建议" },
-  { key: "vision", label: "Vision", description: "图片与扫描件理解" },
-  { key: "embedding", label: "Embedding", description: "语义向量" },
+  { key: "teacher", label: "教学模型", description: "回答问题与学习引导" },
+  { key: "extractor", label: "知识抽取模型", description: "从资料中提取知识" },
+  { key: "grader", label: "学习评估模型", description: "评估回答与掌握程度" },
+  { key: "graph", label: "图谱模型", description: "比较图谱并生成建议" },
+  { key: "vision", label: "图像理解模型", description: "理解图片与扫描件" },
+  { key: "embedding", label: "向量模型", description: "用于语义检索" },
 ];
 const GENERATION_ROLE_KEYS: Array<Exclude<keyof RoleModels, "embedding">> = [
   "teacher",
@@ -111,6 +113,12 @@ function roleModelValues(models: RoleModels): string[] {
   return ROLE_FIELDS.map((role) => models[role.key]);
 }
 
+function defaultProfileName(provider: ModelProviderKind): string {
+  if (provider === "mock") return "Mock Provider";
+  if (provider === "siliconflow") return "SiliconFlow";
+  return "Custom Provider";
+}
+
 function generationModelValues(models: RoleModels): string[] {
   return GENERATION_ROLE_KEYS.map((role) => models[role]);
 }
@@ -158,6 +166,7 @@ export function ModelConfigurationSection() {
   );
   const [form, setForm] = useState<ProfileForm>(emptyForm);
   const [apiKey, setApiKey] = useState("");
+  const [showApiKey, setShowApiKey] = useState(false);
   const [advanced, setAdvanced] = useState(false);
   const [unifiedModel, setUnifiedModel] = useState("");
   const [availableModels, setAvailableModels] = useState<string[]>([]);
@@ -183,6 +192,7 @@ export function ModelConfigurationSection() {
     if (selectedId === NEW_PROFILE) {
       setForm(emptyForm());
       setApiKey("");
+      setShowApiKey(false);
       setAvailableModels([]);
       setAdvanced(false);
       setUnifiedModel("");
@@ -192,6 +202,7 @@ export function ModelConfigurationSection() {
     if (!profile) return;
     setForm(formFromProfile(profile));
     setApiKey("");
+    setShowApiKey(false);
     setAvailableModels([]);
     const values = generationModelValues(profile.models).filter(Boolean);
     const unified =
@@ -241,6 +252,27 @@ export function ModelConfigurationSection() {
     return saved;
   };
 
+  const requireCredential = () => {
+    if (
+      form.provider !== "mock" &&
+      !apiKey.trim() &&
+      !selectedProfile?.credential_present
+    ) {
+      throw new Error("请先输入 API Key，再刷新模型或测试连接。");
+    }
+  };
+
+  const requireModelAssignments = () => {
+    const missing = ROLE_FIELDS.filter(
+      (role) => !form.models[role.key].trim(),
+    );
+    if (missing.length > 0) {
+      throw new Error(
+        `请先刷新模型，并完成模型用途配置：${missing.map((role) => role.label).join("、")}。`,
+      );
+    }
+  };
+
   const saveMutation = useMutation({
     mutationFn: persist,
     onMutate: beginAction,
@@ -249,6 +281,7 @@ export function ModelConfigurationSection() {
   });
   const discoverMutation = useMutation({
     mutationFn: async () => {
+      requireCredential();
       const saved = await persist();
       return api.discoverProviderModels(saved.id);
     },
@@ -276,6 +309,8 @@ export function ModelConfigurationSection() {
   });
   const testMutation = useMutation({
     mutationFn: async () => {
+      requireCredential();
+      requireModelAssignments();
       const saved = await persist();
       return api.testModelConnection(saved.id);
     },
@@ -292,6 +327,8 @@ export function ModelConfigurationSection() {
   });
   const activateMutation = useMutation({
     mutationFn: async () => {
+      requireCredential();
+      requireModelAssignments();
       const saved = await persist();
       return api.activateModelProfile(saved.id);
     },
@@ -352,11 +389,10 @@ export function ModelConfigurationSection() {
       ...current,
       provider,
       name:
-        provider === "mock"
-          ? "Mock Provider"
-          : provider === "siliconflow"
-            ? "SiliconFlow"
-            : "Custom Provider",
+        !current.name.trim() ||
+        current.name.trim() === defaultProfileName(current.provider)
+          ? defaultProfileName(provider)
+          : current.name,
       baseUrl:
         provider === "siliconflow"
           ? SILICONFLOW_BASE_URL
@@ -383,12 +419,16 @@ export function ModelConfigurationSection() {
     setAdvanced(false);
     setAvailableModels([]);
     setApiKey("");
+    setShowApiKey(false);
   };
 
   if (configuration.isLoading) {
     return (
       <section className="mb-5 rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
-        <p className="flex items-center gap-2 text-sm text-slate-500">
+        <p
+          className="flex items-center gap-2 text-sm text-slate-500"
+          role="status"
+        >
           <LoaderCircle className="h-4 w-4 animate-spin" /> 正在读取模型配置
         </p>
       </section>
@@ -444,12 +484,12 @@ export function ModelConfigurationSection() {
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-xs font-medium text-[#3157D5]">LLM Gateway</p>
+          <p className="text-xs font-medium text-[#3157D5]">统一模型网关</p>
           <h2 id="model-configuration-heading" className="mt-1 text-lg font-semibold">
             模型与供应商
           </h2>
           <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-500">
-            所有调用均由 KnowTier 后端 ModelGateway 执行。API Key 不会进入浏览器存储、URL 或普通配置文件。
+            所有模型调用都由 KnowTier 服务统一执行。API Key 不会进入浏览器存储、网址或普通配置文件。
           </p>
         </div>
         <button
@@ -465,12 +505,15 @@ export function ModelConfigurationSection() {
       </div>
 
       {active && (
-        <div className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm dark:border-emerald-900 dark:bg-emerald-950/30">
+        <div
+          className="mt-4 flex flex-wrap items-center gap-x-5 gap-y-2 rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm dark:border-emerald-900 dark:bg-emerald-950/30"
+          aria-live="polite"
+        >
           <span className="inline-flex items-center gap-1.5 font-medium text-emerald-800 dark:text-emerald-300">
             <ShieldCheck className="h-4 w-4" /> 当前启用：{active.name}
           </span>
           <span className="text-slate-600 dark:text-slate-300">
-            Teacher · {providerLabel(active.provider)} / {active.models.teacher}
+            教学模型 · {providerLabel(active.provider)} / {active.models.teacher || "未配置"}
           </span>
           <span className="text-xs text-slate-500">
             {active.connection_status === "connected"
@@ -499,10 +542,13 @@ export function ModelConfigurationSection() {
             >
               <span className="flex items-center justify-between gap-2">
                 <span className="truncate text-sm font-medium">{profile.name}</span>
-                <ConnectionDot status={profile.connection_status} />
+                <ConnectionDot status={effectiveConnectionStatus(profile)} />
               </span>
               <span className="mt-1 block truncate text-xs text-slate-600 dark:text-slate-400">
                 {providerLabel(profile.provider)}
+                {profile.provider !== "mock" && !profile.credential_present
+                  ? " · 未添加密钥"
+                  : ""}
               </span>
             </button>
           ))}
@@ -533,10 +579,10 @@ export function ModelConfigurationSection() {
                   setProvider(event.target.value as ModelProviderKind)
                 }
               >
-                <option value="mock">Mock Provider（离线）</option>
+                <option value="mock">离线模拟（Mock）</option>
                 <option value="siliconflow">SiliconFlow</option>
                 <option value="custom_openai_compatible">
-                  Custom OpenAI-Compatible
+                  自定义 OpenAI 兼容接口
                 </option>
               </select>
             </Field>
@@ -544,7 +590,7 @@ export function ModelConfigurationSection() {
 
           {form.provider !== "mock" && (
             <div className="grid gap-4 md:grid-cols-2">
-              <Field label="Base URL">
+              <Field label="服务地址（Base URL）">
                 <input
                   className="form-input font-mono text-xs"
                   value={form.baseUrl}
@@ -558,32 +604,56 @@ export function ModelConfigurationSection() {
                   inputMode="url"
                 />
               </Field>
-              <Field
-                label="API Key"
-                hint={
-                  selectedProfile?.credential_present
-                    ? `后端已保存：${selectedProfile.credential_masked}`
-                    : "只发送到 KnowTier 后端"
-                }
-              >
-                <input
-                  className="form-input font-mono"
-                  aria-label="API Key"
-                  aria-describedby="model-api-key-safety"
-                  type="password"
-                  autoComplete="new-password"
-                  value={apiKey}
-                  onChange={(event) => setApiKey(event.target.value)}
-                  placeholder={
-                    selectedProfile?.credential_present
-                      ? "留空以保留现有凭据"
-                      : "输入 API Key"
-                  }
-                />
+              <div className="mt-3 block space-y-1.5">
+                <div className="flex flex-wrap items-start justify-between gap-x-2 gap-y-1 text-xs">
+                  <label
+                    htmlFor="model-api-key"
+                    className="font-medium text-slate-600 dark:text-slate-300"
+                  >
+                    API Key
+                  </label>
+                  <span
+                    id="model-api-key-state"
+                    className="break-all text-right text-slate-500"
+                  >
+                    {selectedProfile?.credential_present
+                      ? `已安全保存：${selectedProfile.credential_masked ?? "••••••••"}`
+                      : "只发送到 KnowTier 服务"}
+                  </span>
+                </div>
+                <div className="relative">
+                  <input
+                    id="model-api-key"
+                    className="form-input pr-12 font-mono"
+                    aria-describedby="model-api-key-state model-api-key-safety"
+                    type={showApiKey ? "text" : "password"}
+                    autoComplete="new-password"
+                    value={apiKey}
+                    onChange={(event) => setApiKey(event.target.value)}
+                    placeholder={
+                      selectedProfile?.credential_present
+                        ? "留空以保留现有凭据"
+                        : "输入 API Key"
+                    }
+                  />
+                  <button
+                    type="button"
+                    className="absolute inset-y-0 right-1 my-auto inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#3157D5]/40 dark:hover:bg-slate-800 dark:hover:text-slate-100"
+                    onClick={() => setShowApiKey((visible) => !visible)}
+                    aria-label={showApiKey ? "隐藏密钥内容" : "显示密钥内容"}
+                    aria-pressed={showApiKey}
+                  >
+                    {showApiKey ? (
+                      <EyeOff className="h-4 w-4" />
+                    ) : (
+                      <Eye className="h-4 w-4" />
+                    )}
+                  </button>
+                </div>
                 <span id="model-api-key-safety" className="sr-only">
-                  默认遮蔽。密钥只发送给 KnowTier 后端，不会写入浏览器本地存储。
+                  默认遮蔽。密钥只发送给 KnowTier 服务，不会写入浏览器本地存储。
                 </span>
-              </Field>
+              </div>
               <Field label="凭据保存方式">
                 <select
                   className="form-input"
@@ -595,7 +665,7 @@ export function ModelConfigurationSection() {
                     }))
                   }
                 >
-                  <option value="session">仅本次后端会话</option>
+                  <option value="session">仅本次应用会话</option>
                   <option value="os_keyring" disabled={!isDesktopRuntime()}>
                     操作系统凭据库{isDesktopRuntime() ? "（推荐）" : "（桌面端）"}
                   </option>
@@ -616,7 +686,7 @@ export function ModelConfigurationSection() {
                     }
                   />
                   <span>
-                    明确允许 localhost HTTP 供应商
+                    允许本机 HTTP 模型服务
                     <span
                       id="allow-local-provider-help"
                       className="mt-0.5 block text-[11px] leading-4 text-slate-500"
@@ -632,13 +702,18 @@ export function ModelConfigurationSection() {
           <div className="rounded-lg border border-slate-200 p-4 dark:border-slate-800">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <h3 className="text-sm font-semibold">角色模型映射</h3>
+                <h3 className="text-sm font-semibold">模型用途分配</h3>
                 <p className="mt-1 text-xs text-slate-500">
-                  模型列表通过供应商 GET /models 动态发现。
+                  模型列表从供应商实时获取，不绑定固定型号。
                   {availableModels.length > 0 && ` 已加载 ${availableModels.length} 个模型。`}
                 </p>
+                {form.provider !== "mock" && (
+                  <p className="mt-1 text-[11px] leading-5 text-slate-500">
+                    “刷新模型”“测试连接”和“启用配置”都会先安全保存当前表单。
+                  </p>
+                )}
               </div>
-              <div className="flex gap-2">
+              <div className="flex gap-2" role="group" aria-label="模型分配方式">
                 <button
                   type="button"
                   className="quiet-button"
@@ -653,7 +728,7 @@ export function ModelConfigurationSection() {
                   aria-pressed={advanced}
                   onClick={() => setAdvanced(true)}
                 >
-                  高级映射
+                  按用途配置
                 </button>
               </div>
             </div>
@@ -666,7 +741,7 @@ export function ModelConfigurationSection() {
               <div className="mt-4 grid gap-3 md:grid-cols-2">
                 <Field
                   label="统一生成模型"
-                  hint="Teacher / Extractor / Grader / Graph / Vision"
+                  hint="用于教学、抽取、评估、图谱和图像理解"
                 >
                   <input
                     className="form-input font-mono text-xs"
@@ -690,7 +765,7 @@ export function ModelConfigurationSection() {
                     placeholder="先刷新模型，再搜索选择"
                   />
                 </Field>
-                <Field label="Embedding 模型" hint="必须支持 /embeddings">
+                <Field label="向量模型" hint="需支持 Embeddings 接口">
                   <input
                     className="form-input font-mono text-xs"
                     list="provider-model-options"
@@ -733,48 +808,56 @@ export function ModelConfigurationSection() {
             )}
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-            <NumberField
-              label="超时（秒）"
-              value={form.timeoutSeconds}
-              min={1}
-              max={300}
-              step={1}
-              onChange={(timeoutSeconds) =>
-                setForm((current) => ({ ...current, timeoutSeconds }))
-              }
-            />
-            <NumberField
-              label="重试次数"
-              value={form.maxRetries}
-              min={0}
-              max={5}
-              step={1}
-              onChange={(maxRetries) =>
-                setForm((current) => ({ ...current, maxRetries }))
-              }
-            />
-            <NumberField
-              label="Temperature"
-              value={form.temperature}
-              min={0}
-              max={2}
-              step={0.1}
-              onChange={(temperature) =>
-                setForm((current) => ({ ...current, temperature }))
-              }
-            />
-            <NumberField
-              label="Max Tokens"
-              value={form.maxTokens}
-              min={64}
-              max={131072}
-              step={64}
-              onChange={(maxTokens) =>
-                setForm((current) => ({ ...current, maxTokens }))
-              }
-            />
-          </div>
+          <details className="rounded-lg border border-slate-200 px-4 py-3 dark:border-slate-800">
+            <summary className="cursor-pointer text-xs font-medium text-slate-600 dark:text-slate-300">
+              生成参数（高级）
+            </summary>
+            <p className="mt-2 text-[11px] leading-5 text-slate-500">
+              默认值适合大多数情况；仅在响应过慢、输出过长或需要调整随机性时修改。
+            </p>
+            <div className="mt-2 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+              <NumberField
+                label="超时（秒）"
+                value={form.timeoutSeconds}
+                min={1}
+                max={300}
+                step={1}
+                onChange={(timeoutSeconds) =>
+                  setForm((current) => ({ ...current, timeoutSeconds }))
+                }
+              />
+              <NumberField
+                label="重试次数"
+                value={form.maxRetries}
+                min={0}
+                max={5}
+                step={1}
+                onChange={(maxRetries) =>
+                  setForm((current) => ({ ...current, maxRetries }))
+                }
+              />
+              <NumberField
+                label="回答随机性（Temperature）"
+                value={form.temperature}
+                min={0}
+                max={2}
+                step={0.1}
+                onChange={(temperature) =>
+                  setForm((current) => ({ ...current, temperature }))
+                }
+              />
+              <NumberField
+                label="最长输出（Tokens）"
+                value={form.maxTokens}
+                min={64}
+                max={131072}
+                step={64}
+                onChange={(maxTokens) =>
+                  setForm((current) => ({ ...current, maxTokens }))
+                }
+              />
+            </div>
+          </details>
 
           {(selectedProfile?.error_summary || mutationError) && (
             <div role="alert" className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900/60 dark:bg-red-950/30 dark:text-red-300">
@@ -836,40 +919,56 @@ export function ModelConfigurationSection() {
             >
               <CheckCircle2 className="h-4 w-4" /> 启用配置
             </button>
-            {selectedProfile?.credential_present &&
-              selectedProfile.provider !== "mock" && (
+          </div>
+          {((selectedProfile?.credential_present &&
+            selectedProfile.provider !== "mock") ||
+            (selectedProfile && !selectedProfile.active)) && (
+            <div className="flex flex-col gap-3 border-t border-slate-200 pt-4 dark:border-slate-800 sm:flex-row sm:items-center sm:justify-between">
+              <div>
+                <p className="text-xs font-medium text-slate-700 dark:text-slate-200">
+                  安全维护
+                </p>
+                <p className="mt-1 text-[11px] text-slate-500">
+                  删除操作不会显示或返回已保存的 API Key。
+                </p>
+              </div>
+              <div className="flex flex-wrap gap-2">
+                {selectedProfile?.credential_present &&
+                  selectedProfile.provider !== "mock" && (
+                    <button
+                      type="button"
+                      className="secondary-button border-amber-200 text-amber-800"
+                      disabled={busy}
+                      onClick={() => {
+                        if (
+                          window.confirm(
+                            `删除模型配置“${selectedProfile.name}”保存的 API Key？`,
+                          )
+                        ) {
+                          deleteCredentialMutation.mutate();
+                        }
+                      }}
+                    >
+                      <KeyRound className="h-4 w-4" /> 删除凭据
+                    </button>
+                  )}
+                {selectedProfile && !selectedProfile.active && (
                 <button
                   type="button"
-                  className="secondary-button border-amber-200 text-amber-800"
+                  className="secondary-button border-red-200 text-red-700"
                   disabled={busy}
                   onClick={() => {
-                    if (
-                      window.confirm(
-                        `删除模型配置“${selectedProfile.name}”保存的 API Key？`,
-                      )
-                    ) {
-                      deleteCredentialMutation.mutate();
+                    if (window.confirm(`删除模型配置“${selectedProfile.name}”？`)) {
+                      deleteProfileMutation.mutate();
                     }
                   }}
                 >
-                  <KeyRound className="h-4 w-4" /> 删除凭据
+                  <Trash2 className="h-4 w-4" /> 删除配置
                 </button>
               )}
-            {selectedProfile && !selectedProfile.active && (
-              <button
-                type="button"
-                className="secondary-button border-red-200 text-red-700"
-                disabled={busy}
-                onClick={() => {
-                  if (window.confirm(`删除模型配置“${selectedProfile.name}”？`)) {
-                    deleteProfileMutation.mutate();
-                  }
-                }}
-              >
-                <Trash2 className="h-4 w-4" /> 删除配置
-              </button>
-            )}
-          </div>
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </section>
@@ -951,10 +1050,19 @@ function ConnectionDot({
   );
 }
 
+function effectiveConnectionStatus(
+  profile: ModelProfile,
+): ModelProfile["connection_status"] {
+  if (profile.provider !== "mock" && !profile.credential_present) {
+    return "untested";
+  }
+  return profile.connection_status;
+}
+
 function providerLabel(provider: ModelProviderKind): string {
-  if (provider === "mock") return "Mock Provider";
+  if (provider === "mock") return "离线模拟（Mock）";
   if (provider === "siliconflow") return "SiliconFlow";
-  return "Custom OpenAI-Compatible";
+  return "自定义 OpenAI 兼容接口";
 }
 
 function formatDate(value: string | null): string {

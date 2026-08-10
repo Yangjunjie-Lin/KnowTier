@@ -31,7 +31,7 @@ export function KnowledgeBlueprintView({ value }: { value: unknown }) {
   if (!blueprint) {
     return (
       <div className="rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
-        后端返回的 Blueprint 不是对象，当前无法生成类型化视图。
+        知识蓝图数据格式异常，当前无法生成结构化视图。
         <RawData value={value} />
       </div>
     );
@@ -68,7 +68,7 @@ export function KnowledgeBlueprintView({ value }: { value: unknown }) {
             <div className="flex items-center gap-2 text-[#3157D5]">
               <Braces className="h-5 w-5" aria-hidden="true" />
               <span className="text-xs font-semibold uppercase tracking-[0.14em]">
-                Knowledge Blueprint
+                知识蓝图
               </span>
             </div>
             <h2 className="mt-2 text-xl font-semibold text-slate-900 dark:text-white">
@@ -77,7 +77,7 @@ export function KnowledgeBlueprintView({ value }: { value: unknown }) {
             <p className="mt-1 text-sm text-slate-500">
               {blueprint.domain
                 ? `领域：${blueprint.domain}`
-                : "后端未提供所属领域"}
+                : "尚未标注所属领域"}
             </p>
           </div>
           <div className="flex flex-wrap gap-2 text-xs">
@@ -108,7 +108,7 @@ export function KnowledgeBlueprintView({ value }: { value: unknown }) {
                   )}
                 </div>
                 <p className="mt-2 text-sm leading-6 text-slate-600 dark:text-slate-300">
-                  {theory.description ?? "后端未提供理论说明"}
+                  {theory.description ?? "暂无理论说明"}
                 </p>
                 <SourceIds ids={theory.sourceSpanIds} />
               </article>
@@ -159,7 +159,7 @@ export function KnowledgeBlueprintView({ value }: { value: unknown }) {
         unassignedAssessments.length > 0) && (
         <ContentSection icon={CircleHelp} title="未关联到已知知识点的内容">
           <p className="mb-3 text-xs text-slate-500">
-            后端返回了内容，但其 knowledge_point_candidate_id 缺失或无法匹配。
+            以下内容尚未关联到已知知识点，可能是关联信息缺失或对应知识点尚未生成。
           </p>
           <SupplementaryContent
             examples={unassignedExamples}
@@ -183,7 +183,7 @@ export function KnowledgeBlueprintView({ value }: { value: unknown }) {
             ))}
           </div>
         ) : (
-          <Unavailable text="后端未提供 SourceSpan 引用" />
+          <Unavailable text="暂无可追溯来源" />
         )}
       </ContentSection>
 
@@ -209,7 +209,7 @@ export function KnowledgeBlueprintView({ value }: { value: unknown }) {
         ) : (
           <p className="flex items-center gap-2 text-sm text-emerald-700 dark:text-emerald-300">
             <CheckCircle2 className="h-4 w-4" aria-hidden="true" />
-            后端未返回未解决歧义
+            暂无未解决歧义
           </p>
         )}
       </ContentSection>
@@ -230,12 +230,17 @@ function KnowledgePointCard({ point }: { point: BlueprintKnowledgePoint }) {
     <article className="rounded-xl border border-slate-200 p-4 dark:border-slate-700">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="font-mono text-[10px] text-slate-400">
-            {point.candidateKey}
-          </p>
-          <h3 className="mt-1 text-base font-semibold text-slate-900 dark:text-white">
+          <h3 className="text-base font-semibold text-slate-900 dark:text-white">
             {point.name}
           </h3>
+          <details className="mt-1">
+            <summary className="cursor-pointer text-[10px] text-slate-400">
+              查看候选标识
+            </summary>
+            <code className="mt-1 block break-all text-[10px] text-slate-400">
+              {point.candidateKey}
+            </code>
+          </details>
         </div>
         <div className="flex flex-wrap gap-2 text-[10px]">
           {point.importance !== null && (
@@ -331,7 +336,7 @@ function KnowledgePointCard({ point }: { point: BlueprintKnowledgePoint }) {
                         : "层级未提供"}
                   </p>
                   <p className="mt-1 text-sm text-slate-700 dark:text-slate-200">
-                    {stage.learningObjective ?? "后端未提供学习目标"}
+                    {stage.learningObjective ?? "暂无学习目标"}
                   </p>
                   {stage.diagnosticQuestion && (
                     <p className="mt-2 text-xs text-slate-500">
@@ -521,7 +526,7 @@ function LabeledBlock({ label, value }: { label: string; value: string | null })
         {label}
       </p>
       <p className="mt-1 text-sm leading-6 text-slate-700 dark:text-slate-200">
-        {value ?? "后端未提供"}
+        {value ?? "暂无"}
       </p>
     </div>
   );
@@ -577,7 +582,7 @@ function RawData({ value }: { value: unknown }) {
     <details className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
       <summary className="flex cursor-pointer list-none items-center gap-2 text-xs font-medium text-slate-500">
         <Braces className="h-4 w-4" aria-hidden="true" />
-        原始 JSON（调试）
+        技术原始数据
         <ArrowRight className="ml-auto h-3.5 w-3.5" aria-hidden="true" />
       </summary>
       <pre className="mt-3 max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-slate-50 p-3 font-mono text-[11px] leading-5 text-slate-600 dark:bg-slate-950 dark:text-slate-300">

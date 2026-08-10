@@ -213,7 +213,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   }, [state]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const root = document.documentElement;
     const media = window.matchMedia("(prefers-color-scheme: dark)");
     const apply = () => {
@@ -234,7 +234,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   ]);
 
   const setWorkspace = useCallback(
-    (workspace: Workspace | null) =>
+    (workspace: Workspace | null) => {
+      apiClient.setWorkspaceId(workspace?.id ?? null);
       setState((current) => ({
         ...current,
         currentWorkspace: workspace,
@@ -247,7 +248,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         recentWorkspaces: workspace
           ? prependUnique(current.recentWorkspaces, workspace, 8)
           : current.recentWorkspaces,
-      })),
+      }));
+    },
     [],
   );
 

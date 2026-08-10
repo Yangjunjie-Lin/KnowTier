@@ -1,12 +1,15 @@
 import { AlertCircle, RefreshCw } from "lucide-react";
+import type { ReactNode } from "react";
 import { isApiError } from "@/lib/api/errors";
 
 export function ErrorState({
   error,
   onRetry,
+  action,
 }: {
   error: unknown;
   onRetry?: () => void;
+  action?: ReactNode;
 }) {
   const message =
     error instanceof Error ? error.message : "请求失败，请稍后重试。";
@@ -39,16 +42,21 @@ export function ErrorState({
             </details>
           )}
         </div>
-        {onRetry && (
-          <button
-            type="button"
-            onClick={onRetry}
-            className="ml-8 inline-flex min-h-9 items-center gap-1 rounded-lg border border-red-300 px-3 py-1.5 text-xs font-semibold text-red-800 hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-red-400 sm:ml-0"
-            aria-label="重试"
-          >
-            <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
-            重试
-          </button>
+        {(onRetry || action) && (
+          <div className="ml-8 flex shrink-0 flex-wrap items-center gap-2 sm:ml-0">
+            {onRetry && (
+              <button
+                type="button"
+                onClick={onRetry}
+                className="inline-flex min-h-9 items-center gap-1 rounded-lg border border-red-300 px-3 py-1.5 text-xs font-semibold text-red-800 hover:bg-red-100 focus:outline-none focus:ring-2 focus:ring-red-400"
+                aria-label="重试"
+              >
+                <RefreshCw className="h-3.5 w-3.5" aria-hidden="true" />
+                重试
+              </button>
+            )}
+            {action}
+          </div>
         )}
       </div>
     </div>

@@ -17,7 +17,8 @@ import {
   useState,
 } from "react";
 import { graphNodeLabel, graphNodeType } from "@/lib/graph";
-import { cn, displayPercent } from "@/lib/utils";
+import { domainNodeTypeLabel, relationTypeLabel } from "@/lib/domainDetails";
+import { cn } from "@/lib/utils";
 import type { CytoscapeGraph, GraphEdgeData, GraphNodeData } from "@/types/api";
 
 export type GraphLabelDensity = "minimal" | "balanced" | "detailed";
@@ -114,7 +115,21 @@ export function filterGraphElements(
 }
 
 function edgeDisplayLabel(edge: GraphEdgeData): string {
-  return edge.natural_language_description ?? edge.relation_type ?? edge.predicate ?? "相关";
+  return (
+    edge.natural_language_description ??
+    relationTypeLabel(edge.relation_type ?? edge.predicate ?? "相关")
+  );
+}
+
+function fitGraphAtReadableScale(cy: Core, nodeCount: number): void {
+  cy.fit(undefined, 36);
+  const maximumFitZoom = nodeCount <= 12 ? 1.25 : nodeCount <= 40 ? 1.75 : 4;
+  if (cy.zoom() <= maximumFitZoom) return;
+  cy.zoom({
+    level: maximumFitZoom,
+    renderedPosition: { x: cy.width() / 2, y: cy.height() / 2 },
+  });
+  cy.center();
 }
 
 export function GraphCanvas({
@@ -139,7 +154,9 @@ export function GraphCanvas({
   selectedIdRef.current = selectedId;
   const [fullScreen, setFullScreen] = useState(false);
   const [zoom, setZoom] = useState(1);
-  const [view, setView] = useState<GraphView>("graph");
+  const [view, setView] = useState<GraphView>(() =>
+    window.matchMedia("(max-width: 767px)").matches ? "list" : "graph",
+  );
   const visible = useMemo(
     () => filterGraphElements(graph, search, nodeTypes, relationTypes),
     [graph, nodeTypes, relationTypes, search],
@@ -158,7 +175,6 @@ export function GraphCanvas({
       elements,
       minZoom: 0.15,
       maxZoom: 4,
-      wheelSensitivity: 0.18,
       style: [
         {
           selector: "node",
@@ -177,7 +193,9 @@ export function GraphCanvas({
             "text-valign": "bottom",
             "text-margin-y": 7,
             "text-wrap": "ellipsis",
-            "text-max-width": `${density === "dense" ? 80 : 120}px`,
+            "text-max-width": `${
+              visible.nodes.length <= 12 ? 180 : density === "dense" ? 80 : 120
+            }px`,
             width: density === "dense" ? 22 : 28,
             height: density === "dense" ? 22 : 28,
             "border-width": 2,
@@ -194,7 +212,7 @@ export function GraphCanvas({
           },
         },
         {
-          selector: "node[active = false]",
+          selector: "node[!active]",
           style: { opacity: 0.45 },
         },
         {
@@ -220,7 +238,7 @@ export function GraphCanvas({
           style: { label: "data(display_label)" },
         },
         {
-          selector: "edge[active = false]",
+          selector: "edge[!active]",
           style: {
             "line-style": "dashed",
             opacity: 0.35,
@@ -250,14 +268,26 @@ export function GraphCanvas({
           style: { "border-color": "#F59E0B", "border-width": 4 },
         },
       ],
-      layout: {
-        name: visible.nodes.length > 80 ? "grid" : "cose",
-        animate: false,
-        fit: true,
-        padding: 36,
-      },
+      layout:
+        visible.edges.length === 0
+          ? {
+              name: "grid",
+              animate: false,
+              fit: true,
+              padding: 72,
+              avoidOverlap: true,
+              spacingFactor: 1,
+            }
+          : {
+              name: visible.nodes.length > 80 ? "grid" : "cose",
+              animate: false,
+              fit: true,
+              padding: 36,
+            },
     });
     cyRef.current = cy;
+    fitGraphAtReadableScale(cy, visible.nodes.length);
+    setZoom(cy.zoom());
 
     const updateEdgeLabels = () => {
       const threshold = labelDensity === "detailed" ? 0 : labelDensity === "balanced" ? 1.35 : 3;
@@ -331,7 +361,12 @@ export function GraphCanvas({
       renderedPosition: { x: cy.width() / 2, y: cy.height() / 2 },
     });
   };
-  const fit = () => cyRef.current?.fit(undefined, 36);
+  const fit = () => {
+    const cy = cyRef.current;
+    if (!cy) return;
+    fitGraphAtReadableScale(cy, visible.nodes.length);
+    setZoom(cy.zoom());
+  };
   const filtered = visible.nodes.length !== graph.elements.nodes.length || visible.edges.length !== graph.elements.edges.length;
 
   return (
@@ -397,7 +432,7 @@ export function GraphCanvas({
         <span>{visible.nodes.length} 节点</span>
         <span>{visible.edges.length} 关系</span>
         <span>{filtered ? "筛选已启用" : "显示全部"}</span>
-        {view === "graph" && <span>{displayPercent(Math.min(1, zoom / 4))} 缩放</span>}
+        {view === "graph" && <span>{Math.round(zoom * 100)}% 缩放</span>}
         {view === "graph" && (
           <button type="button" onClick={fit} className="rounded text-[#3157D5] underline-offset-2 hover:underline focus:outline-none focus:ring-2 focus:ring-[#3157D5]">
             适配全图
@@ -486,7 +521,9 @@ export function GraphListView({
                   <span className="h-4 w-4 shrink-0 rounded-sm border-2 border-white shadow" style={{ backgroundColor: nodeColors[graphNodeType(node)] ?? "#5577E8" }} aria-hidden="true" />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate font-medium">{graphNodeLabel(node)}</span>
-                    <span className="block text-[11px] text-slate-500">{graphNodeType(node)}</span>
+                    <span className="block text-[11px] text-slate-500">
+                      {domainNodeTypeLabel(graphNodeType(node))}
+                    </span>
                   </span>
                 </button>
               </li>
@@ -516,8 +553,13 @@ export function GraphListView({
                     className={cn("grid w-full grid-cols-[1fr_auto_1fr] items-center gap-2 rounded-lg border bg-white p-3 text-left text-xs shadow-sm focus:outline-none focus:ring-2 focus:ring-[#3157D5] dark:bg-slate-950", selectedId === edge.id ? "border-amber-500" : "border-slate-200 hover:border-indigo-300 dark:border-slate-700")}
                   >
                     <span className="truncate text-right">{nodeLabels.get(edge.source) ?? edge.source}</span>
-                    <span className="flex flex-col items-center text-[#3157D5]">
-                      <span className="max-w-48 truncate font-medium">{edgeDisplayLabel(edge)}</span>
+                    <span className="flex min-w-0 max-w-32 flex-col items-center text-[#3157D5] sm:max-w-48">
+                      <span
+                        className="w-full truncate text-center font-medium"
+                        title={edgeDisplayLabel(edge)}
+                      >
+                        {edgeDisplayLabel(edge)}
+                      </span>
                       <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
                     </span>
                     <span className="truncate">{nodeLabels.get(edge.target) ?? edge.target}</span>

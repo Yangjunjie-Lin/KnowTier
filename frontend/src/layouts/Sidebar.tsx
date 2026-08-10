@@ -13,6 +13,7 @@ export function Sidebar({
   const location = useLocation();
   return (
     <aside
+      id="desktop-sidebar"
       className={cn(
         "fixed inset-y-0 left-0 z-40 hidden border-r border-slate-200/80 bg-white/95 shadow-[8px_0_30px_rgba(15,23,42,0.025)] backdrop-blur-xl transition-[width] duration-200 dark:border-slate-800 dark:bg-slate-950/95 lg:flex lg:flex-col",
         collapsed ? "w-16" : "w-60",
@@ -37,6 +38,7 @@ export function Sidebar({
         )}
       </div>
       <nav
+        id="desktop-primary-navigation"
         className="flex-1 space-y-1 overflow-y-auto px-2.5 py-5"
         aria-label="主导航"
       >
@@ -53,13 +55,14 @@ export function Sidebar({
               key={item.key}
               to={item.path}
               className={cn(
-                "group relative flex min-h-11 items-center rounded-xl px-3 py-2.5 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-[#3157D5]/45",
+                "group relative flex min-h-11 items-center rounded-xl px-3 py-2.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3157D5]/45",
                 active
                   ? "bg-[#EEF2FF] text-[#3157D5] shadow-[inset_0_0_0_1px_rgba(49,87,213,0.04)] dark:bg-indigo-950/60 dark:text-indigo-300"
                   : "text-slate-600 hover:bg-slate-50 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:text-white",
                 collapsed ? "justify-center" : "gap-3",
               )}
               aria-current={active ? "page" : undefined}
+              aria-label={collapsed ? item.label : undefined}
               title={collapsed ? item.label : undefined}
             >
               {active && !collapsed && (
@@ -76,11 +79,13 @@ export function Sidebar({
         onClick={onToggle}
         className="icon-button m-2 self-center"
         aria-label={collapsed ? "展开侧栏" : "收起侧栏"}
+        aria-controls="desktop-primary-navigation"
+        aria-expanded={!collapsed}
       >
         {collapsed ? (
-          <PanelLeftOpen className="h-4 w-4" />
+          <PanelLeftOpen className="h-4 w-4" aria-hidden="true" />
         ) : (
-          <PanelLeftClose className="h-4 w-4" />
+          <PanelLeftClose className="h-4 w-4" aria-hidden="true" />
         )}
       </button>
     </aside>

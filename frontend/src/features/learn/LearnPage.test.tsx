@@ -152,6 +152,7 @@ describe("LearnPage", () => {
   beforeEach(() => {
     localStorage.clear();
     vi.clearAllMocks();
+    vi.spyOn(window, "confirm").mockReturnValue(true);
     vi.mocked(api.getLearnerModel).mockResolvedValue({
       learner_id: learner.id,
       workspace_id: workspace.id,
@@ -298,7 +299,7 @@ describe("LearnPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "发送学习消息" }));
 
     await waitFor(() => expect(api.chat).toHaveBeenCalledOnce());
-    expect(screen.getByRole("button", { name: "新建 Session" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "新建会话" })).toBeDisabled();
     expect(screen.getByRole("button", { name: /选择已有资料/ })).toBeDisabled();
     expect(screen.getByRole("button", { name: "上传资料" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "拍照" })).toBeDisabled();
@@ -318,6 +319,20 @@ describe("LearnPage", () => {
     fireEvent.click(send);
     fireEvent.click(send);
     await waitFor(() => expect(api.chat).toHaveBeenCalledOnce());
+  });
+
+  it("does not submit while an input method is composing text", () => {
+    renderPage();
+    const composer = screen.getByLabelText("学习消息");
+    fireEvent.change(composer, { target: { value: "正在输入中文" } });
+    fireEvent.keyDown(composer, {
+      key: "Enter",
+      code: "Enter",
+      isComposing: true,
+    });
+
+    expect(api.chat).not.toHaveBeenCalled();
+    expect(composer).toHaveValue("正在输入中文");
   });
 
   it("reuses one client request id when retrying a failed turn", async () => {
@@ -374,11 +389,24 @@ describe("LearnPage", () => {
     fireEvent.change(screen.getByLabelText("学习消息"), {
       target: { value: "旧 Session 草稿" },
     });
-    fireEvent.click(screen.getByRole("button", { name: "新建 Session" }));
+    fireEvent.click(screen.getByRole("button", { name: "新建会话" }));
     expect(screen.getByLabelText("学习消息")).toHaveValue("");
     await waitFor(() =>
       expect(screen.queryByText("旧目标")).not.toBeInTheDocument(),
     );
+  });
+
+  it("keeps the current draft when starting a new session is cancelled", () => {
+    vi.mocked(window.confirm).mockReturnValueOnce(false);
+    renderPage();
+    fireEvent.change(screen.getByLabelText("学习消息"), {
+      target: { value: "还没有写完的草稿" },
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "新建会话" }));
+
+    expect(window.confirm).toHaveBeenCalledOnce();
+    expect(screen.getByLabelText("学习消息")).toHaveValue("还没有写完的草稿");
   });
 
   it("refreshes model, evidence, learner graph, and domain detail after chat", async () => {

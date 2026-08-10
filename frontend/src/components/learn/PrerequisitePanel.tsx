@@ -8,11 +8,11 @@ import type {
 } from "@/lib/learningInsights";
 
 function percentage(value: number | null): string {
-  return value === null ? "后端未提供" : `${Math.round(value * 100)}%`;
+  return value === null ? "待评估" : `${Math.round(value * 100)}%`;
 }
 
 function blockingLabel(value: boolean | null): string {
-  if (value === null) return "后端未提供";
+  if (value === null) return "时间未知";
   return value ? "是" : "否";
 }
 
@@ -54,7 +54,7 @@ export function PrerequisitePanel({
               <dl className="mt-2 grid grid-cols-2 gap-x-2 gap-y-1 text-[11px] text-slate-500">
                 <dt>认知层级</dt>
                 <dd className="text-right">
-                  {item.currentLevel ? `L${item.currentLevel}` : "后端未提供"}
+                  {item.currentLevel ? `L${item.currentLevel}` : "待评估"}
                 </dd>
                 <dt>掌握度</dt>
                 <dd className="text-right">{percentage(item.masteryScore)}</dd>

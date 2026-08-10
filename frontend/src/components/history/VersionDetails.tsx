@@ -44,16 +44,11 @@ export function DomainVersionDetail({ data }: { data: unknown }) {
           <div className="flex flex-wrap justify-end gap-1.5 text-[10px]">
             <StatusBadge label="状态" value={versionStatusLabel(detail.status)} />
             <StatusBadge
-              label="Projection"
+              label="图谱投影"
               value={versionStatusLabel(detail.projectionStatus)}
             />
           </div>
         </div>
-        {detail.id && (
-          <p className="mt-3 break-all font-mono text-[10px] text-slate-400">
-            {detail.id}
-          </p>
-        )}
       </section>
 
       <VersionSection icon={FileClock} title="版本信息">
@@ -61,16 +56,16 @@ export function DomainVersionDetail({ data }: { data: unknown }) {
           <Fact
             label="父版本"
             value={
-              detail.parentRevisionId ??
-              (detail.hasParentField ? "首个版本（无父版本）" : "后端未提供")
+              detail.parentRevisionId
+                ? "基于上一个版本"
+                :
+              (detail.hasParentField ? "首个版本（无父版本）" : "暂无记录")
             }
-            mono={Boolean(detail.parentRevisionId)}
           />
-          <Fact label="创建者" value={detail.createdBy ?? "后端未提供"} />
+          <Fact label="创建方式" value={createdByLabel(detail.createdBy)} />
           <Fact
             label="模型运行"
-            value={detail.modelRunId ?? "后端未提供"}
-            mono={Boolean(detail.modelRunId)}
+            value={detail.modelRunId ? "已记录" : "暂无记录"}
           />
           <Fact label="创建时间" value={formatDate(detail.createdAt, true)} />
           <Fact
@@ -78,10 +73,18 @@ export function DomainVersionDetail({ data }: { data: unknown }) {
             value={
               detail.projectedAt
                 ? formatDate(detail.projectedAt, true)
-                : "后端未提供"
+                : "尚未完成"
             }
           />
         </dl>
+        <TechnicalIdentifiers
+          values={[
+            ["版本 ID", detail.id],
+            ["父版本 ID", detail.parentRevisionId],
+            ["模型运行 ID", detail.modelRunId],
+            ["原始创建者", detail.createdBy],
+          ]}
+        />
       </VersionSection>
 
       <VersionSection icon={GitCommitHorizontal} title="本版本变化">
@@ -106,7 +109,7 @@ export function DomainVersionDetail({ data }: { data: unknown }) {
       </VersionSection>
 
       {detail.manifestFacts.length > 0 && (
-        <VersionSection icon={Network} title="版本 Manifest">
+        <VersionSection icon={Network} title="版本数据概览">
           <dl className="grid gap-3 sm:grid-cols-2">
             {detail.manifestFacts.map((fact) => (
               <Fact key={fact.label} label={fact.label} value={fact.value} />
@@ -131,29 +134,31 @@ export function LearnerVersionDetail({ data }: { data: unknown }) {
             ? "版本号未提供"
             : `v${detail.sequenceNumber}`}
         </h3>
-        {detail.id && (
-          <p className="mt-3 break-all font-mono text-[10px] text-slate-400">
-            {detail.id}
-          </p>
-        )}
       </section>
 
       <VersionSection icon={UserRound} title="学习上下文">
         <dl className="grid gap-4 sm:grid-cols-2">
-          <Fact label="Session" value={detail.sessionId ?? "后端未提供"} mono />
-          <Fact label="Turn" value={detail.turnId ?? "后端未提供"} mono />
+          <Fact label="学习会话" value={detail.sessionId ? "已关联" : "暂无记录"} />
+          <Fact label="学习轮次" value={detail.turnId ? "已记录" : "暂无记录"} />
           <Fact
             label="目标知识点"
-            value={detail.targetKnowledgePointId ?? "后端未提供"}
-            mono
+            value={detail.targetKnowledgePointId ? "已关联" : "暂无记录"}
           />
           <Fact label="时间" value={formatDate(detail.createdAt, true)} />
           <Fact
             label="父版本"
-            value={detail.parentRevisionId ?? "无父版本或后端未提供"}
-            mono={Boolean(detail.parentRevisionId)}
+            value={detail.parentRevisionId ? "基于上一个版本" : "首个版本或暂无记录"}
           />
         </dl>
+        <TechnicalIdentifiers
+          values={[
+            ["版本 ID", detail.id],
+            ["父版本 ID", detail.parentRevisionId],
+            ["会话 ID", detail.sessionId],
+            ["轮次 ID", detail.turnId],
+            ["目标知识点 ID", detail.targetKnowledgePointId],
+          ]}
+        />
       </VersionSection>
 
       <div className="grid gap-3 sm:grid-cols-2">
@@ -180,29 +185,31 @@ export function LearnerVersionDetail({ data }: { data: unknown }) {
             ))}
           </div>
         ) : (
-          <Unavailable>后端未提供新增关系条目</Unavailable>
+          <Unavailable>此版本没有可展示的新增关系明细。</Unavailable>
         )}
       </VersionSection>
 
       <VersionSection icon={RefreshCw} title="被替代关系">
         {detail.supersededRelationIds.length > 0 ? (
-          <div className="space-y-2">
-            {detail.supersededRelationIds.map((id) => (
-              <code
-                key={id}
-                className="block break-all rounded-lg bg-slate-50 p-3 text-[11px] text-slate-600 dark:bg-slate-800/60 dark:text-slate-300"
-              >
-                {id}
-              </code>
-            ))}
+          <div>
+            <p className="text-sm text-slate-700 dark:text-slate-200">
+              已替代 {detail.supersededRelationIds.length} 条旧关系。
+            </p>
+            <TechnicalIdentifiers
+              label="查看被替代关系标识"
+              values={detail.supersededRelationIds.map((id, index) => [
+                `关系 ${index + 1}`,
+                id,
+              ] as [string, string])}
+            />
           </div>
         ) : detail.assertionsSupersededCount !== null &&
           detail.assertionsSupersededCount > 0 ? (
           <Unavailable>
-            后端只提供了替代数量，未提供被替代关系 ID。
+            已记录替代数量，但没有可展示的关系明细。
           </Unavailable>
         ) : (
-          <Unavailable>后端未返回被替代关系条目</Unavailable>
+          <Unavailable>此版本没有被替代的关系。</Unavailable>
         )}
       </VersionSection>
 
@@ -229,13 +236,13 @@ export function LearnerVersionDetail({ data }: { data: unknown }) {
         <VersionSection icon={AlertTriangle} title="误解变化">
           <TextChanges
             values={detail.misconceptionChanges}
-            unavailable="本版本没有可从断言中归类的误解变化；后端未提供独立误解差异。"
+            unavailable="本版本没有可展示的误解变化。"
           />
         </VersionSection>
         <VersionSection icon={CheckCircle2} title="证据变化">
           <TextChanges
             values={detail.evidenceChanges}
-            unavailable="本版本没有可从断言中归类的证据变化；后端未提供独立证据差异。"
+            unavailable="本版本没有可展示的证据变化。"
           />
         </VersionSection>
       </div>
@@ -248,15 +255,12 @@ export function LearnerVersionDetail({ data }: { data: unknown }) {
               {detail.recommendationLabel ??
                 learnerDecisionLabel(detail.recommendation)}
             </p>
-            <p className="mt-1 font-mono text-[10px] text-slate-400">
-              {detail.recommendation}
-            </p>
             <p className="mt-2 text-xs text-slate-400">
-              后端未提供上一版本的推荐动作，无法计算前后差异。
+              目前没有上一版本的推荐动作可供比较。
             </p>
           </div>
         ) : (
-          <Unavailable>后端未提供本轮推荐动作</Unavailable>
+          <Unavailable>本轮没有新增推荐动作。</Unavailable>
         )}
       </VersionSection>
 
@@ -269,22 +273,22 @@ export function LearnerVersionDetail({ data }: { data: unknown }) {
                 className="rounded-lg bg-slate-50 p-3 dark:bg-slate-800/60"
               >
                 <div className="flex flex-wrap items-center justify-between gap-2">
-                  <p className="font-mono text-xs font-medium text-slate-700 dark:text-slate-200">
-                    {event.eventType}
+                  <p className="text-xs font-medium text-slate-700 dark:text-slate-200">
+                    学习状态更新
                   </p>
                   <p className="text-[10px] text-slate-400">
                     {formatDate(event.createdAt, true)}
                   </p>
                 </div>
                 <p className="mt-1 text-xs text-slate-500">
-                  新增关系 {event.assertionsAdded ?? "后端未提供"} · 替代关系{" "}
-                  {event.assertionsSuperseded ?? "后端未提供"}
+                  新增关系 {event.assertionsAdded ?? "暂无记录"} · 替代关系{" "}
+                  {event.assertionsSuperseded ?? "暂无记录"}
                 </p>
               </article>
             ))}
           </div>
         ) : (
-          <Unavailable>后端未提供事件记录</Unavailable>
+          <Unavailable>此版本没有独立事件记录。</Unavailable>
         )}
       </VersionSection>
       <RawVersion value={detail.raw} />
@@ -330,7 +334,7 @@ function ChangeCard({
         </p>
         <span className="ml-auto font-mono text-sm font-semibold text-slate-800 dark:text-slate-100">
           {!metric.provided
-            ? "后端未提供"
+            ? "暂无数据"
             : metric.count === null
               ? "数量未知"
               : metric.count}
@@ -386,9 +390,13 @@ function LearnerRelationCard({ relation }: { relation: LearnerVersionRelation })
         {relation.description}
       </p>
       {(relation.subjectId || relation.objectId) && (
-        <p className="mt-1 break-all font-mono text-[10px] text-slate-400">
-          {relation.subjectId ?? "主体未提供"} → {relation.objectId ?? "客体未提供"}
-        </p>
+        <TechnicalIdentifiers
+          label="查看关系标识"
+          values={[
+            ["主体 ID", relation.subjectId],
+            ["客体 ID", relation.objectId],
+          ]}
+        />
       )}
     </article>
   );
@@ -433,6 +441,31 @@ function Fact({
   );
 }
 
+function TechnicalIdentifiers({
+  values,
+  label = "查看技术标识",
+}: {
+  values: Array<readonly [string, string | null]>;
+  label?: string;
+}) {
+  const available = values.filter(
+    (entry): entry is readonly [string, string] => Boolean(entry[1]),
+  );
+  if (available.length === 0) return null;
+  return (
+    <details className="mt-3 rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-700">
+      <summary className="cursor-pointer text-[11px] font-medium text-slate-500">
+        {label}
+      </summary>
+      <dl className="mt-2 grid gap-2 sm:grid-cols-2">
+        {available.map(([itemLabel, value]) => (
+          <Fact key={itemLabel} label={itemLabel} value={value} mono />
+        ))}
+      </dl>
+    </details>
+  );
+}
+
 function StatusBadge({ label, value }: { label: string; value: string }) {
   return (
     <span className="rounded-md bg-white px-2 py-1 text-slate-600 shadow-sm dark:bg-slate-900 dark:text-slate-300">
@@ -446,7 +479,15 @@ function Unavailable({ children }: { children: React.ReactNode }) {
 }
 
 function countText(value: number | null): string {
-  return value === null ? "后端未提供" : String(value);
+  return value === null ? "暂无记录" : String(value);
+}
+
+function createdByLabel(value: string | null): string {
+  if (!value) return "暂无记录";
+  if (value === "system") return "系统自动创建";
+  if (value === "ingestion") return "资料摄取创建";
+  if (value === "chat") return "学习对话创建";
+  return "已记录创建来源";
 }
 
 function RawVersion({ value }: { value: unknown }) {
@@ -454,7 +495,7 @@ function RawVersion({ value }: { value: unknown }) {
     <details className="rounded-xl border border-slate-200 p-4 dark:border-slate-700">
       <summary className="flex cursor-pointer list-none items-center gap-2 text-xs font-medium text-slate-500">
         <Braces className="h-4 w-4" aria-hidden="true" />
-        原始数据（调试）
+        技术原始数据
       </summary>
       <pre className="mt-3 max-h-96 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-slate-50 p-3 font-mono text-[11px] leading-5 text-slate-600 dark:bg-slate-900 dark:text-slate-300">
         {jsonText(value)}
@@ -466,7 +507,7 @@ function RawVersion({ value }: { value: unknown }) {
 function InvalidVersion({ kind, value }: { kind: string; value: unknown }) {
   return (
     <div className="mt-5 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm text-amber-800 dark:border-amber-900 dark:bg-amber-950/30 dark:text-amber-200">
-      后端返回的{kind}版本详情不是对象，无法生成类型化视图。
+      {kind}版本详情格式异常，暂时无法生成结构化视图。
       <RawVersion value={value} />
     </div>
   );

@@ -94,6 +94,7 @@ const relationLabels: Record<string, string> = {
   IS_A: "属于",
   PART_OF: "是组成部分",
   REQUIRES: "需要先掌握",
+  PREREQUISITE_OF: "前置于",
   ENABLES: "为学习或应用提供基础",
   EXPLAINS: "解释",
   CONTRASTS_WITH: "与之形成对照",
@@ -125,8 +126,18 @@ const nodeTypeLabels: Record<string, string> = {
   LearningStage: "教学阶段",
   SourceDocument: "来源文档",
   SourceSpan: "来源片段",
+  EntityType: "实体类型",
+  RelationType: "关系类型",
+  EpistemicStatus: "知识状态",
+  Constraint: "约束",
+  ConflictSet: "冲突集合",
+  Session: "学习会话",
+  LearningGoal: "学习目标",
+  MasteryEvidence: "掌握证据",
+  ErrorPattern: "错误模式",
   Learner: "学习者",
   LearnerKnowledgeState: "学习者知识状态",
+  LearnerGraphResource: "学习图谱资源",
 };
 
 const epistemicLabels: Record<string, string> = {
@@ -148,7 +159,7 @@ export function domainNodeTypeLabel(value: string): string {
 }
 
 export function epistemicStatusLabel(value: string | null): string {
-  if (!value) return "后端未提供";
+  if (!value) return "状态未知";
   return epistemicLabels[value] ?? humanizeUnknown(value);
 }
 
@@ -360,7 +371,7 @@ function adaptHistoryItem(value: UnknownRecord): AssertionHistoryItem {
         "natural_language_description",
         "description",
         "reason",
-      ) ?? "后端未提供描述",
+      ) ?? "暂无描述",
     validFrom: firstText(item, "valid_from", "created_at"),
     validTo: firstText(item, "valid_to", "superseded_at"),
     raw: value,
@@ -373,6 +384,6 @@ function booleanValue(value: unknown): boolean | null {
 
 export function recordLabel(value: unknown): string {
   const record = asRecord(value);
-  if (!record) return textValue(value) ?? "后端未提供";
+  if (!record) return textValue(value) ?? "暂无记录";
   return firstText(mergedRecord(record), "name", "title", "description", "id") ?? "记录";
 }

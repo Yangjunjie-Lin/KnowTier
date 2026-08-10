@@ -26,7 +26,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { useLocation, useNavigate } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { EvidencePanel } from "@/components/learn/EvidencePanel";
 import { LearningStatusSheet } from "@/components/learn/LearningStatusSheet";
 import { MisconceptionPanel } from "@/components/learn/MisconceptionPanel";
@@ -345,7 +345,12 @@ export function LearnPage() {
     return (
       <EmptyState
         title="请先完成初始化"
-        description="学习空间需要当前 Workspace 和学习者。"
+        description="请先选择学习空间和学习者，再开始学习。"
+        action={
+          <Link to="/init" className="primary-button">
+            开始初始化
+          </Link>
+        }
       />
     );
   }
@@ -503,6 +508,19 @@ export function LearnPage() {
   };
 
   const resetLearningSession = () => {
+    const hasLocalContent =
+      messages.length > 0 ||
+      Boolean(message.trim()) ||
+      attachments.length > 0 ||
+      uploadOperation !== null;
+    if (
+      hasLocalContent &&
+      !window.confirm(
+        "开始新会话？当前对话、草稿与本轮附件会从页面清除。已写入的学习数据不会删除。",
+      )
+    ) {
+      return;
+    }
     abortControllerRef.current?.abort();
     abortControllerRef.current = null;
     inFlightRef.current = false;
@@ -562,7 +580,7 @@ export function LearnPage() {
       }
     >
       <PageHeader
-        eyebrow="Teaching workspace"
+        eyebrow="智能教学工作台"
         title="学习空间"
         description="讲解、掌握检测与模型变化分层呈现，每一轮都保持可追溯。"
         actions={
@@ -583,13 +601,13 @@ export function LearnPage() {
               className="secondary-button"
             >
               <RotateCcw className="h-4 w-4" />
-              新建 Session
+              新建会话
             </button>
           </div>
         }
       />
       <div className="mb-4">
-        <RuntimeModelBadge role="teacher" label="Teacher" />
+        <RuntimeModelBadge role="teacher" label="教学模型" />
       </div>
 
       <div className="grid gap-4 xl:grid-cols-[250px_minmax(0,1fr)_300px]">
@@ -675,10 +693,14 @@ export function LearnPage() {
             onStart={startPrerequisite}
           />
 
-          <ContextPanel title="Session">
-            <p className="break-all font-mono text-[11px] text-slate-500">
-              {sessionId}
+          <ContextPanel title="会话状态">
+            <p className="text-xs leading-5 text-slate-600 dark:text-slate-300">
+              已建立独立学习会话，可随时从顶部开始新会话。
             </p>
+            <details className="mt-2 text-[11px] text-slate-500">
+              <summary className="cursor-pointer font-medium">查看会话标识</summary>
+              <p className="mt-1 break-all font-mono">{sessionId}</p>
+            </details>
           </ContextPanel>
         </aside>
 
@@ -805,7 +827,12 @@ export function LearnPage() {
             className="fixed inset-x-0 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-30 max-h-[calc(100dvh-7.5rem)] shrink-0 overflow-y-auto overscroll-contain border-t border-slate-200 bg-white/95 p-3 shadow-[0_-12px_30px_rgba(15,23,42,0.12)] backdrop-blur-xl dark:border-slate-800 dark:bg-slate-900/95 lg:bottom-0 lg:left-60 lg:right-0 xl:static xl:z-auto xl:max-h-none xl:overflow-visible xl:p-4 xl:shadow-none"
             aria-label="学习消息编辑器"
           >
-            <div className="mb-3 flex flex-wrap gap-2" aria-label="快捷教学操作">
+            <div
+              className="-mx-1 mb-2 flex gap-2 overflow-x-auto px-1 pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
+              role="toolbar"
+              aria-label="快捷教学操作"
+              aria-describedby="quick-teaching-actions-help"
+            >
               {quickTeachingActions.map((action) => (
                 <button
                   type="button"
@@ -817,20 +844,27 @@ export function LearnPage() {
                     inputRef.current?.focus();
                   }}
                   disabled={chatMutation.isPending}
-                  className="quiet-button min-h-8 border border-slate-200 px-2.5 py-1 text-xs dark:border-slate-700"
+                  className="quiet-button min-h-9 shrink-0 border border-slate-200 px-2.5 py-1 text-xs dark:border-slate-700"
                 >
                   <Lightbulb className="h-3.5 w-3.5" />
                   {action.label}
                 </button>
               ))}
             </div>
+            <span id="quick-teaching-actions-help" className="sr-only">
+              可横向滚动查看更多快捷操作。
+            </span>
             <div className="relative">
               <textarea
                 ref={inputRef}
                 value={message}
                 onChange={(event) => setMessage(event.target.value)}
                 onKeyDown={(event) => {
-                  if (event.key === "Enter" && !event.shiftKey) {
+                  if (
+                    event.key === "Enter" &&
+                    !event.shiftKey &&
+                    !event.nativeEvent.isComposing
+                  ) {
                     event.preventDefault();
                     submit();
                   }
@@ -847,7 +881,7 @@ export function LearnPage() {
                 type="button"
                 onClick={submit}
                 disabled={!message.trim() || chatMutation.isPending}
-                className="absolute bottom-3 right-3 rounded-lg bg-[#3157D5] p-2 text-white hover:bg-[#2446B8] disabled:opacity-40"
+                className="absolute bottom-2 right-2 inline-flex h-10 w-10 items-center justify-center rounded-xl bg-[#3157D5] text-white shadow-sm hover:bg-[#2446B8] focus:outline-none focus:ring-2 focus:ring-[#3157D5]/40 focus:ring-offset-2 disabled:opacity-40 dark:focus:ring-offset-slate-950"
                 aria-label="发送学习消息"
               >
                 <Send className="h-4 w-4" />
@@ -944,24 +978,28 @@ export function LearnPage() {
             )}
             {attachments.length > 0 && (
               <div className="mt-3 flex flex-wrap gap-2" aria-label="本轮附件">
-                {attachments.map((id) => (
-                  <span
-                    key={id}
-                    className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-50 px-2.5 py-1 text-xs text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300"
-                  >
-                    <FileText className="h-3.5 w-3.5" />
-                    {availableDocuments.find((document) => document.id === id)
-                      ?.filename ?? id.slice(0, 8)}
-                    <button
-                      type="button"
-                      onClick={() => toggleAttachment(id)}
-                      aria-label={`移除附件 ${id}`}
-                      className="rounded focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                {attachments.map((id) => {
+                  const attachmentName =
+                    availableDocuments.find((document) => document.id === id)
+                      ?.filename ?? id.slice(0, 8);
+                  return (
+                    <span
+                      key={id}
+                      className="inline-flex items-center gap-1.5 rounded-lg bg-indigo-50 py-1 pl-2.5 pr-1 text-xs text-indigo-700 dark:bg-indigo-950/50 dark:text-indigo-300"
                     >
-                      <X className="h-3.5 w-3.5" />
-                    </button>
-                  </span>
-                ))}
+                      <FileText className="h-3.5 w-3.5" />
+                      {attachmentName}
+                      <button
+                        type="button"
+                        onClick={() => toggleAttachment(id)}
+                        aria-label={`移除附件 ${attachmentName}`}
+                        className="inline-flex h-6 w-6 items-center justify-center rounded focus:outline-none focus:ring-2 focus:ring-indigo-400"
+                      >
+                        <X className="h-3.5 w-3.5" />
+                      </button>
+                    </span>
+                  );
+                })}
               </div>
             )}
           </div>
@@ -1229,7 +1267,7 @@ function AttachmentMenu({
     >
       {documents.length === 0 ? (
         <p className="px-3 py-4 text-xs text-slate-500">
-          本设备还没有该 Workspace 的资料索引。
+          当前学习空间还没有可用资料。
         </p>
       ) : (
         <>

@@ -1,6 +1,31 @@
 import { ApiError, errorKindFor, friendlyStatusMessage } from "./errors";
 import type { JsonValue } from "@/types/api";
 
+const WORKSPACE_SCOPE_SESSION_KEY = "knowtier.workspace-scope.v1";
+
+function readSharedWorkspaceScope(): string | null {
+  try {
+    return typeof window === "undefined"
+      ? null
+      : window.sessionStorage.getItem(WORKSPACE_SCOPE_SESSION_KEY);
+  } catch {
+    return null;
+  }
+}
+
+function writeSharedWorkspaceScope(workspaceId: string | null): void {
+  try {
+    if (typeof window === "undefined") return;
+    if (workspaceId) {
+      window.sessionStorage.setItem(WORKSPACE_SCOPE_SESSION_KEY, workspaceId);
+    } else {
+      window.sessionStorage.removeItem(WORKSPACE_SCOPE_SESSION_KEY);
+    }
+  } catch {
+    // Requests still use the in-memory value when session storage is unavailable.
+  }
+}
+
 export interface RequestOptions extends Omit<RequestInit, "body" | "signal"> {
   body?: BodyInit | JsonValue | object;
   signal?: AbortSignal;
@@ -116,6 +141,7 @@ export class ApiClient {
     "string"
       ? Number(import.meta.env.VITE_API_TIMEOUT_MS)
       : 30_000,
+    private readonly shareWorkspaceScope = false,
   ) {
     this.configuredBaseUrl = baseUrl.replace(/\/$/, "");
     this.defaultTimeoutMs = Number.isFinite(defaultTimeoutMs)
@@ -125,9 +151,11 @@ export class ApiClient {
 
   setWorkspaceId(workspaceId: string | null): void {
     this.workspaceId = workspaceId;
+    if (this.shareWorkspaceScope) writeSharedWorkspaceScope(workspaceId);
   }
   getWorkspaceId(): string | null {
-    return this.workspaceId;
+    return this.workspaceId ??
+      (this.shareWorkspaceScope ? readSharedWorkspaceScope() : null);
   }
   setModelConfigurationToken(token: string | null): void {
     this.modelConfigurationToken = token?.trim() || null;
@@ -145,8 +173,9 @@ export class ApiClient {
       options.retries ?? (method === "GET" || method === "HEAD" ? 2 : 0);
     const timeoutMs = options.timeoutMs ?? this.defaultTimeoutMs;
     const headers = new Headers(options.headers);
-    if (options.workspaceScoped !== false && this.workspaceId)
-      headers.set("X-Workspace-ID", this.workspaceId);
+    const workspaceId = this.getWorkspaceId();
+    if (options.workspaceScoped !== false && workspaceId)
+      headers.set("X-Workspace-ID", workspaceId);
     if (path === "/v1/model-config" || path.startsWith("/v1/model-config/")) {
       if (this.modelConfigurationToken) {
         headers.set("X-Model-Configuration-Token", this.modelConfigurationToken);
@@ -339,10 +368,11 @@ export class ApiClient {
 
   private scopedHeaders(input?: HeadersInit, workspaceScoped = true): Headers {
     const headers = new Headers(input);
-    if (workspaceScoped && this.workspaceId)
-      headers.set("X-Workspace-ID", this.workspaceId);
+    const workspaceId = this.getWorkspaceId();
+    if (workspaceScoped && workspaceId)
+      headers.set("X-Workspace-ID", workspaceId);
     return headers;
   }
 }
 
-export const apiClient = new ApiClient();
+export const apiClient = new ApiClient(undefined, undefined, true);

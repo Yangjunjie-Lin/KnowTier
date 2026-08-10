@@ -10,11 +10,11 @@ import type {
 import { cn } from "@/lib/utils";
 
 function percentage(value: number | null): string {
-  return value === null ? "后端未提供" : `${Math.round(value * 100)}%`;
+  return value === null ? "待评估" : `${Math.round(value * 100)}%`;
 }
 
 function dateLabel(value: string | null): string {
-  if (!value) return "后端未提供";
+  if (!value) return "时间未知";
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime())
     ? value
@@ -48,7 +48,7 @@ function MisconceptionCard({ item }: { item: MisconceptionInsight }) {
         <dd className="text-right">{item.relatedEvidenceCount} 条</dd>
         <dt>仍然有效</dt>
         <dd className="text-right">
-          {item.isActive === null ? "后端未提供" : item.isActive ? "是" : "否"}
+          {item.isActive === null ? "状态未知" : item.isActive ? "是" : "否"}
         </dd>
       </dl>
       <button
@@ -67,12 +67,12 @@ function MisconceptionCard({ item }: { item: MisconceptionInsight }) {
           <p>建议：{item.recommendedAction}</p>
           <p>首次发现：{dateLabel(item.firstSeenAt)}</p>
           <p>
-            来源 Turn：{item.sourceTurnId ? item.sourceTurnId.slice(0, 8) : "后端未提供"}
+            来源轮次：{item.sourceTurnId ? item.sourceTurnId.slice(0, 8) : "未记录"}
           </p>
           <p className="flex items-center gap-1">
             <GitBranch className="h-3 w-3" />
             来源关系：
-            {item.sourceRelationId ? item.sourceRelationId.slice(0, 8) : "后端未提供"}
+            {item.sourceRelationId ? item.sourceRelationId.slice(0, 8) : "未记录"}
           </p>
         </div>
       )}

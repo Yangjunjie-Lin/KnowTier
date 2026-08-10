@@ -118,7 +118,7 @@ const decisionLabels: Record<string, string> = {
 };
 
 export function versionStatusLabel(value: string | null): string {
-  if (!value) return "后端未提供";
+  if (!value) return "状态未知";
   return statusLabels[value] ?? humanizeUnknown(value);
 }
 
@@ -182,7 +182,7 @@ export function adaptDomainVersionDetail(
       explicitSummary ??
       (sentences.length > 0
         ? `${sentences.join("；")}。`
-        : "后端未提供可展示的版本摘要。"),
+        : "暂无可展示的版本摘要。"),
     manifestFacts: manifest ? adaptManifestFacts(manifest) : [],
     raw,
   };
@@ -382,7 +382,7 @@ function masterySummary(
   delta: number | null,
 ): string {
   if (score === null && level === null && delta === null)
-    return "后端未提供掌握度变化。";
+    return "暂无掌握度变化。";
   const parts: string[] = [];
   if (score !== null) parts.push(`本轮掌握度 ${displayPercent(score)}`);
   if (level !== null) parts.push(`认知层级 L${level}`);
@@ -390,7 +390,7 @@ function masterySummary(
     const sign = delta > 0 ? "+" : "";
     parts.push(`变化 ${sign}${displayPercent(delta)}`);
   } else {
-    parts.push("后端未提供前值，无法计算增减");
+    parts.push("缺少前值，暂无法计算增减");
   }
   return `${parts.join("；")}。`;
 }

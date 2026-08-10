@@ -152,6 +152,7 @@ describe("domain detail adapters", () => {
   });
 
   it("uses readable fallbacks for unknown enum extensions", () => {
+    expect(relationTypeLabel("PREREQUISITE_OF")).toBe("前置于");
     expect(relationTypeLabel("FUTURE_RELATION")).toBe("Future Relation");
     expect(epistemicStatusLabel("FUTURE_STATUS")).toBe("Future Status");
     expect(adaptDomainNodeDetail(null)).toBeNull();

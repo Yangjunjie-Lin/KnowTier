@@ -41,7 +41,7 @@ export function SettingsPage() {
     const normalized = sanitizeApiBaseUrl(baseUrl);
     if (!normalized) {
       setUrlError(
-        "API Base URL 只能是相对路径或不含凭据、查询参数的 HTTP(S) 地址。",
+        "服务地址只能使用相对路径，或不含凭据和查询参数的 HTTP(S) 地址。",
       );
       setSaved(false);
       return;
@@ -54,17 +54,17 @@ export function SettingsPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Workspace settings"
+        eyebrow="个性化与连接"
         title="设置"
-        description="偏好和最近上下文仅保存在本设备；API 密钥只交给后端安全凭据存储，不写入本地偏好。"
+        description="管理模型连接、学习偏好和显示方式。敏感凭据不会写入浏览器偏好。"
       />
       <ModelConfigurationSection />
       <div className="grid gap-5 lg:grid-cols-2">
-        <section className="space-y-5">
-          <SettingSection title="连接">
+        <div className="space-y-5">
+          <SettingSection title="应用服务连接">
             <label className="block space-y-2">
               <span className="text-xs font-medium text-slate-600 dark:text-slate-300">
-                API Base URL
+                KnowTier 服务地址（API Base URL）
               </span>
               <div className="flex gap-2">
                 <input
@@ -72,6 +72,14 @@ export function SettingsPage() {
                   onChange={(event) => setBaseUrl(event.target.value)}
                   className="form-input font-mono text-xs"
                   placeholder="/api"
+                  inputMode="url"
+                  spellCheck={false}
+                  aria-invalid={urlError ? "true" : undefined}
+                  aria-describedby={
+                    urlError
+                      ? "service-url-help service-url-error"
+                      : "service-url-help"
+                  }
                 />
                 <button
                   type="button"
@@ -82,9 +90,19 @@ export function SettingsPage() {
                   保存
                 </button>
               </div>
+              <span
+                id="service-url-help"
+                className="block text-[11px] font-normal leading-5 text-slate-500"
+              >
+                桌面应用通常使用 /api；远程服务可填写不含凭据和查询参数的 HTTPS 地址。
+              </span>
             </label>
             {urlError && (
-              <p className="text-xs text-red-600" role="alert">
+              <p
+                id="service-url-error"
+                className="text-xs text-red-600"
+                role="alert"
+              >
                 {urlError}
               </p>
             )}
@@ -99,22 +117,43 @@ export function SettingsPage() {
             )}
             <div className="grid gap-3 sm:grid-cols-2">
               <ContextValue
-                label="当前 Workspace"
-                value={store.currentWorkspace?.id ?? "未选择"}
+                label="当前学习空间"
+                value={store.currentWorkspace?.name ?? "未选择"}
               />
               <ContextValue
-                label="当前 Learner"
-                value={store.currentLearner?.id ?? "未选择"}
+                label="当前学习者"
+                value={store.currentLearner?.display_name ?? "未选择"}
               />
-              <ContextValue label="当前 Session" value={store.sessionId} mono />
+              <ContextValue
+                label="当前学习会话"
+                value={store.sessionId ? "已建立" : "尚未开始"}
+              />
             </div>
+            <details className="rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-700">
+              <summary className="cursor-pointer text-xs font-medium text-slate-500">
+                查看技术标识
+              </summary>
+              <dl className="mt-3 grid gap-3 sm:grid-cols-2">
+                <ContextValue
+                  label="学习空间 ID"
+                  value={store.currentWorkspace?.id ?? "未选择"}
+                  mono
+                />
+                <ContextValue
+                  label="学习者 ID"
+                  value={store.currentLearner?.id ?? "未选择"}
+                  mono
+                />
+                <ContextValue label="会话 ID" value={store.sessionId || "尚未开始"} mono />
+              </dl>
+            </details>
           </SettingSection>
           <SettingSection title="外观">
             <div className="space-y-4">
-              <label className="block space-y-2">
-                <span className="text-xs font-medium text-slate-600 dark:text-slate-300">
+              <fieldset className="block space-y-2">
+                <legend className="text-xs font-medium text-slate-600 dark:text-slate-300">
                   主题
-                </span>
+                </legend>
                 <div className="grid grid-cols-3 gap-2">
                   {(["light", "dark", "system"] as const).map((theme) => (
                     <button
@@ -139,7 +178,7 @@ export function SettingsPage() {
                     </button>
                   ))}
                 </div>
-              </label>
+              </fieldset>
               <ToggleRow
                 label="减少动画"
                 checked={store.preferences.reducedMotion}
@@ -204,10 +243,12 @@ export function SettingsPage() {
               </label>
             </div>
           </SettingSection>
+        </div>
+        <div className="space-y-5">
           <SettingSection title="本地学习偏好">
             <div className="space-y-4">
               <p className="rounded-lg bg-indigo-50 px-3 py-2 text-xs leading-5 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300">
-                这些偏好只保存在本设备。后端目前没有对应字段，KnowTier 不会将它们显示成服务器配置。
+                这些偏好只影响当前设备，可随时恢复或调整。
               </p>
               <label className="block space-y-2">
                 <span className="text-xs font-medium text-slate-600 dark:text-slate-300">
@@ -301,8 +342,7 @@ export function SettingsPage() {
               </label>
             </div>
           </SettingSection>
-        </section>
-        <section className="rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+          <section className="rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
           <div className="mb-4 flex items-center gap-2">
             <HeartPulse className="h-4 w-4 text-[#3157D5]" />
             <h2 className="text-base font-semibold">系统健康状态</h2>
@@ -313,15 +353,22 @@ export function SettingsPage() {
                 void readiness.refetch();
               }}
               className="quiet-button ml-auto min-h-8 px-2"
-              aria-label="刷新健康状态"
+              disabled={health.isFetching || readiness.isFetching}
+              aria-label={
+                health.isFetching || readiness.isFetching
+                  ? "正在刷新健康状态"
+                  : "刷新健康状态"
+              }
             >
-              <RotateCcw className="h-3.5 w-3.5" />
+              <RotateCcw
+                className={`h-3.5 w-3.5 ${health.isFetching || readiness.isFetching ? "animate-spin" : ""}`}
+              />
             </button>
           </div>
           <div className="grid gap-3 sm:grid-cols-3">
             <HealthCard
-              label="Health"
-              loading={health.isLoading}
+              label="应用服务"
+              loading={health.isFetching}
               ok={health.data?.status === "ok"}
               detail={
                 health.data?.status === "ok"
@@ -332,16 +379,16 @@ export function SettingsPage() {
               }
             />
             <HealthCard
-              label="PostgreSQL"
-              loading={readiness.isLoading}
+              label="学习数据"
+              loading={readiness.isFetching}
               ok={readiness.data?.postgres === true}
               detail={String(
                 readiness.data?.postgres === true ? "已连接" : "未准备",
               )}
             />
             <HealthCard
-              label="Neo4j"
-              loading={readiness.isLoading}
+              label="知识图谱"
+              loading={readiness.isFetching}
               ok={readiness.data?.neo4j === true}
               detail={String(
                 readiness.data?.neo4j === true ? "已连接" : "未准备",
@@ -357,10 +404,10 @@ export function SettingsPage() {
             </div>
           )}
           <p className="mt-4 text-[11px] leading-5 text-slate-600 dark:text-slate-400">
-            健康探针来自 `/health` 和 `/ready`。后端没有结构化模型/OCR/Vision
-            故障码，摄取失败详情请查看资料警告。
+            若任一项未准备，请刷新重试；资料处理问题会在对应资料详情中显示。
           </p>
-        </section>
+          </section>
+        </div>
       </div>
       <section className="mt-5 rounded-xl border border-red-200 bg-white p-5 dark:border-red-900/50 dark:bg-slate-900">
         <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
@@ -369,8 +416,7 @@ export function SettingsPage() {
               本设备记录
             </h2>
             <p className="mt-1 text-xs text-slate-500">
-              清除 Workspace、Learner、Document 和 Session
-              的本地索引，不影响服务器数据。
+              清除最近使用的学习空间、学习者、资料和会话记录，不会删除学习数据。
             </p>
           </div>
           <button
@@ -378,7 +424,7 @@ export function SettingsPage() {
             onClick={() => {
               if (
                 window.confirm(
-                  "清除本设备保存的 Workspace、Learner、Document 与 Session 索引？服务器数据不会删除。",
+                  "清除本设备保存的学习空间、学习者、资料与会话记录？学习数据不会删除。",
                 )
               ) {
                 store.clearLocalHistory();
@@ -391,17 +437,17 @@ export function SettingsPage() {
           </button>
         </div>
       </section>
-      <p className="mt-5 text-xs text-slate-600 dark:text-slate-400">
-        API 文档：
+      <details className="mt-5 text-xs text-slate-600 dark:text-slate-400">
+        <summary className="cursor-pointer font-medium">开发者工具</summary>
         <a
-          className="inline-flex items-center gap-1 text-[#3157D5]"
+          className="mt-2 inline-flex items-center gap-1 text-[#3157D5]"
           href={`${store.preferences.apiBaseUrl.replace(/\/$/, "")}/docs`}
           target="_blank"
           rel="noreferrer"
         >
-          打开 Swagger UI <ExternalLink className="h-3 w-3" />
+          打开 API 文档 <ExternalLink className="h-3 w-3" />
         </a>
-      </p>
+      </details>
     </div>
   );
 }

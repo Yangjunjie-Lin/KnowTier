@@ -9,11 +9,11 @@ import type {
 import { cn } from "@/lib/utils";
 
 function percentage(value: number | null): string {
-  return value === null ? "后端未提供" : `${Math.round(value * 100)}%`;
+  return value === null ? "待评估" : `${Math.round(value * 100)}%`;
 }
 
 function dateLabel(value: string | null): string {
-  if (!value) return "后端未提供";
+  if (!value) return "时间未知";
   const parsed = new Date(value);
   return Number.isNaN(parsed.getTime())
     ? value
@@ -60,10 +60,10 @@ function EvidenceCard({ item }: { item: EvidenceInsight }) {
           ))}
         </dl>
       ) : (
-        <p className="mt-2 text-[11px] text-slate-400">后端未提供评分维度</p>
+        <p className="mt-2 text-[11px] text-slate-400">暂无评分维度</p>
       )}
       <p className="mt-2 text-[11px] leading-5 text-slate-500">
-        回答摘要：{item.answerSummary ?? "后端未提供"}
+        回答摘要：{item.answerSummary ?? "暂无摘要"}
       </p>
       <button
         type="button"
@@ -78,14 +78,14 @@ function EvidenceCard({ item }: { item: EvidenceInsight }) {
       </button>
       {expanded && (
         <div className="mt-2 space-y-1 rounded-lg bg-slate-50 p-2 text-[11px] leading-5 text-slate-500 dark:bg-slate-800/60">
-          <p>评分说明：{item.graderExplanation ?? "后端未提供"}</p>
+          <p>评分说明：{item.graderExplanation ?? "暂无说明"}</p>
           <p>创建时间：{dateLabel(item.createdAt)}</p>
-          <p>Session：{item.sessionId ? item.sessionId.slice(0, 8) : "后端未提供"}</p>
-          <p>Turn：{item.turnId ? item.turnId.slice(0, 8) : "后端未提供"}</p>
+          <p>会话：{item.sessionId ? item.sessionId.slice(0, 8) : "未记录"}</p>
+          <p>轮次：{item.turnId ? item.turnId.slice(0, 8) : "未记录"}</p>
           <p>
             用于当前掌握判断：
             {item.isUsedForCurrentMastery === null
-              ? "后端未提供"
+              ? "状态未知"
               : item.isUsedForCurrentMastery
                 ? "是"
                 : "否"}

@@ -1,6 +1,7 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   ArrowRight,
+  ChevronDown,
   FileText,
   FolderOpen,
   LoaderCircle,
@@ -11,7 +12,7 @@ import { useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
-import { formatDate, isUuid } from "@/lib/utils";
+import { formatDate, formatMimeType, isUuid } from "@/lib/utils";
 import { useAppStore, documentsForWorkspace } from "@/stores/AppContext";
 import {
   EmptyState,
@@ -65,8 +66,8 @@ export function MaterialsPage() {
   if (!currentWorkspace)
     return (
       <EmptyState
-        title="尚未选择 Workspace"
-        description="连接 Workspace 后才能上传资料。"
+        title="尚未选择学习空间"
+        description="连接学习空间后才能上传资料。"
         action={
           <Link to="/init" className="primary-button">
             去初始化
@@ -87,9 +88,9 @@ export function MaterialsPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Knowledge library"
+        eyebrow="资料管理"
         title="资料库"
-        description="上传和摄取分为两个真实步骤；最近记录仅保存在本设备。"
+        description="上传资料后即可提取知识并用于学习；最近打开记录保存在本设备。"
         actions={
           <button
             type="button"
@@ -112,6 +113,8 @@ export function MaterialsPage() {
           const file = event.target.files?.[0];
           if (file) {
             lastUploadRef.current = file;
+            setUploadError(null);
+            setErrorSource(null);
             upload.mutate(file);
           }
           event.target.value = "";
@@ -131,59 +134,86 @@ export function MaterialsPage() {
               errorSource === "upload" && lastUploadRef.current
                 ? () => {
                     const file = lastUploadRef.current;
-                    if (file) upload.mutate(file);
+                    if (file) {
+                      setUploadError(null);
+                      setErrorSource(null);
+                      upload.mutate(file);
+                    }
                   }
                 : undefined
             }
           />
         </div>
       )}
-      <div className="toolbar-card mb-5 grid gap-3 md:grid-cols-[1fr_auto]">
+      <div className="toolbar-card mb-5 grid gap-3 md:grid-cols-[1fr_auto] md:items-start">
         <div className="relative">
           <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-600 dark:text-slate-400" />
           <input
             aria-label="搜索最近资料"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder="搜索本设备最近资料或 Document ID"
+            placeholder="搜索最近资料"
             className="form-input pl-9"
           />
         </div>
-        <div className="flex gap-2">
-          <input
-            aria-label="手动打开 Document UUID"
-            value={manualId}
-            onChange={(event) => setManualId(event.target.value)}
-            placeholder="手动打开 UUID"
-            className="form-input min-w-0 font-mono text-xs md:w-64"
-          />
-          <button
-            type="button"
-            onClick={openManual}
-            className="secondary-button shrink-0"
-          >
-            <FolderOpen className="h-4 w-4" />
-            打开
-          </button>
-        </div>
+        <details className="group md:w-72">
+          <summary className="secondary-button w-full cursor-pointer list-none justify-between [&::-webkit-details-marker]:hidden">
+            <span className="inline-flex items-center gap-2">
+              <FolderOpen className="h-4 w-4" />
+              按资料 ID 打开
+            </span>
+            <ChevronDown className="h-4 w-4 transition-transform group-open:rotate-180" />
+          </summary>
+          <div className="mt-2 flex gap-2">
+            <input
+              aria-label="手动打开资料 UUID"
+              value={manualId}
+              onChange={(event) => setManualId(event.target.value)}
+              placeholder="粘贴资料 UUID"
+              className="form-input min-w-0 font-mono text-xs"
+            />
+            <button
+              type="button"
+              onClick={openManual}
+              className="secondary-button shrink-0"
+            >
+              打开
+            </button>
+          </div>
+        </details>
       </div>
       <section className="surface-card overflow-hidden">
         <div className="flex items-start justify-between gap-3 border-b border-slate-100 px-4 py-4 sm:items-center sm:px-5 dark:border-slate-800">
           <div>
-            <h2 className="text-base font-semibold">本设备最近上传</h2>
+            <h2 className="text-base font-semibold">最近资料</h2>
             <p className="mt-1 text-xs text-slate-500">
-              后端当前没有 Document 列表接口，因此这里不伪造服务器列表。
+              继续处理最近打开的资料，或在上方上传新文件。
             </p>
           </div>
           <span className="font-mono text-xs text-slate-600 dark:text-slate-400">
-            {docs.length} items
+            {docs.length} 份
           </span>
         </div>
         {docs.length === 0 ? (
           <div className="p-5">
             <EmptyState
-              title="暂无本设备记录"
-              description="上传一个支持的文件，或手动输入已有 Document ID。"
+              title={query.trim() ? "没有匹配的资料" : "暂无本设备记录"}
+              description={
+                query.trim()
+                  ? `最近资料中没有与“${query.trim()}”匹配的记录。`
+                  : "上传一个支持的文件，或按资料 ID 打开已有资料。"
+              }
+              action={
+                query.trim() ? (
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={() => setQuery("")}
+                  >
+                    清除搜索
+                  </button>
+                ) : undefined
+              }
             />
           </div>
         ) : (
@@ -201,13 +231,15 @@ export function MaterialsPage() {
                     <p className="truncate text-sm font-medium">
                       {doc.filename}
                     </p>
-                    <p className="mt-0.5 truncate font-mono text-[10px] text-slate-600 dark:text-slate-400">
-                      {doc.id} · {doc.mimeType} ·{" "}
-                      {formatDate(doc.createdAt, true)}
+                    <p className="mt-0.5 truncate text-[11px] text-slate-600 dark:text-slate-400">
+                      {formatMimeType(doc.mimeType)} · {formatDate(doc.createdAt, true)}
+                      <span className="hidden font-mono sm:inline">
+                        {` · ID ${doc.id.slice(0, 8)}`}
+                      </span>
                     </p>
                   </div>
                 </div>
-                <div className="flex items-center gap-3 text-xs text-slate-500">
+                <div className="flex items-center gap-2 text-xs text-slate-500 sm:justify-end">
                   <DocumentStatus status={doc.status} />
                   <span className="hidden sm:inline">本地记录</span>
                   <Link
@@ -226,7 +258,7 @@ export function MaterialsPage() {
       </section>
       <p className="mt-4 text-[11px] text-slate-600 dark:text-slate-400">
         支持 PDF、DOCX、PPTX、TXT、Markdown、PNG、JPEG、TIFF 和扫描
-        PDF（是否启用 OCR 由后端运行配置决定）。
+        PDF；扫描件识别能力取决于当前 OCR 配置。
       </p>
     </div>
   );

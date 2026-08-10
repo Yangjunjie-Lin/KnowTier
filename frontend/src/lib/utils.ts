@@ -25,6 +25,24 @@ export function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
+const mimeTypeLabels: Record<string, string> = {
+  "application/pdf": "PDF 文档",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
+    "Word 文档",
+  "application/vnd.openxmlformats-officedocument.presentationml.presentation":
+    "PowerPoint 演示文稿",
+  "text/plain": "文本文档",
+  "text/markdown": "Markdown 文档",
+  "image/png": "PNG 图像",
+  "image/jpeg": "JPEG 图像",
+  "image/tiff": "TIFF 图像",
+};
+
+export function formatMimeType(value: string | null | undefined): string {
+  if (!value) return "文件";
+  return mimeTypeLabels[value.trim().toLowerCase()] ?? "文件";
+}
+
 export function percent(value: number | null | undefined): number {
   if (value === null || value === undefined || Number.isNaN(value)) return 0;
   return Math.max(0, Math.min(100, value <= 1 ? value * 100 : value));

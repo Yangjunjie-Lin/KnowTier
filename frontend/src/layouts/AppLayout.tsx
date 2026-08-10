@@ -18,8 +18,27 @@ export function AppLayout() {
   }, [location.pathname]);
 
   useEffect(() => {
+    const desktopViewport = window.matchMedia("(min-width: 1024px)");
+    const closeAtDesktop = () => {
+      if (!desktopViewport.matches) return;
+      const activeElement = document.activeElement;
+      if (
+        activeElement instanceof HTMLElement &&
+        mobileNavigationRef.current?.contains(activeElement)
+      ) {
+        activeElement.blur();
+      }
+      setMobileOpen(false);
+    };
+    closeAtDesktop();
+    desktopViewport.addEventListener("change", closeAtDesktop);
+    return () => desktopViewport.removeEventListener("change", closeAtDesktop);
+  }, []);
+
+  useEffect(() => {
     if (!mobileOpen) return;
     const previousOverflow = document.body.style.overflow;
+    const previousRootOverflow = document.documentElement.style.overflow;
     const previousFocus = document.activeElement;
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key === "Escape") {
@@ -44,6 +63,7 @@ export function AppLayout() {
         first.focus();
       }
     };
+    document.documentElement.style.overflow = "hidden";
     document.body.style.overflow = "hidden";
     window.addEventListener("keydown", closeOnEscape);
     const focusFrame = window.requestAnimationFrame(() => {
@@ -54,13 +74,35 @@ export function AppLayout() {
     return () => {
       window.cancelAnimationFrame(focusFrame);
       document.body.style.overflow = previousOverflow;
+      document.documentElement.style.overflow = previousRootOverflow;
       window.removeEventListener("keydown", closeOnEscape);
-      if (previousFocus instanceof HTMLElement) previousFocus.focus();
+      if (
+        previousFocus instanceof HTMLElement &&
+        previousFocus.isConnected &&
+        !window.matchMedia("(min-width: 1024px)").matches
+      ) {
+        previousFocus.focus();
+      }
     };
   }, [mobileOpen]);
 
+  const focusMainContent = (event: React.MouseEvent<HTMLAnchorElement>) => {
+    const main = document.getElementById("main-content");
+    if (!main) return;
+    event.preventDefault();
+    main.focus();
+    main.scrollIntoView?.({ block: "start" });
+  };
+
   return (
-    <div className="relative min-h-screen overflow-x-clip bg-[#F5F7FB] text-slate-900 dark:bg-slate-950 dark:text-slate-100">
+    <div className="relative isolate min-h-screen min-h-dvh overflow-x-clip bg-[#F5F7FB] text-slate-900 dark:bg-slate-950 dark:text-slate-100">
+      <a
+        href="#main-content"
+        onClick={focusMainContent}
+        className="fixed left-3 top-3 z-[60] -translate-y-20 rounded-lg bg-[#3157D5] px-4 py-2.5 text-sm font-semibold text-white shadow-lg transition-transform focus:translate-y-0 focus:outline-none focus:ring-2 focus:ring-[#3157D5] focus:ring-offset-2 dark:focus:ring-offset-slate-950"
+      >
+        跳到主要内容
+      </a>
       <div
         aria-hidden="true"
         className="pointer-events-none fixed inset-x-0 top-0 h-80 bg-[radial-gradient(circle_at_78%_-20%,rgba(99,123,238,0.10),transparent_50%)] dark:opacity-30"
@@ -71,7 +113,7 @@ export function AppLayout() {
       />
       <div
         className={cn(
-          "relative min-h-screen min-w-0 transition-[margin] duration-200 lg:ml-60",
+          "relative min-h-screen min-h-dvh min-w-0 transition-[margin] duration-200 lg:ml-60",
           collapsed && "lg:ml-16",
         )}
       >
@@ -81,7 +123,7 @@ export function AppLayout() {
         />
         {mobileOpen && (
           <div
-            className="fixed inset-0 z-40 bg-slate-950/45 backdrop-blur-[2px] lg:hidden"
+            className="fixed inset-0 z-40 overscroll-contain bg-slate-950/45 backdrop-blur-[2px] lg:hidden"
             onClick={() => setMobileOpen(false)}
             role="presentation"
           >
@@ -90,8 +132,8 @@ export function AppLayout() {
               id="mobile-navigation"
               role="dialog"
               aria-modal="true"
-              aria-label="移动端主导航"
-              className="h-full w-[min(19rem,86vw)] border-r border-slate-200 bg-white p-4 shadow-2xl dark:border-slate-800 dark:bg-slate-950"
+              aria-labelledby="mobile-navigation-title"
+              className="h-full max-h-dvh w-[min(19rem,86vw)] overflow-y-auto overscroll-contain border-r border-slate-200 bg-white p-4 pb-[max(1rem,env(safe-area-inset-bottom))] pt-[max(1rem,env(safe-area-inset-top))] shadow-2xl dark:border-slate-800 dark:bg-slate-950"
               onClick={(event) => event.stopPropagation()}
             >
               <div className="mb-6 flex items-center justify-between px-1">
@@ -100,7 +142,12 @@ export function AppLayout() {
                     K
                   </span>
                   <div>
-                    <p className="text-sm font-semibold tracking-tight">KnowTier</p>
+                    <p
+                      id="mobile-navigation-title"
+                      className="text-sm font-semibold tracking-tight"
+                    >
+                      KnowTier 移动端主导航
+                    </p>
                     <p className="text-[11px] text-slate-500">认知学习工作台</p>
                   </div>
                 </div>
@@ -123,7 +170,7 @@ export function AppLayout() {
                       onClick={() => setMobileOpen(false)}
                       className={({ isActive }) =>
                         cn(
-                          "flex min-h-11 items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors focus:outline-none focus:ring-2 focus:ring-[#3157D5]/40",
+                          "flex min-h-11 items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3157D5]/40",
                           isActive
                             ? "bg-indigo-50 text-[#3157D5] dark:bg-indigo-950/60 dark:text-indigo-300"
                             : "text-slate-600 hover:bg-slate-50 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-900",
@@ -139,7 +186,11 @@ export function AppLayout() {
             </aside>
           </div>
         )}
-        <main className="mx-auto w-full min-w-0 max-w-[1600px] px-4 py-5 pb-[calc(5.75rem+env(safe-area-inset-bottom))] sm:px-6 sm:py-6 lg:px-8 lg:py-7 lg:pb-8 xl:px-10">
+        <main
+          id="main-content"
+          tabIndex={-1}
+          className="mx-auto w-full min-w-0 max-w-[1600px] scroll-mt-20 px-4 py-5 pb-[calc(5.75rem+env(safe-area-inset-bottom))] focus:outline-none sm:px-6 sm:py-6 lg:px-8 lg:py-7 lg:pb-8 xl:px-10"
+        >
           <Outlet />
         </main>
       </div>
