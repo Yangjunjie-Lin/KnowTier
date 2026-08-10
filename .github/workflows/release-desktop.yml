@@ -664,6 +664,7 @@ jobs:
           if (-not (Test-Path -LiteralPath $installedExe)) {
             throw "installed KnowTier executable was not found under $installDir"
           }
+          python scripts/desktop/check_windows_gui.py $installedExe
           $privacy = @(Get-ChildItem -Path $installDir -Filter "PRIVACY.md" -Recurse -File)
           if ($privacy.Count -ne 1) { throw "installed bundle does not contain exactly one PRIVACY.md" }
           $installedSidecars = @(Get-ChildItem -Path $installDir `

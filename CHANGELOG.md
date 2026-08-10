@@ -30,6 +30,8 @@ All notable changes to KnowTier are documented in this file. The format is based
 
 ### Fixed
 
+- Built the Windows desktop shell as a GUI-subsystem executable so double-clicking the app no
+  longer opens a terminal window; the release gate now rejects a console-subsystem main binary.
 - Prevented model-profile hydration from overwriting fast user edits, and preserved custom profile
   names when switching Providers.
 - Delayed the post-setup overview transition until the created Learner context is active, avoiding
