@@ -1147,6 +1147,7 @@ jobs:
             gh release upload "$tag" release-assets/* \
               --repo "$GITHUB_REPOSITORY" --clobber
             gh release edit "$tag" --repo "$GITHUB_REPOSITORY" \
+              --target "$GITHUB_SHA" \
               --draft --prerelease --title "KnowTier Desktop $tag" --notes-file release-notes.md
           else
             gh release create "$tag" release-assets/* \
@@ -1161,5 +1162,10 @@ jobs:
           final_state="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft)"
           if [[ "$final_state" != "true" ]]; then
             echo "Release $tag is not a draft after the release operation; refusing success." >&2
+            exit 1
+          fi
+          final_target="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json targetCommitish --jq .targetCommitish)"
+          if [[ "$final_target" != "$GITHUB_SHA" ]]; then
+            echo "Release $tag targets $final_target instead of the built commit $GITHUB_SHA." >&2
             exit 1
           fi
