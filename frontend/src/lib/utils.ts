@@ -7,12 +7,13 @@ export function cn(
 export function formatDate(
   value: string | null | undefined,
   withTime = false,
+  locale: "zh-CN" | "en" = "zh-CN",
 ): string {
-  if (!value) return "暂无";
+  if (!value) return locale === "en" ? "None yet" : "暂无";
   const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return "暂无";
+  if (Number.isNaN(date.getTime())) return locale === "en" ? "None yet" : "暂无";
   return new Intl.DateTimeFormat(
-    "zh-CN",
+    locale === "en" ? "en" : "zh-CN",
     withTime
       ? { dateStyle: "medium", timeStyle: "short" }
       : { dateStyle: "medium" },
@@ -25,22 +26,26 @@ export function formatBytes(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-const mimeTypeLabels: Record<string, string> = {
-  "application/pdf": "PDF 文档",
+const mimeTypeLabels: Record<string, [string, string]> = {
+  "application/pdf": ["PDF 文档", "PDF document"],
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document":
-    "Word 文档",
+    ["Word 文档", "Word document"],
   "application/vnd.openxmlformats-officedocument.presentationml.presentation":
-    "PowerPoint 演示文稿",
-  "text/plain": "文本文档",
-  "text/markdown": "Markdown 文档",
-  "image/png": "PNG 图像",
-  "image/jpeg": "JPEG 图像",
-  "image/tiff": "TIFF 图像",
+    ["PowerPoint 演示文稿", "PowerPoint presentation"],
+  "text/plain": ["文本文档", "Text document"],
+  "text/markdown": ["Markdown 文档", "Markdown document"],
+  "image/png": ["PNG 图像", "PNG image"],
+  "image/jpeg": ["JPEG 图像", "JPEG image"],
+  "image/tiff": ["TIFF 图像", "TIFF image"],
 };
 
-export function formatMimeType(value: string | null | undefined): string {
-  if (!value) return "文件";
-  return mimeTypeLabels[value.trim().toLowerCase()] ?? "文件";
+export function formatMimeType(
+  value: string | null | undefined,
+  locale: "zh-CN" | "en" = "zh-CN",
+): string {
+  const fallback = locale === "en" ? "File" : "文件";
+  if (!value) return fallback;
+  return mimeTypeLabels[value.trim().toLowerCase()]?.[locale === "en" ? 1 : 0] ?? fallback;
 }
 
 export function percent(value: number | null | undefined): number {

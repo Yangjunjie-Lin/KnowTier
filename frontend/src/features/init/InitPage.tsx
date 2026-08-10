@@ -3,31 +3,34 @@ import {
   Check,
   ChevronRight,
   KeyRound,
+  Languages,
   LoaderCircle,
   Plus,
   UserRound,
 } from "lucide-react";
 import { useState, type ChangeEvent } from "react";
+import { flushSync } from "react-dom";
 import { useForm } from "react-hook-form";
 import { z } from "zod";
 import { useNavigate } from "react-router-dom";
 import { api } from "@/services/api";
-import { ApiError } from "@/lib/api/errors";
+import { ApiError, UserFacingError } from "@/lib/api/errors";
 import { isUuid } from "@/lib/utils";
 import { useAppStore } from "@/stores/AppContext";
 import { ErrorState } from "@/components/shared/States";
+import { useI18n } from "@/lib/i18n";
 
 const workspaceSchema = z.object({
-  name: z.string().trim().min(1, "请输入学习空间名称").max(200),
+  name: z.string().trim().min(1, "请输入学习空间名称 / Enter a workspace name").max(200),
   slug: z
     .string()
     .trim()
-    .regex(/^[a-z0-9][a-z0-9-]*$/, "Slug 只能使用小写字母、数字和连字符"),
+    .regex(/^[a-z0-9][a-z0-9-]*$/, "空间标识只能使用小写字母、数字和连字符 / Use lowercase letters, numbers, and hyphens"),
   default_language: z.string().min(2),
   provisioningToken: z.string().optional(),
 });
 const learnerSchema = z.object({
-  display_name: z.string().trim().min(1, "请输入学习者名称").max(200),
+  display_name: z.string().trim().min(1, "请输入学习者名称 / Enter a learner name").max(200),
   language: z.string().min(2),
 });
 type WorkspaceValues = z.infer<typeof workspaceSchema>;
@@ -54,6 +57,7 @@ function workspaceSlugFromName(name: string): string {
 }
 
 export function InitPage() {
+  const { locale, setLocale, pick, t } = useI18n();
   const navigate = useNavigate();
   const {
     currentWorkspace,
@@ -121,7 +125,7 @@ export function InitPage() {
   const chooseExistingWorkspace = () => {
     const id = existingWorkspaceId.trim();
     if (!isUuid(id)) {
-      setError(new Error("请输入有效的学习空间 ID。"));
+      setError(new UserFacingError(pick("请输入有效的学习空间标识。", "Enter a valid workspace identifier.")));
       return;
     }
     void connectExistingWorkspace(id);
@@ -129,7 +133,7 @@ export function InitPage() {
 
   const handleLearner = async (values: LearnerValues) => {
     if (!currentWorkspace) {
-      setError(new Error("请先选择学习空间。"));
+      setError(new UserFacingError(pick("请先选择学习空间。", "Select a workspace first.")));
       return;
     }
     setBusy(true);
@@ -139,7 +143,7 @@ export function InitPage() {
         workspace_id: currentWorkspace.id,
         ...values,
       });
-      setLearner(learner);
+      flushSync(() => setLearner(learner));
       void navigate("/overview");
     } catch (requestError) {
       setError(requestError);
@@ -151,7 +155,7 @@ export function InitPage() {
   const verifyExistingLearner = async (id = existingLearnerId) => {
     const learnerId = id.trim();
     if (!currentWorkspace || !isUuid(learnerId)) {
-      setError(new Error("请输入有效的学习者 UUID。"));
+      setError(new UserFacingError(pick("请输入有效的学习者标识。", "Enter a valid learner identifier.")));
       return;
     }
     setBusy(true);
@@ -160,11 +164,11 @@ export function InitPage() {
       const learner = await api.getLearner(learnerId);
       if (learner.workspace_id !== currentWorkspace.id)
         throw new ApiError({
-          message: "该学习者不属于当前学习空间。",
+          message: pick("该学习者不属于当前学习空间。", "This learner does not belong to the current workspace."),
           status: 403,
           kind: "forbidden",
         });
-      setLearner(learner);
+      flushSync(() => setLearner(learner));
       void navigate("/overview");
     } catch (requestError) {
       setError(requestError);
@@ -184,25 +188,38 @@ export function InitPage() {
             <p className="font-semibold text-slate-900 dark:text-white">
               KnowTier
             </p>
-            <p className="text-xs text-slate-500">认知学习工作台</p>
+            <p className="text-xs text-slate-500">{t("shell.productTagline")}</p>
           </div>
+          <label className="ml-auto inline-flex items-center gap-2 rounded-xl border border-slate-200 bg-white px-3 py-2 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300">
+            <Languages className="h-4 w-4" aria-hidden="true" />
+            <span className="sr-only">{t("shell.interfaceLanguage")}</span>
+            <select
+              value={locale}
+              onChange={(event) => setLocale(event.target.value === "en" ? "en" : "zh-CN")}
+              className="bg-transparent font-medium outline-none"
+              aria-label={t("shell.interfaceLanguage")}
+            >
+              <option value="zh-CN">中文</option>
+              <option value="en">English</option>
+            </select>
+          </label>
         </div>
         <div className="grid gap-5 lg:grid-cols-[1fr_1.25fr] lg:gap-8">
           <section className="pt-3">
             <p className="mb-3 text-xs font-medium uppercase tracking-[0.16em] text-[#3157D5]">
-              开始使用
+              {pick("开始使用", "Get started")}
             </p>
             <h1 className="text-3xl font-semibold tracking-tight text-slate-900 dark:text-white">
-              建立你的学习空间
+              {pick("建立你的学习空间", "Set up your learning workspace")}
             </h1>
             <p className="mt-3 max-w-md text-sm leading-6 text-slate-500">
-              创建学习空间和个人档案后，即可上传资料、开始学习并持续追踪掌握变化。
+              {pick("创建学习空间和个人档案后，即可上传资料、开始学习并持续追踪掌握变化。", "Create a workspace and learner profile, then upload materials, start learning, and track progress over time.")}
             </p>
             <div className="mt-8 hidden space-y-4 sm:block">
               {[
-                "资料、对话与知识域彼此隔离",
-                "六级认知层级追踪",
-                "可追溯的学习者图谱",
+                pick("资料、对话与知识域彼此隔离", "Materials, conversations, and domains stay isolated"),
+                pick("六级认知层级追踪", "Six-level cognitive progress tracking"),
+                pick("可追溯的学习者图谱", "Traceable learner knowledge map"),
               ].map((item, index) => (
                 <div
                   key={item}
@@ -220,10 +237,10 @@ export function InitPage() {
             </div>
           </section>
           <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm dark:border-slate-800 dark:bg-slate-900 sm:p-8" aria-busy={busy}>
-            <ol className="mb-6 grid grid-cols-2 gap-2" aria-label="设置进度">
+            <ol className="mb-6 grid grid-cols-2 gap-2" aria-label={pick("设置进度", "Setup progress")}>
               {[
-                { id: "workspace", number: "1", label: "学习空间" },
-                { id: "learner", number: "2", label: "学习者" },
+                { id: "workspace", number: "1", label: pick("学习空间", "Workspace") },
+                { id: "learner", number: "2", label: pick("学习者", "Learner") },
               ].map((item) => {
                 const active = step === item.id;
                 const complete = step === "learner" && item.id === "workspace";
@@ -303,6 +320,7 @@ function WorkspaceStep({
     workspace: ReturnType<typeof useAppStore>["recentWorkspaces"][number],
   ) => void;
 }) {
+  const { pick } = useI18n();
   const {
     register,
     handleSubmit,
@@ -325,37 +343,37 @@ function WorkspaceStep({
     <div>
       <div className="mb-6">
         <h2 className="text-xl font-semibold text-slate-900 dark:text-white">
-          学习空间
+          {pick("学习空间", "Workspace")}
         </h2>
         <p className="mt-1 text-sm text-slate-500">
-          创建一个空间来归档你的资料、对话与学习记录。
+          {pick("创建一个空间来归档你的资料、对话与学习记录。", "Create a workspace for your materials, conversations, and learning records.")}
         </p>
       </div>
       <form
         className="space-y-4"
         onSubmit={(event) => void handleSubmit(onSubmit)(event)}
       >
-        <Field label="名称" error={errors.name?.message}>
+        <Field label={pick("名称", "Name")} error={errors.name?.message}>
           <input
             {...nameField}
-            placeholder="例如：机器学习基础"
+            placeholder={pick("例如：机器学习基础", "For example: Machine learning basics")}
             className="form-input"
             autoFocus
           />
         </Field>
-        <Field label="默认语言">
+        <Field label={pick("默认学习语言", "Default learning language")}>
           <select {...register("default_language")} className="form-input">
-            <option value="zh-CN">简体中文</option>
+            <option value="zh-CN">中文</option>
             <option value="en">English</option>
           </select>
         </Field>
         <details className="rounded-xl border border-slate-200 px-3 py-2 dark:border-slate-700">
           <summary className="cursor-pointer text-xs font-medium text-slate-600 dark:text-slate-300">
-            高级设置（通常无需修改）
+            {pick("高级设置（通常无需修改）", "Advanced settings (usually unchanged)")}
           </summary>
           <div className="mt-3 space-y-4">
             <Field
-              label="空间标识（已自动生成，可修改）"
+              label={pick("空间标识（已自动生成，可修改）", "Workspace identifier (generated automatically)")}
               error={errors.slug?.message}
             >
               <input
@@ -364,14 +382,14 @@ function WorkspaceStep({
                 className="form-input font-mono text-xs"
               />
             </Field>
-            <Field label="部署凭据（如管理员提供）">
+            <Field label={pick("部署凭据（如管理员提供）", "Provisioning credential (if provided by an administrator)")}>
               <div className="relative">
                 <KeyRound className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-slate-400" />
                 <input
                   {...register("provisioningToken")}
                   type="password"
                   autoComplete="off"
-                  placeholder="仅用于本次创建"
+                  placeholder={pick("仅用于本次创建", "Used only for this request")}
                   className="form-input pl-9"
                 />
               </div>
@@ -384,20 +402,20 @@ function WorkspaceStep({
           ) : (
             <Plus className="h-4 w-4" />
           )}
-          创建学习空间
+          {pick("创建学习空间", "Create workspace")}
           <ChevronRight className="ml-auto h-4 w-4" />
         </button>
       </form>
       <div className="my-6 flex items-center gap-3 text-xs text-slate-400">
         <span className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
-        或使用已有学习空间
+        {pick("或使用已有学习空间", "Or connect an existing workspace")}
         <span className="h-px flex-1 bg-slate-200 dark:bg-slate-700" />
       </div>
       <div className="flex gap-2">
         <input
           value={existingId}
           onChange={(event) => setExistingId(event.target.value)}
-          placeholder="学习空间 ID"
+          placeholder={pick("学习空间标识", "Workspace ID")}
           className="form-input font-mono text-xs"
         />
         <button
@@ -406,13 +424,13 @@ function WorkspaceStep({
           disabled={busy}
           className="secondary-button shrink-0"
         >
-          连接
+          {pick("连接", "Connect")}
         </button>
       </div>
       {recent.length > 0 && (
         <div className="mt-6">
           <p className="mb-2 text-xs font-medium text-slate-500">
-            本设备最近使用
+            {pick("本设备最近使用", "Recently used on this device")}
           </p>
           <div className="space-y-1">
             {recent.slice(0, 4).map((workspace) => (
@@ -424,9 +442,7 @@ function WorkspaceStep({
                 className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm hover:bg-indigo-50 dark:hover:bg-indigo-950/50"
               >
                 <span className="truncate">{workspace.name}</span>
-                <span className="font-mono text-[10px] text-slate-400">
-                  {workspace.id.slice(0, 8)}
-                </span>
+                <ChevronRight className="h-4 w-4 text-slate-400" aria-hidden="true" />
               </button>
             ))}
           </div>
@@ -459,6 +475,7 @@ function LearnerStep({
   onVerify: (id?: string) => Promise<void>;
   onBack: () => void;
 }) {
+  const { pick } = useI18n();
   const {
     register,
     handleSubmit,
@@ -469,10 +486,10 @@ function LearnerStep({
       <div className="mb-5 flex items-start justify-between">
         <div>
           <h2 className="text-xl font-semibold text-slate-900 dark:text-white">
-            学习者
+            {pick("学习者", "Learner")}
           </h2>
           <p className="mt-1 text-sm text-slate-500">
-            创建个人学习档案，或验证已有学习者 ID。
+            {pick("创建个人学习档案，或验证已有学习者标识。", "Create a learner profile or connect an existing learner.")}
           </p>
         </div>
         <button
@@ -480,7 +497,7 @@ function LearnerStep({
           onClick={onBack}
           className="text-xs text-slate-400 hover:text-slate-700"
         >
-          返回学习空间
+          {pick("返回学习空间", "Back to workspace")}
         </button>
       </div>
       <div className="mb-5 grid grid-cols-2 gap-2 rounded-lg bg-slate-100 p-1 dark:bg-slate-800">
@@ -490,7 +507,7 @@ function LearnerStep({
           className={`rounded-md py-2 text-xs font-medium ${mode === "create" ? "bg-white text-[#3157D5] shadow-sm dark:bg-slate-700" : "text-slate-500"}`}
         >
           <Plus className="mr-1 inline h-3.5 w-3.5" />
-          创建学习者
+          {pick("创建学习者", "Create learner")}
         </button>
         <button
           type="button"
@@ -498,7 +515,7 @@ function LearnerStep({
           className={`rounded-md py-2 text-xs font-medium ${mode === "existing" ? "bg-white text-[#3157D5] shadow-sm dark:bg-slate-700" : "text-slate-500"}`}
         >
           <UserRound className="mr-1 inline h-3.5 w-3.5" />
-          验证已有 ID
+          {pick("连接已有学习者", "Connect existing learner")}
         </button>
       </div>
       {mode === "create" ? (
@@ -506,17 +523,17 @@ function LearnerStep({
           className="space-y-4"
           onSubmit={(event) => void handleSubmit(onSubmit)(event)}
         >
-          <Field label="显示名称" error={errors.display_name?.message}>
+          <Field label={pick("显示名称", "Display name")} error={errors.display_name?.message}>
             <input
               {...register("display_name")}
-              placeholder="例如：林同学"
+              placeholder={pick("例如：林同学", "For example: Alex")}
               className="form-input"
               autoFocus
             />
           </Field>
-          <Field label="学习语言">
+          <Field label={pick("学习语言", "Learning language")}>
             <select {...register("language")} className="form-input">
-              <option value="zh-CN">简体中文</option>
+              <option value="zh-CN">中文</option>
               <option value="en">English</option>
             </select>
           </Field>
@@ -530,13 +547,13 @@ function LearnerStep({
             ) : (
               <UserRound className="h-4 w-4" />
             )}
-            创建并进入总览
+            {pick("创建并进入总览", "Create and open overview")}
             <ChevronRight className="ml-auto h-4 w-4" />
           </button>
         </form>
       ) : (
         <div className="space-y-4">
-          <Field label="Learner UUID">
+          <Field label={pick("学习者标识", "Learner ID")}>
             <input
               value={existingId}
               onChange={(event) => setExistingId(event.target.value)}
@@ -556,12 +573,12 @@ function LearnerStep({
             ) : (
               <Check className="h-4 w-4" />
             )}
-            验证并进入总览
+            {pick("验证并进入总览", "Verify and open overview")}
           </button>
           {recent.length > 0 && (
             <div>
               <p className="mb-2 text-xs font-medium text-slate-500">
-                本设备最近学习者
+                {pick("本设备最近学习者", "Recent learners on this device")}
               </p>
               {recent.slice(0, 5).map((learner) => (
                 <button
@@ -574,9 +591,7 @@ function LearnerStep({
                   className="flex w-full items-center justify-between rounded-lg px-3 py-2 text-left text-sm hover:bg-indigo-50 dark:hover:bg-indigo-950/50"
                 >
                   <span>{learner.display_name}</span>
-                  <span className="font-mono text-[10px] text-slate-400">
-                    {learner.id.slice(0, 8)}
-                  </span>
+                  <ChevronRight className="h-4 w-4 text-slate-400" aria-hidden="true" />
                 </button>
               ))}
             </div>

@@ -309,6 +309,17 @@ async function learningPanel(page: Page, name: string): Promise<Locator> {
     await dialog.getByRole("tab", { name, exact: true }).click();
     return dialog.getByRole("region", { name });
   }
+  const desktopDetails = page.getByRole("button", {
+    name: "查看详情",
+    exact: true,
+  });
+  if (await desktopDetails.isVisible()) {
+    await desktopDetails.click();
+    dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("tab", { name, exact: true }).click();
+    return dialog.getByRole("region", { name });
+  }
   return page.getByRole("region", { name });
 }
 
@@ -673,7 +684,7 @@ async function installApiContract(page: Page) {
               ? "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2"
               : "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1",
             switched ? switchedKnowledgePointId : knowledgePointId,
-            switched ? "GRADIENT_APPLICATION" : "BAYES_EXPLANATION",
+            switched ? "APPLICATION" : "EXPLANATION",
             switched ? "把梯度方向弄反了" : "把后验概率当作先验概率",
           ),
           evidenceItem(
@@ -875,11 +886,11 @@ test("initialization, ingestion, tutoring, model and both graph views", async ({
   });
   if (await learningStatusTrigger.isVisible()) {
     await learningStatusTrigger.click();
-    await expect(page.getByRole("dialog")).toContainText("掌握与模型变化");
-    await expect(page.getByRole("dialog")).toContainText("学生关系+1");
+    await expect(page.getByRole("dialog")).toContainText("本轮学习进展");
+    await expect(page.getByRole("dialog")).toContainText("参考来源");
     await closeLearningStatus(page);
   } else {
-    await expect(page.getByText(/版本 77777777/)).toBeVisible();
+    await expect(page.getByText("本轮进展")).toBeVisible();
   }
 
   let prerequisitePanel = await learningPanel(page, "前置知识");
@@ -888,7 +899,7 @@ test("initialization, ingestion, tutoring, model and both graph views", async ({
   let misconceptionPanel = await learningPanel(page, "误解");
   await expect(misconceptionPanel).toContainText("把后验概率当作先验概率");
   let evidencePanel = await learningPanel(page, "掌握证据");
-  await expect(evidencePanel).toContainText("BAYES_EXPLANATION");
+  await expect(evidencePanel).toContainText("解释");
   await expect(evidencePanel).not.toContainText("OTHER_KP_EVIDENCE");
   await expect(evidencePanel).not.toContainText("UNASSOCIATED_EVIDENCE");
   await closeLearningStatus(page);
@@ -905,14 +916,14 @@ test("initialization, ingestion, tutoring, model and both graph views", async ({
   misconceptionPanel = await learningPanel(page, "误解");
   await expect(misconceptionPanel).toContainText("把梯度方向弄反了");
   evidencePanel = await learningPanel(page, "掌握证据");
-  await expect(evidencePanel).toContainText("GRADIENT_APPLICATION");
+  await expect(evidencePanel).toContainText("应用");
   prerequisitePanel = await learningPanel(page, "前置知识");
   await expect(prerequisitePanel).not.toContainText("联合分布基础");
   await expect(prerequisitePanel).not.toContainText("概率公理基础");
   misconceptionPanel = await learningPanel(page, "误解");
   await expect(misconceptionPanel).not.toContainText("把后验概率当作先验概率");
   evidencePanel = await learningPanel(page, "掌握证据");
-  await expect(evidencePanel).not.toContainText("BAYES_EXPLANATION");
+  await expect(evidencePanel).not.toContainText("解释");
   await closeLearningStatus(page);
 
   setEvidenceFailure(true);
@@ -929,7 +940,7 @@ test("initialization, ingestion, tutoring, model and both graph views", async ({
   setEvidenceFailure(false);
   evidencePanel = await learningPanel(page, "掌握证据");
   await evidencePanel.getByRole("button", { name: "重试" }).click();
-  await expect(evidencePanel).toContainText("GRADIENT_APPLICATION");
+  await expect(evidencePanel).toContainText("应用");
   await expect(evidencePanel).not.toContainText("部分数据不可用");
   await closeLearningStatus(page);
   await expect(page.getByLabel("学习消息", { exact: true })).toBeEnabled();
@@ -996,7 +1007,7 @@ test("initialization, ingestion, tutoring, model and both graph views", async ({
   );
   await expect.poll(() => page.evaluate(() => window.scrollY)).toBeLessThanOrEqual(1);
   await expect(learningMessage).toBeInViewport({ ratio: 0.9 });
-  await expect(page.getByLabel(/教学模型 运行模型/)).toBeVisible();
+  await expect(page.getByLabel(/^教学模型:/)).toBeVisible();
   await expectNoHorizontalOverflow(page);
   await expectNoSeriousAxeViolations(page);
   await expectVisualSnapshot(page, "learn-workbench.png");

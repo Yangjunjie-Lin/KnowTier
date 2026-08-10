@@ -2,6 +2,7 @@ import * as Dialog from "@radix-ui/react-dialog";
 import { X } from "lucide-react";
 import type { ReactNode } from "react";
 import { cn } from "@/lib/utils";
+import { useI18n } from "@/lib/i18n";
 
 export function Sheet({
   open,
@@ -22,6 +23,7 @@ export function Sheet({
   placement?: "right" | "bottom" | "responsive";
   children: ReactNode;
 }) {
+  const { pick } = useI18n();
   return (
     <Dialog.Root open={open} onOpenChange={onOpenChange}>
       <Dialog.Portal>
@@ -53,7 +55,7 @@ export function Sheet({
             </div>
             <Dialog.Close
               className="icon-button shrink-0"
-              aria-label="关闭详情"
+              aria-label={pick("关闭详情", "Close details")}
             >
               <X className="h-4 w-4" />
             </Dialog.Close>

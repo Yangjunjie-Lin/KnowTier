@@ -6,12 +6,14 @@ import { navigationItems } from "./navigation";
 import { MobileBottomNav } from "./MobileBottomNav";
 import { Sidebar } from "./Sidebar";
 import { TopBar } from "./TopBar";
+import { useI18n } from "@/lib/i18n";
 
 export function AppLayout() {
   const [collapsed, setCollapsed] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
   const mobileNavigationRef = useRef<HTMLElement>(null);
   const location = useLocation();
+  const { t, pick } = useI18n();
 
   useEffect(() => {
     setMobileOpen(false);
@@ -101,7 +103,7 @@ export function AppLayout() {
         onClick={focusMainContent}
         className="fixed left-3 top-3 z-[60] -translate-y-20 rounded-lg bg-[#3157D5] px-4 py-2.5 text-sm font-semibold text-white shadow-lg transition-transform focus:translate-y-0 focus:outline-none focus:ring-2 focus:ring-[#3157D5] focus:ring-offset-2 dark:focus:ring-offset-slate-950"
       >
-        跳到主要内容
+        {t("shell.skipToContent")}
       </a>
       <div
         aria-hidden="true"
@@ -112,9 +114,11 @@ export function AppLayout() {
         onToggle={() => setCollapsed((value) => !value)}
       />
       <div
+        data-testid="application-content-shell"
+        data-sidebar-state={collapsed ? "collapsed" : "expanded"}
         className={cn(
-          "relative min-h-screen min-h-dvh min-w-0 transition-[margin] duration-200 lg:ml-60",
-          collapsed && "lg:ml-16",
+          "relative min-h-screen min-h-dvh w-full min-w-0 transition-[padding-left] duration-200 ease-out motion-reduce:transition-none",
+          collapsed ? "lg:pl-16" : "lg:pl-60",
         )}
       >
         <TopBar
@@ -146,21 +150,21 @@ export function AppLayout() {
                       id="mobile-navigation-title"
                       className="text-sm font-semibold tracking-tight"
                     >
-                      KnowTier 移动端主导航
+                      {pick("KnowTier 移动端主导航", "KnowTier mobile navigation")}
                     </p>
-                    <p className="text-[11px] text-slate-500">认知学习工作台</p>
+                    <p className="text-[11px] text-slate-500">{t("shell.productTagline")}</p>
                   </div>
                 </div>
                 <button
                   type="button"
                   className="icon-button"
                   onClick={() => setMobileOpen(false)}
-                  aria-label="关闭导航"
+                  aria-label={t("shell.closeNavigation")}
                 >
                   <X className="h-5 w-5" aria-hidden="true" />
                 </button>
               </div>
-              <nav className="space-y-1" aria-label="主导航">
+              <nav className="space-y-1" aria-label={t("shell.primaryNavigation")}>
                 {navigationItems.map((item) => {
                   const Icon = item.icon;
                   return (
@@ -178,7 +182,7 @@ export function AppLayout() {
                       }
                     >
                       <Icon className="h-[18px] w-[18px]" aria-hidden="true" />
-                      {item.label}
+                      {t(item.labelKey)}
                     </NavLink>
                   );
                 })}
@@ -189,7 +193,7 @@ export function AppLayout() {
         <main
           id="main-content"
           tabIndex={-1}
-          className="mx-auto w-full min-w-0 max-w-[1600px] scroll-mt-20 px-4 py-5 pb-[calc(5.75rem+env(safe-area-inset-bottom))] focus:outline-none sm:px-6 sm:py-6 lg:px-8 lg:py-7 lg:pb-8 xl:px-10"
+          className="w-full min-w-0 scroll-mt-20 px-4 py-5 pb-[calc(5.75rem+env(safe-area-inset-bottom))] focus:outline-none sm:px-6 sm:py-6 lg:px-8 lg:py-7 lg:pb-8 xl:px-10"
         >
           <Outlet />
         </main>

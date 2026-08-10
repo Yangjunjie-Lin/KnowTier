@@ -15,6 +15,12 @@ vi.mock("@/stores/AppContext", () => ({
     currentWorkspace: { id: "workspace-1", name: "测试空间" },
     currentLearner: { id: "learner-1", display_name: "测试学习者" },
     clearLocalHistory,
+    preferences: { uiLocale: "zh-CN" },
+    setUiLocale: vi.fn(),
+  }),
+  useOptionalAppStore: () => ({
+    preferences: { uiLocale: "zh-CN" },
+    setUiLocale: vi.fn(),
   }),
 }));
 

@@ -135,7 +135,7 @@ describe("DomainDetails", () => {
     );
 
     expect(screen.getByText("微积分需要先掌握极限。")).toBeInTheDocument();
-    expect(screen.getByText("需要先掌握")).toBeInTheDocument();
+    expect(screen.getAllByText("需要先掌握").length).toBeGreaterThan(0);
     expect(screen.getByText("来源存在分歧")).toBeInTheDocument();
     expect(screen.getByText("旧关系")).toBeInTheDocument();
     expect(screen.getByText("新关系")).toBeInTheDocument();

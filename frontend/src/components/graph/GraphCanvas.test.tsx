@@ -1,5 +1,5 @@
-import { fireEvent, render, screen, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   filterGraphElements,
   GraphListView,
@@ -21,6 +21,8 @@ const edges: GraphEdgeData[] = [
     natural_language_description: "包含知识点",
   },
 ];
+
+afterEach(cleanup);
 
 describe("GraphCanvas helpers", () => {
   it("uses different shapes for the required product node types", () => {
@@ -52,6 +54,19 @@ describe("GraphCanvas helpers", () => {
     const visible = filterGraphElements(graph, "递归", undefined, undefined);
     expect(visible.nodes.map((node) => node.data.id)).toEqual(["knowledge"]);
     expect(visible.edges).toEqual([]);
+  });
+
+  it("does not search internal identifiers in learner presentation", () => {
+    const graph: CytoscapeGraph = {
+      elements: {
+        nodes: nodes.map((data) => ({ data })),
+        edges: edges.map((data) => ({ data })),
+      },
+      meta: {},
+    };
+    expect(
+      filterGraphElements(graph, "knowledge", undefined, undefined, false).nodes,
+    ).toEqual([]);
   });
 });
 
@@ -85,5 +100,42 @@ describe("GraphListView", () => {
     fireEvent.keyDown(list, { key: "ArrowDown" });
     fireEvent.keyDown(list, { key: "Enter" });
     expect(onEdgeSelect).toHaveBeenCalledWith(edges[0]);
+  });
+
+  it("uses mastery summaries instead of backend node types for learners", () => {
+    render(
+      <GraphListView
+        nodes={[
+          {
+            id: "knowledge",
+            label: "递归",
+            type: "LearnerKnowledgeState",
+            mastery_score: 0.72,
+            learner_status: "学习中",
+          },
+        ]}
+        edges={[]}
+        presentation="learner"
+      />,
+    );
+    expect(screen.getByText("学习中 · 掌握 72%")).toBeInTheDocument();
+    expect(screen.queryByText("学习者知识状态")).not.toBeInTheDocument();
+  });
+
+  it("localizes domain node and fallback relation labels in English", () => {
+    render(
+      <GraphListView
+        nodes={nodes}
+        edges={[{ ...edges[0]!, natural_language_description: undefined }]}
+        selectedId={null}
+        onNodeSelect={vi.fn()}
+        onEdgeSelect={vi.fn()}
+        locale="en"
+      />,
+    );
+
+    expect(screen.getByText("Domain")).toBeInTheDocument();
+    expect(screen.getByText("Knowledge point")).toBeInTheDocument();
+    expect(screen.getByText("Other knowledge relationship")).toBeInTheDocument();
   });
 });

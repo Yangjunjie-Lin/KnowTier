@@ -8,9 +8,13 @@ import {
 } from "@testing-library/react";
 import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { AppProvider } from "@/stores/AppContext";
+import { AppProvider, useAppStore } from "@/stores/AppContext";
 import { api } from "@/services/api";
-import type { ChatResponse, DocumentRecord, IngestionReport } from "@/types/api";
+import type {
+  ChatResponse,
+  DocumentRecord,
+  IngestionReport,
+} from "@/types/api";
 import {
   LearnPage,
   TeachingTurn,
@@ -116,6 +120,7 @@ function persistedState() {
     recentDocuments: [],
     preferences: {
       apiBaseUrl: "/api",
+      uiLocale: "zh-CN",
       theme: "light",
       reducedMotion: false,
       graphDensity: "comfortable",
@@ -130,8 +135,20 @@ function persistedState() {
   };
 }
 
-function renderPage(state?: unknown) {
-  localStorage.setItem("knowtier.app-state.v1", JSON.stringify(persistedState()));
+function TestLocaleSwitch() {
+  const { setUiLocale } = useAppStore();
+  return (
+    <button type="button" onClick={() => setUiLocale("en")}>
+      test-switch-language
+    </button>
+  );
+}
+
+function renderPage(state?: unknown, includeLocaleSwitch = false) {
+  localStorage.setItem(
+    "knowtier.app-state.v1",
+    JSON.stringify(persistedState()),
+  );
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
@@ -139,6 +156,7 @@ function renderPage(state?: unknown) {
     <QueryClientProvider client={client}>
       <AppProvider>
         <MemoryRouter initialEntries={[{ pathname: "/learn", state }]}>
+          {includeLocaleSwitch && <TestLocaleSwitch />}
           <LearnPage />
         </MemoryRouter>
       </AppProvider>
@@ -199,7 +217,14 @@ describe("LearnPage", () => {
     ).toContain("反向传播");
     expect(api.chat).not.toHaveBeenCalled();
     expect(screen.getByText("等待你确认")).toBeInTheDocument();
-    expect(screen.getByText("每周两次")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "调整教学偏好" })).toHaveAttribute(
+      "href",
+      "/settings",
+    );
+    expect(screen.queryByText("本地教学偏好")).not.toBeInTheDocument();
+    expect(screen.queryByText("会话状态")).not.toBeInTheDocument();
+    expect(screen.queryByText("工具调用")).not.toBeInTheDocument();
+    expect(screen.queryByText("图谱更新")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "给我一个提示" }));
     expect(
       screen.getByLabelText<HTMLTextAreaElement>("学习消息").value,
@@ -221,7 +246,7 @@ describe("LearnPage", () => {
     });
 
     expect(
-      await screen.findByText("lesson.txt 已完成摄取并加入本轮附件"),
+      await screen.findByText("lesson.txt 已准备完成并加入本轮附件"),
     ).toBeInTheDocument();
     expect(api.uploadDocument).toHaveBeenCalledWith(workspace.id, file);
     expect(api.ingestDocument).toHaveBeenCalledWith(uploadedDocument.id);
@@ -258,10 +283,10 @@ describe("LearnPage", () => {
         files: [new File(["x"], "broken.txt", { type: "text/plain" })],
       },
     });
-    expect(await screen.findByText(/摄取失败.*解析器暂时不可用/)).toBeInTheDocument();
-    expect(screen.getByLabelText("学习消息")).toHaveValue(
-      "不要清空这段草稿",
-    );
+    expect(
+      await screen.findByText(/处理失败.*暂时无法处理这份资料/),
+    ).toBeInTheDocument();
+    expect(screen.getByLabelText("学习消息")).toHaveValue("不要清空这段草稿");
     expect(api.chat).not.toHaveBeenCalled();
   });
 
@@ -277,11 +302,13 @@ describe("LearnPage", () => {
       target: { files: [file] },
     });
 
-    expect(await screen.findByText(/摄取失败.*摄取服务暂时不可用/)).toBeVisible();
+    expect(
+      await screen.findByText(/处理失败.*暂时无法处理这份资料/),
+    ).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "重试" }));
 
     expect(
-      await screen.findByText("retry.txt 已完成摄取并加入本轮附件"),
+      await screen.findByText("retry.txt 已准备完成并加入本轮附件"),
     ).toBeVisible();
     expect(api.uploadDocument).toHaveBeenCalledTimes(1);
     expect(api.ingestDocument).toHaveBeenCalledTimes(2);
@@ -355,16 +382,18 @@ describe("LearnPage", () => {
   });
 
   it("cancels without losing the draft and retries the same request id", async () => {
-    vi.mocked(api.chat).mockImplementationOnce(
-      (_input, signal) =>
-        new Promise<ChatResponse>((_resolve, reject) => {
-          signal?.addEventListener(
-            "abort",
-            () => reject(new DOMException("cancelled", "AbortError")),
-            { once: true },
-          );
-        }),
-    ).mockResolvedValueOnce(chatResponse);
+    vi.mocked(api.chat)
+      .mockImplementationOnce(
+        (_input, signal) =>
+          new Promise<ChatResponse>((_resolve, reject) => {
+            signal?.addEventListener(
+              "abort",
+              () => reject(new DOMException("cancelled", "AbortError")),
+              { once: true },
+            );
+          }),
+      )
+      .mockResolvedValueOnce(chatResponse);
     renderPage();
     fireEvent.change(screen.getByLabelText("学习消息"), {
       target: { value: "取消后保留我" },
@@ -428,8 +457,7 @@ describe("LearnPage", () => {
 
   it("shows an explicit synchronization state until chat-triggered reads settle", async () => {
     let resolveEvidence:
-      | ((value: { learner_id: string; items: [] }) => void)
-      | undefined;
+      ((value: { learner_id: string; items: [] }) => void) | undefined;
     vi.mocked(api.chat).mockResolvedValue(chatResponse);
     vi.mocked(api.getLearnerEvidence).mockImplementation(
       () =>
@@ -443,26 +471,25 @@ describe("LearnPage", () => {
     });
     fireEvent.click(screen.getByRole("button", { name: "发送学习消息" }));
     expect(
-      (await screen.findAllByText("正在同步本轮模型变化")).length,
+      (await screen.findAllByText("正在更新学习记录…")).length,
     ).toBeGreaterThan(0);
     resolveEvidence?.({ learner_id: learner.id, items: [] });
     await waitFor(() =>
-      expect(screen.queryByText("正在同步本轮模型变化")).not.toBeInTheDocument(),
+      expect(screen.queryByText("正在更新学习记录…")).not.toBeInTheDocument(),
     );
   });
 
   it("turns a prerequisite action into navigation state without changing the backend target", async () => {
     const prerequisiteId = "99999999-9999-4999-8999-999999999999";
-    vi.mocked(api.getDomainDetail).mockImplementation(
-      (_workspaceId, nodeId) =>
-        Promise.resolve({
-          data: {
-            prerequisites:
-              nodeId === chatResponse.target_knowledge_point.id
-                ? [{ id: prerequisiteId, display_name: "条件概率" }]
-                : [],
-          },
-        }),
+    vi.mocked(api.getDomainDetail).mockImplementation((_workspaceId, nodeId) =>
+      Promise.resolve({
+        data: {
+          prerequisites:
+            nodeId === chatResponse.target_knowledge_point.id
+              ? [{ id: prerequisiteId, display_name: "条件概率" }]
+              : [],
+        },
+      }),
     );
     renderPage({
       learningTarget: {
@@ -473,9 +500,9 @@ describe("LearnPage", () => {
     });
     expect(await screen.findByText("条件概率")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "开始学习" }));
-    expect(screen.getByLabelText<HTMLTextAreaElement>("学习消息").value).toContain(
-      "条件概率",
-    );
+    expect(
+      screen.getByLabelText<HTMLTextAreaElement>("学习消息").value,
+    ).toContain("条件概率");
     expect(api.chat).not.toHaveBeenCalled();
     await waitFor(() =>
       expect(api.getDomainDetail).toHaveBeenCalledWith(
@@ -488,26 +515,33 @@ describe("LearnPage", () => {
 
   it("renders future response enums safely as product copy", () => {
     render(
-      <TeachingTurn
-        result={{
-          ...chatResponse,
-          teaching_action: "FUTURE_SCAFFOLD",
-          assessment: { type: "FUTURE_CHECK", question: "未来问题？" },
-        }}
-      />,
+      <AppProvider>
+        <TeachingTurn
+          result={{
+            ...chatResponse,
+            teaching_action: "FUTURE_SCAFFOLD",
+            assessment: { type: "FUTURE_CHECK", question: "未来问题？" },
+          }}
+        />
+      </AppProvider>,
     );
-    expect(screen.getByText("其他教学动作：Future scaffold")).toBeInTheDocument();
-    expect(screen.getByText(/其他掌握检测：Future check/)).toBeInTheDocument();
+    expect(screen.getByText("其他教学动作")).toBeInTheDocument();
+    expect(screen.getByText(/其他掌握检测/)).toBeInTheDocument();
+    expect(screen.queryByText(/FUTURE_SCAFFOLD/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/FUTURE_CHECK/)).not.toBeInTheDocument();
   });
 
   it("renders structured Markdown and exposes copy controls", () => {
     render(
-      <TeachingTurn
-        result={{
-          ...chatResponse,
-          response: "## 推导\n\n公式 $a^2+b^2=c^2$\n\n```python\nprint('ok')\n```",
-        }}
-      />,
+      <AppProvider>
+        <TeachingTurn
+          result={{
+            ...chatResponse,
+            response:
+              "## 推导\n\n公式 $a^2+b^2=c^2$\n\n```python\nprint('ok')\n```",
+          }}
+        />
+      </AppProvider>,
     );
     expect(screen.getByRole("heading", { name: "推导" })).toBeVisible();
     expect(screen.getByText("print('ok')")).toBeVisible();
@@ -515,5 +549,66 @@ describe("LearnPage", () => {
     expect(
       screen.getByRole("button", { name: "复制完整教学回答" }),
     ).toBeVisible();
+  });
+
+  it("switches learning controls and safe enum labels to English immediately", async () => {
+    vi.mocked(api.chat).mockResolvedValue({
+      ...chatResponse,
+      teaching_action: "FUTURE_SCAFFOLD",
+      assessment: { type: "FUTURE_CHECK", question: "A future check?" },
+    });
+    renderPage(undefined, true);
+
+    expect(screen.getByRole("heading", { name: "学习空间" })).toBeVisible();
+    fireEvent.click(
+      screen.getByRole("button", { name: "test-switch-language" }),
+    );
+
+    expect(
+      await screen.findByRole("heading", { name: "Learning" }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "Give me a hint" }),
+    ).toBeVisible();
+    expect(screen.getByLabelText("Learning message")).toBeVisible();
+    fireEvent.change(screen.getByLabelText("Learning message"), {
+      target: { value: "Explain RAG" },
+    });
+    fireEvent.click(
+      screen.getByRole("button", { name: "Send learning message" }),
+    );
+
+    expect(await screen.findByText("Other teaching action")).toBeVisible();
+    expect(screen.getByText(/Other mastery check/)).toBeVisible();
+    expect(
+      screen.queryByText(/FUTURE_SCAFFOLD|FUTURE_CHECK/),
+    ).not.toBeInTheDocument();
+  });
+
+  it("keeps backend identifiers out of the learner-facing source summary", () => {
+    const documentId = "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa";
+    render(
+      <AppProvider>
+        <TeachingTurn
+          result={{
+            ...chatResponse,
+            sources: [
+              {
+                document_id: documentId,
+                source_span_id: "bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb",
+                excerpt: "检索增强生成结合了检索与生成。",
+                page_number: 3,
+              },
+            ],
+          }}
+        />
+      </AppProvider>,
+    );
+
+    fireEvent.click(screen.getByText("查看参考来源"));
+    expect(screen.getByText("检索增强生成结合了检索与生成。")).toBeVisible();
+    expect(screen.getByText("第 3 页")).toBeVisible();
+    expect(screen.queryByText(/aaaaaaaa/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/bbbbbbbb/)).not.toBeInTheDocument();
   });
 });

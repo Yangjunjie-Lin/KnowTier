@@ -4,6 +4,7 @@ import {
   ExternalLink,
   HeartPulse,
   LoaderCircle,
+  Languages,
   Moon,
   Palette,
   RotateCcw,
@@ -20,9 +21,11 @@ import { ErrorState } from "@/components/shared/States";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { teachingModes } from "@/features/learn/teachingLabels";
 import { ModelConfigurationSection } from "@/features/settings/ModelConfigurationSection";
+import { useI18n } from "@/lib/i18n";
 
 export function SettingsPage() {
   const store = useAppStore();
+  const { locale, setLocale, pick, t } = useI18n();
   const [baseUrl, setBaseUrl] = useState(store.preferences.apiBaseUrl);
   const [saved, setSaved] = useState(false);
   const [urlError, setUrlError] = useState<string | null>(null);
@@ -41,7 +44,10 @@ export function SettingsPage() {
     const normalized = sanitizeApiBaseUrl(baseUrl);
     if (!normalized) {
       setUrlError(
-        "服务地址只能使用相对路径，或不含凭据和查询参数的 HTTP(S) 地址。",
+        pick(
+          "服务地址只能使用相对路径，或不含凭据和查询参数的 HTTP(S) 地址。",
+          "Use a relative path or an HTTP(S) address without credentials or query parameters.",
+        ),
       );
       setSaved(false);
       return;
@@ -54,17 +60,20 @@ export function SettingsPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="个性化与连接"
-        title="设置"
-        description="管理模型连接、学习偏好和显示方式。敏感凭据不会写入浏览器偏好。"
+        eyebrow={pick("个性化与连接", "Personalization and connections")}
+        title={t("nav.settings")}
+        description={pick(
+          "管理模型连接、学习偏好和显示方式。敏感凭据不会写入浏览器偏好。",
+          "Manage model connections, learning preferences, and appearance. Sensitive credentials are never stored in browser preferences.",
+        )}
       />
       <ModelConfigurationSection />
       <div className="grid gap-5 lg:grid-cols-2">
         <div className="space-y-5">
-          <SettingSection title="应用服务连接">
+          <SettingSection title={pick("应用服务连接", "Application service")}>
             <label className="block space-y-2">
               <span className="text-xs font-medium text-slate-600 dark:text-slate-300">
-                KnowTier 服务地址（API Base URL）
+                {pick("KnowTier 服务地址（API Base URL）", "KnowTier service address (API Base URL)")}
               </span>
               <div className="flex gap-2">
                 <input
@@ -87,14 +96,17 @@ export function SettingsPage() {
                   className="secondary-button shrink-0"
                 >
                   <Save className="h-4 w-4" />
-                  保存
+                  {t("common.save")}
                 </button>
               </div>
               <span
                 id="service-url-help"
                 className="block text-[11px] font-normal leading-5 text-slate-500"
               >
-                桌面应用通常使用 /api；远程服务可填写不含凭据和查询参数的 HTTPS 地址。
+                {pick(
+                  "桌面应用通常使用 /api；远程服务可填写不含凭据和查询参数的 HTTPS 地址。",
+                  "The desktop app normally uses /api. For a remote service, enter an HTTPS address without credentials or query parameters.",
+                )}
               </span>
             </label>
             {urlError && (
@@ -112,47 +124,61 @@ export function SettingsPage() {
                 role="status"
               >
                 <CheckCircle2 className="h-3.5 w-3.5" />
-                已更新，下一次请求使用新地址
+                {pick("已更新，下一次请求使用新地址", "Updated. New requests will use this address.")}
               </p>
             )}
             <div className="grid gap-3 sm:grid-cols-2">
               <ContextValue
-                label="当前学习空间"
-                value={store.currentWorkspace?.name ?? "未选择"}
+                label={pick("当前学习空间", "Current workspace")}
+                value={store.currentWorkspace?.name ?? pick("未选择", "Not selected")}
               />
               <ContextValue
-                label="当前学习者"
-                value={store.currentLearner?.display_name ?? "未选择"}
+                label={pick("当前学习者", "Current learner")}
+                value={store.currentLearner?.display_name ?? pick("未选择", "Not selected")}
               />
               <ContextValue
-                label="当前学习会话"
-                value={store.sessionId ? "已建立" : "尚未开始"}
+                label={pick("当前学习会话", "Current learning session")}
+                value={store.sessionId ? pick("已建立", "Active") : pick("尚未开始", "Not started")}
               />
             </div>
             <details className="rounded-lg border border-slate-200 px-3 py-2 dark:border-slate-700">
               <summary className="cursor-pointer text-xs font-medium text-slate-500">
-                查看技术标识
+                {pick("查看技术标识", "View technical identifiers")}
               </summary>
               <dl className="mt-3 grid gap-3 sm:grid-cols-2">
                 <ContextValue
-                  label="学习空间 ID"
-                  value={store.currentWorkspace?.id ?? "未选择"}
+                  label={pick("学习空间 ID", "Workspace ID")}
+                  value={store.currentWorkspace?.id ?? pick("未选择", "Not selected")}
                   mono
                 />
                 <ContextValue
-                  label="学习者 ID"
-                  value={store.currentLearner?.id ?? "未选择"}
+                  label={pick("学习者 ID", "Learner ID")}
+                  value={store.currentLearner?.id ?? pick("未选择", "Not selected")}
                   mono
                 />
-                <ContextValue label="会话 ID" value={store.sessionId || "尚未开始"} mono />
+                <ContextValue label={pick("会话 ID", "Session ID")} value={store.sessionId || pick("尚未开始", "Not started")} mono />
               </dl>
             </details>
           </SettingSection>
-          <SettingSection title="外观">
+          <SettingSection title={pick("外观与语言", "Appearance and language")}>
             <div className="space-y-4">
+              <label className="block space-y-2">
+                <span className="inline-flex items-center gap-1.5 text-xs font-medium text-slate-600 dark:text-slate-300">
+                  <Languages className="h-3.5 w-3.5" aria-hidden="true" />
+                  {pick("界面语言", "Interface language")}
+                </span>
+                <select
+                  value={locale}
+                  onChange={(event) => setLocale(event.target.value === "en" ? "en" : "zh-CN")}
+                  className="form-input"
+                >
+                  <option value="zh-CN">中文</option>
+                  <option value="en">English</option>
+                </select>
+              </label>
               <fieldset className="block space-y-2">
                 <legend className="text-xs font-medium text-slate-600 dark:text-slate-300">
-                  主题
+                  {pick("主题", "Theme")}
                 </legend>
                 <div className="grid grid-cols-3 gap-2">
                   {(["light", "dark", "system"] as const).map((theme) => (
@@ -171,22 +197,22 @@ export function SettingsPage() {
                         <Palette className="h-3.5 w-3.5" />
                       )}
                       {theme === "light"
-                        ? "浅色"
+                        ? pick("浅色", "Light")
                         : theme === "dark"
-                          ? "深色"
-                          : "跟随系统"}
+                          ? pick("深色", "Dark")
+                          : pick("跟随系统", "System")}
                     </button>
                   ))}
                 </div>
               </fieldset>
               <ToggleRow
-                label="减少动画"
+                label={pick("减少动画", "Reduce motion")}
                 checked={store.preferences.reducedMotion}
                 onChange={store.setReducedMotion}
               />
               <label className="block space-y-2">
                 <span className="text-xs font-medium text-slate-600 dark:text-slate-300">
-                  图谱显示密度
+                  {pick("图谱显示密度", "Graph density")}
                 </span>
                 <select
                   value={store.preferences.graphDensity}
@@ -197,14 +223,14 @@ export function SettingsPage() {
                   }
                   className="form-input"
                 >
-                  <option value="comfortable">舒适</option>
-                  <option value="compact">紧凑</option>
-                  <option value="dense">密集</option>
+                  <option value="comfortable">{pick("舒适", "Comfortable")}</option>
+                  <option value="compact">{pick("紧凑", "Compact")}</option>
+                  <option value="dense">{pick("密集", "Dense")}</option>
                 </select>
               </label>
               <label className="block space-y-2">
                 <span className="text-xs font-medium text-slate-600 dark:text-slate-300">
-                  字体大小
+                  {pick("字体大小", "Font size")}
                 </span>
                 <select
                   value={store.preferences.fontSize}
@@ -215,14 +241,14 @@ export function SettingsPage() {
                   }
                   className="form-input"
                 >
-                  <option value="small">小</option>
-                  <option value="medium">中</option>
-                  <option value="large">大</option>
+                  <option value="small">{pick("小", "Small")}</option>
+                  <option value="medium">{pick("中", "Medium")}</option>
+                  <option value="large">{pick("大", "Large")}</option>
                 </select>
               </label>
               <label className="block space-y-2">
                 <span className="text-xs font-medium text-slate-600 dark:text-slate-300">
-                  图谱标签显示密度
+                  {pick("图谱标签显示密度", "Graph label detail")}
                 </span>
                 <select
                   value={store.preferences.graphLabelDensity}
@@ -236,23 +262,26 @@ export function SettingsPage() {
                   }
                   className="form-input"
                 >
-                  <option value="minimal">最少</option>
-                  <option value="balanced">平衡</option>
-                  <option value="detailed">详细</option>
+                  <option value="minimal">{pick("最少", "Minimal")}</option>
+                  <option value="balanced">{pick("平衡", "Balanced")}</option>
+                  <option value="detailed">{pick("详细", "Detailed")}</option>
                 </select>
               </label>
             </div>
           </SettingSection>
         </div>
         <div className="space-y-5">
-          <SettingSection title="本地学习偏好">
+          <SettingSection title={pick("本地学习偏好", "Learning preferences")}>
             <div className="space-y-4">
               <p className="rounded-lg bg-indigo-50 px-3 py-2 text-xs leading-5 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300">
-                这些偏好只影响当前设备，可随时恢复或调整。
+                {pick(
+                  "这些偏好只影响当前设备，可随时恢复或调整。学习空间只显示当前教学任务，详细偏好统一在这里管理。",
+                  "These preferences apply only to this device. The learning workspace stays focused on the current lesson; detailed preferences are managed here.",
+                )}
               </p>
               <label className="block space-y-2">
                 <span className="text-xs font-medium text-slate-600 dark:text-slate-300">
-                  默认教学模式
+                  {pick("默认教学模式", "Default teaching mode")}
                 </span>
                 <select
                   value={store.preferences.defaultTeachingMode}
@@ -270,14 +299,14 @@ export function SettingsPage() {
                 >
                   {teachingModes.map((mode) => (
                     <option key={mode.id} value={mode.id}>
-                      {mode.label} · {mode.description}
+                      {locale === "en" ? mode.labelEn : mode.label} · {locale === "en" ? mode.descriptionEn : mode.description}
                     </option>
                   ))}
                 </select>
               </label>
               <label className="block space-y-2">
                 <span className="text-xs font-medium text-slate-600 dark:text-slate-300">
-                  解释详细程度
+                  {pick("解释详细程度", "Explanation detail")}
                 </span>
                 <select
                   value={store.preferences.explanationDetail}
@@ -291,19 +320,19 @@ export function SettingsPage() {
                   }
                   className="form-input"
                 >
-                  <option value="concise">简洁</option>
-                  <option value="balanced">平衡</option>
-                  <option value="detailed">详细</option>
+                  <option value="concise">{pick("简洁", "Concise")}</option>
+                  <option value="balanced">{pick("平衡", "Balanced")}</option>
+                  <option value="detailed">{pick("详细", "Detailed")}</option>
                 </select>
               </label>
               <ToggleRow
-                label="优先示例"
+                label={pick("优先示例", "Prioritize examples")}
                 checked={store.preferences.prioritizeExamples}
                 onChange={store.setPrioritizeExamples}
               />
               <label className="block space-y-2">
                 <span className="text-xs font-medium text-slate-600 dark:text-slate-300">
-                  提示强度
+                  {pick("提示强度", "Hint strength")}
                 </span>
                 <select
                   value={store.preferences.hintStrength}
@@ -314,14 +343,14 @@ export function SettingsPage() {
                   }
                   className="form-input"
                 >
-                  <option value="light">轻提示</option>
-                  <option value="balanced">平衡提示</option>
-                  <option value="strong">强提示</option>
+                  <option value="light">{pick("轻提示", "Light hints")}</option>
+                  <option value="balanced">{pick("平衡提示", "Balanced hints")}</option>
+                  <option value="strong">{pick("强提示", "Strong hints")}</option>
                 </select>
               </label>
               <label className="block space-y-2">
                 <span className="text-xs font-medium text-slate-600 dark:text-slate-300">
-                  复习频率
+                  {pick("复习频率", "Review frequency")}
                 </span>
                 <select
                   value={store.preferences.reviewFrequency}
@@ -335,9 +364,9 @@ export function SettingsPage() {
                   }
                   className="form-input"
                 >
-                  <option value="daily">每天</option>
-                  <option value="twice-weekly">每周两次</option>
-                  <option value="weekly">每周一次</option>
+                  <option value="daily">{pick("每天", "Daily")}</option>
+                  <option value="twice-weekly">{pick("每周两次", "Twice a week")}</option>
+                  <option value="weekly">{pick("每周一次", "Weekly")}</option>
                 </select>
               </label>
             </div>
@@ -345,7 +374,7 @@ export function SettingsPage() {
           <section className="rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
           <div className="mb-4 flex items-center gap-2">
             <HeartPulse className="h-4 w-4 text-[#3157D5]" />
-            <h2 className="text-base font-semibold">系统健康状态</h2>
+            <h2 className="text-base font-semibold">{pick("系统健康状态", "System health")}</h2>
             <button
               type="button"
               onClick={() => {
@@ -356,8 +385,8 @@ export function SettingsPage() {
               disabled={health.isFetching || readiness.isFetching}
               aria-label={
                 health.isFetching || readiness.isFetching
-                  ? "正在刷新健康状态"
-                  : "刷新健康状态"
+                  ? pick("正在刷新健康状态", "Refreshing system health")
+                  : pick("刷新健康状态", "Refresh system health")
               }
             >
               <RotateCcw
@@ -367,31 +396,29 @@ export function SettingsPage() {
           </div>
           <div className="grid gap-3 sm:grid-cols-3">
             <HealthCard
-              label="应用服务"
+              label={pick("应用服务", "Application service")}
               loading={health.isFetching}
               ok={health.data?.status === "ok"}
               detail={
                 health.data?.status === "ok"
-                  ? "进程存活"
-                  : health.error instanceof Error
-                    ? health.error.message
-                    : "不可用"
+                  ? pick("进程存活", "Running")
+                  : pick("不可用", "Unavailable")
               }
             />
             <HealthCard
-              label="学习数据"
+              label={pick("学习数据", "Learning data")}
               loading={readiness.isFetching}
               ok={readiness.data?.postgres === true}
               detail={String(
-                readiness.data?.postgres === true ? "已连接" : "未准备",
+                readiness.data?.postgres === true ? pick("已连接", "Connected") : pick("未准备", "Not ready"),
               )}
             />
             <HealthCard
-              label="知识图谱"
+              label={pick("知识图谱", "Knowledge graph")}
               loading={readiness.isFetching}
               ok={readiness.data?.neo4j === true}
               detail={String(
-                readiness.data?.neo4j === true ? "已连接" : "未准备",
+                readiness.data?.neo4j === true ? pick("已连接", "Connected") : pick("未准备", "Not ready"),
               )}
             />
           </div>
@@ -404,7 +431,10 @@ export function SettingsPage() {
             </div>
           )}
           <p className="mt-4 text-[11px] leading-5 text-slate-600 dark:text-slate-400">
-            若任一项未准备，请刷新重试；资料处理问题会在对应资料详情中显示。
+            {pick(
+              "若任一项未准备，请刷新重试；资料处理问题会在对应资料详情中显示。",
+              "If a service is not ready, refresh and retry. Material-processing issues appear on the relevant material page.",
+            )}
           </p>
           </section>
         </div>
@@ -413,10 +443,13 @@ export function SettingsPage() {
         <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">
           <div>
             <h2 className="text-sm font-semibold text-red-800 dark:text-red-300">
-              本设备记录
+              {pick("本设备记录", "This device")}
             </h2>
             <p className="mt-1 text-xs text-slate-500">
-              清除最近使用的学习空间、学习者、资料和会话记录，不会删除学习数据。
+              {pick(
+                "清除最近使用的学习空间、学习者、资料和会话记录，不会删除学习数据。",
+                "Clear recent workspaces, learners, materials, and sessions from this device without deleting learning data.",
+              )}
             </p>
           </div>
           <button
@@ -424,7 +457,10 @@ export function SettingsPage() {
             onClick={() => {
               if (
                 window.confirm(
-                  "清除本设备保存的学习空间、学习者、资料与会话记录？学习数据不会删除。",
+                  pick(
+                    "清除本设备保存的学习空间、学习者、资料与会话记录？学习数据不会删除。",
+                    "Clear saved workspaces, learners, materials, and sessions from this device? Learning data will not be deleted.",
+                  ),
                 )
               ) {
                 store.clearLocalHistory();
@@ -433,19 +469,19 @@ export function SettingsPage() {
             className="secondary-button w-full border-red-200 text-red-700 hover:bg-red-50 sm:w-auto"
           >
             <Trash2 className="h-4 w-4" />
-            清除本地记录
+            {pick("清除本地记录", "Clear local history")}
           </button>
         </div>
       </section>
       <details className="mt-5 text-xs text-slate-600 dark:text-slate-400">
-        <summary className="cursor-pointer font-medium">开发者工具</summary>
+        <summary className="cursor-pointer font-medium">{pick("开发者工具", "Developer tools")}</summary>
         <a
           className="mt-2 inline-flex items-center gap-1 text-[#3157D5]"
           href={`${store.preferences.apiBaseUrl.replace(/\/$/, "")}/docs`}
           target="_blank"
           rel="noreferrer"
         >
-          打开 API 文档 <ExternalLink className="h-3 w-3" />
+          {pick("打开 API 文档", "Open API documentation")} <ExternalLink className="h-3 w-3" />
         </a>
       </details>
     </div>

@@ -29,6 +29,7 @@ export class AppErrorBoundary extends Component<
 
   override render(): ReactNode {
     if (!this.state.failed) return this.props.children;
+    const english = document.documentElement.lang === "en";
 
     return (
       <main className="flex min-h-screen items-center justify-center bg-[#F5F7FB] px-5 py-10 text-slate-900 dark:bg-slate-950 dark:text-slate-100">
@@ -41,25 +42,27 @@ export class AppErrorBoundary extends Component<
             <TriangleAlert className="h-5 w-5" aria-hidden="true" />
           </div>
           <p className="mt-5 text-[11px] font-bold uppercase tracking-[0.18em] text-[#3157D5]">
-            页面恢复
+            {english ? "Page recovery" : "页面恢复"}
           </p>
           <h1
             id="app-recovery-title"
             className="mt-2 text-2xl font-bold tracking-tight sm:text-3xl"
           >
-            当前页面没有正常显示
+            {english ? "This page could not be displayed" : "当前页面没有正常显示"}
           </h1>
           <p className="mt-3 text-sm leading-6 text-slate-600 dark:text-slate-300">
-            你的学习数据仍然保存在本设备。请先重新加载；如果问题仍然存在，可返回开始页重新进入学习空间。
+            {english
+              ? "Your learning data remains on this device. Reload the page first; if the problem continues, return to setup and reopen the workspace."
+              : "你的学习数据仍然保存在本设备。请先重新加载；如果问题仍然存在，可返回开始页重新进入学习空间。"}
           </p>
           <div className="mt-6 flex flex-col gap-2 sm:flex-row">
             <button type="button" className="primary-button justify-center" onClick={this.reload}>
               <RefreshCw className="h-4 w-4" aria-hidden="true" />
-              重新加载
+              {english ? "Reload" : "重新加载"}
             </button>
             <button type="button" className="secondary-button justify-center" onClick={this.returnHome}>
               <ArrowLeft className="h-4 w-4" aria-hidden="true" />
-              返回开始页
+              {english ? "Back to setup" : "返回开始页"}
             </button>
           </div>
         </section>

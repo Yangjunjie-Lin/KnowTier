@@ -106,7 +106,7 @@ describe("KnowledgeBlueprintView", () => {
       name: "在图谱中查看",
     });
     expect(graphButton).toBeDisabled();
-    expect(screen.getByText(/只有候选标识/)).toBeInTheDocument();
+    expect(screen.getByText(/尚未发布到领域图谱/)).toBeInTheDocument();
   });
 
   it("passes a user-confirmable learning target through navigation state", () => {

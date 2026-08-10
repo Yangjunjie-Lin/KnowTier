@@ -1,6 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { apiClient } from "@/lib/api/client";
 import { AppProvider } from "@/stores/AppContext";
@@ -22,8 +22,11 @@ function renderPage() {
   return render(
     <QueryClientProvider client={client}>
       <AppProvider>
-        <MemoryRouter>
-          <InitPage />
+        <MemoryRouter initialEntries={["/init"]}>
+          <Routes>
+            <Route path="/init" element={<InitPage />} />
+            <Route path="/overview" element={<p>Overview destination</p>} />
+          </Routes>
         </MemoryRouter>
       </AppProvider>
     </QueryClientProvider>,
@@ -77,16 +80,17 @@ describe("InitPage", () => {
         }),
       ),
     );
+    expect(await screen.findByText("Overview destination")).toBeVisible();
   });
 
   it("rejects an invalid manually entered workspace id", async () => {
     renderPage();
-    fireEvent.change(screen.getByPlaceholderText("学习空间 ID"), {
+    fireEvent.change(screen.getByPlaceholderText("学习空间标识"), {
       target: { value: "not-a-uuid" },
     });
     fireEvent.click(screen.getByRole("button", { name: "连接" }));
     expect(
-      await screen.findByText("请输入有效的学习空间 ID。"),
+      await screen.findByText("请输入有效的学习空间标识。"),
     ).toBeInTheDocument();
   });
 

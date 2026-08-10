@@ -2,8 +2,8 @@
 
 This record covers the product-release candidate built from remote `main` baseline
 `5ea7d59525db69a5b9d386c8eb3f0fc004596d75`. It records only checks that were actually executed.
-The previously packaged candidate was `v1.0.0-rc.2`. The source candidate is now
-`v1.0.0-rc.3` because existing release-candidate tags are immutable. RC.3
+The previously packaged candidate was `v1.0.0-rc.3`. The source candidate is now
+`v1.0.0-rc.4` because existing release-candidate tags are immutable. RC.4
 must complete a fresh GitHub Actions three-platform build and draft-release assembly before
 general-availability `v1.0.0` can be considered.
 
@@ -13,17 +13,17 @@ general-availability `v1.0.0` can be considered.
 | --- | --- | --- | --- | --- | --- |
 | First launch | Create Workspace and Learner; restore deep links after initialization | `POST /v1/workspaces`, `POST /v1/learners` | Workspace, Learner, local current context | Vitest initialization; Playwright complete flow at 1440×900, 1024×768, 390×844 | Pass |
 | Overview | Mastery, pending review, evidence and graph revision summary | Workspace, learner model/evidence, domain and learner revision reads | SQL learner state and revision metadata | Playwright navigation, axe and visual snapshots in all three viewports | Pass |
-| Learning workspace | Three-column tutoring flow, mobile Learning Status Sheet, mode/target/session switching | `POST /v1/chat`, active Teacher model, learner/domain insight reads | Turns, target, evidence, misconceptions, learner/domain revisions | Vitest duplicate/cancel/retry/context tests; Playwright end-to-end tutoring | Pass |
+| Learning workspace | Focused tutoring flow, on-demand Learning Status Sheet, mode/target/session switching | `POST /v1/chat`, active Teacher model, learner/domain insight reads | Turns, target, evidence, misconceptions, learner/domain revisions | Vitest duplicate/cancel/retry/context tests; Playwright end-to-end tutoring | Pass |
 | Upload and camera entry | Upload, ingest and attach material without losing the draft | document upload then `POST /v1/documents/{id}/ingest` | Upload file, chunks, provenance and ingestion report | Vitest upload/ingest failure; Playwright text-file ingestion | Pass |
 | Knowledge extraction | Compact validated extraction, multiple candidate ranking and evidence state | ModelGateway Extractor plus deterministic validation/fallback | Knowledge points remain `UNVERIFIED` without external evidence | Backend unit, contract, integration and packaged Mock RAG smoke | Pass |
 | Domain graph | Canvas click, list alternative, keyboard selection, filter/fullscreen/export and detail drawer | domain graph/detail/export reads | Versioned nodes, relations, assertions and sources | Playwright canvas/list/keyboard/axe/visual; backend graph regressions | Pass |
-| Student graph | Learner graph canvas/list and synchronized revision | learner graph and revision reads | Learner mastery projection and evidence links | Playwright real navigation; integration tutoring flow | Pass |
+| Student graph | Relationship-first learner canvas/list, natural-language filters and optional advanced detail | learner graph, node/assertion detail and revision reads | Learner mastery projection, evidence links and immutable revisions | Vitest presentation projection; Playwright keyboard/axe; integration tutoring flow | Pass |
 | Personal model | Mastery, evidence and misconception sections with partial-read handling | learner model/evidence reads | Audited mastery and evidence | Playwright success, 500 and retry recovery; Vitest insight panels | Pass |
 | Learning path | Select a target and enter learning without stale navigation state | learning-path read plus chat target selection | Derived path over domain and learner state | Playwright navigation; unit target/session isolation | Pass |
 | Domain versions | Version list and detail without exposing raw JSON as primary UI | domain revision list/detail | Immutable domain revisions and audit metadata | Playwright navigation; Vitest version details | Pass |
 | Student versions | Learner revision list/detail synchronized after chat | learner revision list/detail | Immutable learner revisions | Chat invalidation tests and integration tutoring flow | Pass |
 | Global search | Ctrl/Cmd+K focus, knowledge/material/learner result navigation | global search endpoint | Ranked derived results; source records remain authoritative | Playwright search, keyboard, axe and visual in three viewports | Pass |
-| Settings | Theme, density, font, local learning preferences and health | `/health`, `/ready` and preference-local state | Non-secret browser preferences only | Vitest persistence/migration; Playwright accessibility/responsive checks | Pass |
+| Settings | Chinese/English selection, theme, density, font, local learning preferences and health | `/health`, `/ready` and preference-local state | Non-secret browser preferences only | Vitest persistence/migration/language switching; Playwright accessibility/responsive checks | Pass |
 | Models and providers | Mock, SiliconFlow and Custom; quick/advanced mappings; discover/test/activate/delete | `/v1/model-config`, `/models`, connection-test and active-role endpoints | Non-secret profile JSON plus session/keyring credential | Unit/contract/Vitest/Playwright provider lifecycle in three viewports | Pass |
 | Loading and empty states | Actionable loading, empty and partial-success presentation | Individual reads remain independently retryable | No synthetic success data | Playwright empty/partial/offline recovery and axe | Pass |
 | HTTP and network errors | 401/403/404/429/500, timeout, cancel, retry, request ID and recovery | API middleware and ModelGateway error mapping | Structured JSONL exception log; no secret payloads | Backend error-response tests; Playwright offline/500 recovery | Pass |
@@ -62,6 +62,28 @@ general-availability `v1.0.0` can be considered.
 16. Mobile quick teaching actions exposed a platform scrollbar over the composer, provider and
     ingestion states used overly technical language, and several empty/loading states lacked a
     clear next action; these surfaces now remain compact, actionable and screen-reader named.
+17. Collapsing the desktop navigation only hid its labels while the content retained the expanded
+    offset. The layout now reclaims 176 px and lets every page use the available width.
+18. The learner graph treated storage IDs, backend enums and evidence-resource nodes as primary
+    labels. A presentation projection now renders learner-facing relationships, mastery and
+    evidence summaries, with raw identifiers available only in an advanced disclosure.
+19. The learning workspace permanently displayed empty session, tool, graph-update and local
+    preference panels. The primary surface now contains only the learning focus, conversation and
+    editor; misconceptions, evidence and sources appear only when real data exists.
+20. Backend enum strings and English-only labels leaked through several secondary pages. The UI now
+    supports persistent Chinese/English selection and maps known backend values to reviewed product
+    copy while using a neutral fallback for unknown values.
+21. A freshly loaded model profile briefly exposed the new-profile form, so fast edits could be
+    overwritten when profile hydration completed. The form now waits for deterministic selection
+    and preserves user-authored profile names across Provider changes.
+22. Creating a Learner could navigate before its context state committed; the route guard then sent
+    the user back to setup. Navigation now occurs only after the created Learner is active.
+23. Unexpected JavaScript and health-check errors could expose technical exception text as the main
+    message. Only explicitly typed user-validation errors are shown verbatim; unknown failures use
+    safe product copy and API details remain behind the technical disclosure.
+24. Parent-relative Tauri resource paths produced duplicate `_up_/_up_` documentation in the first
+    RC.4 Portable build. Resources now use explicit bundle targets, and CI rejects duplicates or any
+    parent-relative resource directory.
 
 The fixes preserve the existing graph, evidence, learner, revision and audit boundaries. Compact
 model output is schema-validated and deterministically expanded; model-only facts remain
@@ -74,24 +96,22 @@ non-confirmed. No API or model output is accepted as arbitrary Cypher.
 | `uv lock --check` | Pass |
 | `uv run ruff format --check src tests scripts` and `uv run ruff check src tests scripts` | Pass |
 | `uv run mypy src/cognigraph` | Pass, 107 source files |
-| Offline unit pytest selection | Pass, 25 tests |
-| Offline contract pytest selection | Pass, 37 tests |
-| Offline integration pytest selection | Pass, 57 tests; 4 explicitly environment-gated tests were not included in this command |
+| `uv run pytest` | Pass, 213 tests; 16 explicitly environment-gated live/production/performance tests skipped |
 | Desktop pytest selection | Pass, 20 tests |
 | Live PostgreSQL/Neo4j integration selection | Pass, 3 tests |
 | `npm ci` | Pass, lock unchanged, 0 vulnerabilities reported |
-| `npm run typecheck`, `npm run lint`, `npm run test`, `npm run build` | Pass; Vitest 26 files / 100 tests; no 500 kB chunk warning |
+| `npm run typecheck`, `npm run lint`, `npm run test`, `npm run build` | Pass; Vitest 31 files / 126 tests |
 | `npx playwright test --config=playwright.config.ts` | Pass, 12/12 across desktop/tablet/mobile, including axe, keyboard, visual snapshots, provider security and network/HTTP recovery |
-| `npx playwright test --config=playwright.full-stack.config.ts` | Pass, 1/1 in about 1.5 min: React, FastAPI, PostgreSQL, Neo4j, Mock LLM and API-restart recovery |
+| `npx playwright test --config=playwright.full-stack.config.ts` | Pass, 1/1 in 36.6 s: React, FastAPI, PostgreSQL, Neo4j, Mock LLM and API-restart recovery |
 | Rust `fmt --check`, `clippy -D warnings`, `test` | Pass; 3 Rust tests |
 | Frozen Sidecar Smoke | Pass: ready, 401 anonymous, 200 authenticated, create Workspace/Learner, Mock RAG chat 200, graceful exit 0 |
-| Portable RC3 package Smoke | Pass with two launches, persistence and no orphan sidecar |
-| Installed RC3 NSIS package Smoke | Pass with a 30-second cold-start window and two launches; silent uninstall and reinstall 0; data retained; post-reinstall two-launch smoke passed |
+| Portable RC4 package Smoke | Pass with two launches, persistence, documentation-layout validation and no orphan Sidecar |
+| Installed RC4 NSIS package Smoke | Pass with two cold launches; silent uninstall and reinstall 0; App Data retained; post-reinstall smoke passed |
 
 The production-shaped PostgreSQL/Neo4j/Mock full-stack passed locally against this candidate,
 including an API container restart. Three-platform packaging remains configured in
-`.github/workflows/release-desktop.yml`; a fresh GitHub-hosted run is still required before the RC.3
-Draft Release can be considered assembled.
+`.github/workflows/release-desktop.yml`. The final handoff associates the GitHub-hosted matrix,
+bounded live-provider run and Draft Release URL with the exact pushed RC.4 commit.
 
 ## Model configuration and credential security
 
@@ -131,9 +151,11 @@ Locally verified unsigned Windows RC assets:
 
 | Artifact | SHA-256 |
 | --- | --- |
-| `KnowTier-Setup-1.0.0-rc.3-windows-x64.exe` | `1FD6A25D1D2E365958DB5E6FE8D72DFD602D4827853BDA09EB078488DBA59082` |
-| `KnowTier-Portable-1.0.0-rc.3-windows-x64.zip` | `815905383E0A06429039A1F706A69E86F313EDEA0C76C95E50357F5DB50F8420` |
+| `KnowTier-Setup-1.0.0-rc.4-windows-x64.exe` | `21F1122409D949812AC62A7D52650F02496BBD0D1E3467646AFBB61BB8DD61BC` |
+| `KnowTier-Portable-1.0.0-rc.4-windows-x64.zip` | `544E565D73CD40E720D509FD826B591E3975D65402F148F839E2489016F9D07A` |
 
+These local assets and their evidence logs are under
+`build/desktop-rc4-postfix-20260810/`; build outputs are intentionally not committed.
 The local three-entry `SHA256SUMS.txt` (installer, Portable ZIP and unsigned-status record) was
 verified immediately after packaging. GitHub Actions will
 generate the cross-platform checksum manifest and locked Node/Python/Rust CycloneDX SBOMs for the
@@ -149,5 +171,5 @@ Draft Release; those files are not claimed as locally complete. Windows Authenti
   deterministic graph semantics remain available.
 - Vision capability is user-mapped but the connection test directly exercises Teacher structured
   output and Embedding; a provider can still reject an incorrectly chosen Vision model at runtime.
-- The earlier opt-in SiliconFlow run remains valid evidence, but the new RC.3 commit has not yet run
-  the paid, manually gated live workflow.
+- The earlier opt-in SiliconFlow run remains valid evidence. The final handoff records the bounded
+  RC.4 workflow run and its exact discovered-model result without persisting prompts or responses.

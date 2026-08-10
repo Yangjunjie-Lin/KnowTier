@@ -9,7 +9,7 @@ on:
       release_tag:
         description: Tag for a manually created draft release (must match v<package version>)
         required: true
-        default: "v1.0.0-rc.3"
+        default: "v1.0.0-rc.4"
         type: string
       create_draft_release:
         description: Create or refresh a GitHub draft release after assembling the artifacts
@@ -37,7 +37,7 @@ permissions:
 env:
   NODE_VERSION: "22"
   PYTHON_VERSION: "3.12"
-  RELEASE_VERSION: "1.0.0-rc.3"
+  RELEASE_VERSION: "1.0.0-rc.4"
   TAURI_CLI_VERSION: "2.11.4"
   UV_VERSION: "0.12.1"
 
@@ -779,9 +779,20 @@ jobs:
             --executable $portableExe `
             --data-dir (Join-Path $env:RUNNER_TEMP "KnowTier-portable-data") `
             --sidecar-name $portableSidecars[0].Name
-          Copy-Item `
-            "CHANGELOG.md","LICENSE","PRIVACY.md","THIRD_PARTY_NOTICES.md","docs/DESKTOP.md" `
-            "$portable/"
+
+          foreach ($requiredDocument in @(
+            "CHANGELOG.md", "LICENSE", "PRIVACY.md", "THIRD_PARTY_NOTICES.md", "DESKTOP.md"
+          )) {
+            $documentMatches = @(
+              Get-ChildItem -Path $portable -Filter $requiredDocument -Recurse -File
+            )
+            if ($documentMatches.Count -ne 1) {
+              throw "portable bundle must contain exactly one $requiredDocument, found $($documentMatches.Count)"
+            }
+          }
+          if (Test-Path -LiteralPath (Join-Path $portable "_up_")) {
+            throw "portable bundle contains an invalid parent-relative resource directory"
+          }
 
           if ($env:WINDOWS_SIGNING_STATE -eq "SIGNED") {
             $signedFiles = @(

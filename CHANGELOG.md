@@ -5,6 +5,48 @@ All notable changes to KnowTier are documented in this file. The format is based
 
 ## [Unreleased]
 
+## [1.0.0-rc.4] - 2026-08-10
+
+### Added
+
+- Added a persistent Chinese / English interface selector to first-run setup, the application
+  header, settings, learning, graphs, materials, progress, paths, history, search, and shared
+  loading/error surfaces.
+- Added learner-facing presentation adapters for backend statuses, entity types, relationships,
+  evidence kinds, providers, and model roles; unknown values now use neutral product language.
+
+### Changed
+
+- Reclaimed the full desktop content width when the sidebar is collapsed, including reduced-motion
+  handling and a regression test for the 240 px to 64 px layout change.
+- Rebuilt the learner knowledge graph around mastery, attention and natural-language learning links,
+  with a relationship-first canvas/list view and internal identifiers confined to an advanced
+  technical disclosure.
+- Simplified the learning workspace to the active focus, tutoring conversation and editor. Empty
+  session, tool, graph-update, preference, evidence and source sections no longer occupy the main
+  workspace; generated progress is available on demand.
+- Hid decorative horizontal scrollbars on mobile action, tab and relationship-filter strips while
+  preserving keyboard and touch scrolling.
+
+### Fixed
+
+- Prevented model-profile hydration from overwriting fast user edits, and preserved custom profile
+  names when switching Providers.
+- Delayed the post-setup overview transition until the created Learner context is active, avoiding
+  a route-guard bounce back to initialization.
+- Separated explicitly safe client validation messages from unexpected JavaScript errors so input
+  guidance remains specific without exposing internal exception text or health errors.
+- Mapped Tauri documentation resources to explicit bundle targets and made release assembly reject
+  duplicate or parent-relative Portable resource directories.
+- Localized shared mastery/confidence labels, sheet close actions, graph fallback labels and status
+  text that could remain Chinese after switching the interface to English.
+- Updated the real PostgreSQL/Neo4j/Mock full-stack browser flow to open the new learning-details
+  tabs before asserting prerequisites, misconceptions and evidence, including after API restart.
+- Made the live SiliconFlow smoke skip safely in ordinary offline pytest runs while retaining the
+  explicit opt-in, secret requirement and bounded external request budget.
+- Refreshed reviewed Windows visual baselines for the focused learning workspace and bilingual
+  overview without loosening screenshot thresholds.
+
 ## [1.0.0-rc.3] - 2026-08-10
 
 ### Changed
@@ -122,7 +164,8 @@ All notable changes to KnowTier are documented in this file. The format is based
 - Mutable desktop data is kept outside the installed application, in the operating system's
   per-user application-data directory.
 
-[Unreleased]: https://github.com/Yangjunjie-Lin/KnowTier/compare/v1.0.0-rc.3...HEAD
+[Unreleased]: https://github.com/Yangjunjie-Lin/KnowTier/compare/v1.0.0-rc.4...HEAD
+[1.0.0-rc.4]: https://github.com/Yangjunjie-Lin/KnowTier/releases/tag/v1.0.0-rc.4
 [1.0.0-rc.3]: https://github.com/Yangjunjie-Lin/KnowTier/releases/tag/v1.0.0-rc.3
 [1.0.0-rc.2]: https://github.com/Yangjunjie-Lin/KnowTier/releases/tag/v1.0.0-rc.2
 [1.0.0-rc.1]: https://github.com/Yangjunjie-Lin/KnowTier/releases/tag/v1.0.0-rc.1

@@ -17,5 +17,8 @@ describe("DocumentStatus", () => {
 
   it("does not expose an unknown internal value", () => {
     expect(documentStatusLabel("INTERNAL_NEW_STATE")).toBe("状态未知");
+    expect(documentStatusLabel("INTERNAL_NEW_STATE", "en")).toBe(
+      "Status unavailable",
+    );
   });
 });

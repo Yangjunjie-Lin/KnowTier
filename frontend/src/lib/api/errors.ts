@@ -54,6 +54,14 @@ export class ApiError extends Error {
   }
 }
 
+/** A message authored by the UI and safe to present without exposing internals. */
+export class UserFacingError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "UserFacingError";
+  }
+}
+
 export function errorKindFor(status: number | null, detail: string): ErrorKind {
   const lowered = detail.toLowerCase();
   if (status === 429) return "rate_limited";
@@ -99,4 +107,8 @@ export function friendlyStatusMessage(
 
 export function isApiError(error: unknown): error is ApiError {
   return error instanceof ApiError;
+}
+
+export function isUserFacingError(error: unknown): error is UserFacingError {
+  return error instanceof UserFacingError;
 }

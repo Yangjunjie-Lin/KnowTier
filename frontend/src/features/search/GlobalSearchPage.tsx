@@ -15,12 +15,13 @@ import { queryKeys } from "@/lib/queryKeys";
 import { api } from "@/services/api";
 import { useAppStore } from "@/stores/AppContext";
 import type { GlobalSearchResultKind } from "@/types/api";
+import { useI18n } from "@/lib/i18n";
 
-const resultLabels: Record<GlobalSearchResultKind, string> = {
-  knowledge: "知识图谱",
-  material: "资料",
-  material_content: "资料内容",
-  learner_state: "个人模型",
+const resultLabels: Record<GlobalSearchResultKind, [string, string]> = {
+  knowledge: ["知识点", "Knowledge point"],
+  material: ["资料", "Material"],
+  material_content: ["资料内容", "Material content"],
+  learner_state: ["学习进展", "Learning progress"],
 };
 
 const resultIcons = {
@@ -31,6 +32,7 @@ const resultIcons = {
 } satisfies Record<GlobalSearchResultKind, typeof Search>;
 
 export function GlobalSearchPage() {
+  const { locale, pick, t } = useI18n();
   const { currentWorkspace, currentLearner } = useAppStore();
   const [params, setParams] = useSearchParams();
   const query = (params.get("q") ?? "").trim();
@@ -57,9 +59,12 @@ export function GlobalSearchPage() {
 
   const pageHeader = (
     <PageHeader
-      eyebrow="快速查找"
-      title="全局搜索"
-      description="一次搜索当前学习空间中的知识点、资料内容和个人学习状态。"
+      eyebrow={pick("快速查找", "Quick find")}
+      title={t("nav.search")}
+      description={pick(
+        "一次搜索当前学习空间中的知识点、资料内容和个人学习状态。",
+        "Search knowledge points, material content, and your learning progress in the current workspace.",
+      )}
     />
   );
 
@@ -68,11 +73,11 @@ export function GlobalSearchPage() {
       <div>
         {pageHeader}
         <EmptyState
-          title="还不能开始搜索"
-          description="先选择学习空间和学习者，搜索结果才会限定在正确的数据范围内。"
+          title={pick("还不能开始搜索", "Search is not ready yet")}
+          description={pick("先选择学习空间和学习者，搜索结果才会限定在正确的数据范围内。", "Select a workspace and learner so results stay in the correct scope.")}
           action={
             <Link to="/init" className="primary-button">
-              前往选择
+              {pick("前往选择", "Choose workspace")}
             </Link>
           }
         />
@@ -92,7 +97,7 @@ export function GlobalSearchPage() {
         role="search"
       >
         <label className="block text-xs font-medium text-slate-600 dark:text-slate-300" htmlFor="global-search-input">
-          搜索知识、资料或学习状态
+          {pick("搜索知识、资料或学习状态", "Search knowledge, materials, or progress")}
         </label>
         <div className="mt-2 flex gap-2">
           <div className="relative min-w-0 flex-1">
@@ -103,7 +108,7 @@ export function GlobalSearchPage() {
               className="form-input min-w-0 pl-9 pr-9"
               value={draft}
               onChange={(event) => setDraft(event.target.value)}
-              placeholder="例如：检索增强生成"
+              placeholder={pick("例如：检索增强生成", "For example: retrieval-augmented generation")}
               aria-describedby="global-search-help"
             />
             {draft && (
@@ -115,39 +120,39 @@ export function GlobalSearchPage() {
                   setParams({});
                   inputRef.current?.focus();
                 }}
-                aria-label="清空搜索"
+                aria-label={pick("清空搜索", "Clear search")}
               >
                 <X className="h-4 w-4" />
               </button>
             )}
           </div>
           <button type="submit" className="primary-button shrink-0" disabled={draft.trim().length < 2}>
-            搜索
+            {t("common.search")}
           </button>
         </div>
         <p id="global-search-help" className="mt-2 text-[11px] text-slate-500">
-          输入至少两个字符，按 Enter 即可搜索。
+          {pick("输入至少两个字符，按 Enter 即可搜索。", "Enter at least two characters, then press Enter.")}
         </p>
       </form>
 
-      <section className="mt-5" aria-live="polite" aria-label="全局搜索结果">
+      <section className="mt-5" aria-live="polite" aria-label={pick("全局搜索结果", "Global search results")}>
         {!query && (
           <EmptyState
-            title="输入搜索词"
-            description="可搜索知识点名称、资料正文和个人掌握状态。"
+            title={pick("输入搜索词", "Enter a search term")}
+            description={pick("可搜索知识点名称、资料正文和个人掌握状态。", "Search knowledge point names, material text, and personal mastery status.")}
           />
         )}
         {query && query.length < 2 && (
-          <EmptyState title="搜索词太短" description="请至少输入两个字符。" />
+          <EmptyState title={pick("搜索词太短", "Search term is too short")} description={pick("请至少输入两个字符。", "Enter at least two characters.")} />
         )}
-        {search.isLoading && <LoadingState label="正在搜索" />}
+        {search.isLoading && <LoadingState label={pick("正在搜索", "Searching")} />}
         {search.isError && (
           <ErrorState error={search.error} onRetry={() => void search.refetch()} />
         )}
         {search.data && search.data.items.length === 0 && (
           <EmptyState
-            title="没有找到结果"
-            description={`当前范围内没有与“${search.data.query}”匹配的内容。`}
+            title={pick("没有找到结果", "No results found")}
+            description={pick(`当前范围内没有与“${search.data.query}”匹配的内容。`, `Nothing in the current scope matches “${search.data.query}”.`)}
             action={
               <button
                 type="button"
@@ -158,7 +163,7 @@ export function GlobalSearchPage() {
                   inputRef.current?.focus();
                 }}
               >
-                清除搜索
+                {pick("清除搜索", "Clear search")}
               </button>
             }
           />
@@ -166,8 +171,8 @@ export function GlobalSearchPage() {
         {search.data && search.data.items.length > 0 && (
           <div className="space-y-3">
             <p className="text-xs text-slate-600 dark:text-slate-400">
-              找到 {search.data.items.length} 项
-              {search.data.truncated ? "，结果已按相关度截断" : ""}
+              {pick(`找到 ${search.data.items.length} 项`, `${search.data.items.length} results`)}
+              {search.data.truncated ? pick("，仅显示最相关结果", "; showing the most relevant results") : ""}
             </p>
             {search.data.items.map((item) => {
               const Icon = resultIcons[item.kind];
@@ -182,7 +187,7 @@ export function GlobalSearchPage() {
                   </span>
                   <span className="min-w-0">
                     <span className="text-[11px] font-medium text-[#3157D5]">
-                      {resultLabels[item.kind]}
+                      {resultLabels[item.kind][locale === "en" ? 1 : 0]}
                     </span>
                     <span className="mt-0.5 block text-sm font-semibold text-slate-800 dark:text-slate-100">
                       {item.title}

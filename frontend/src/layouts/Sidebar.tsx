@@ -2,6 +2,7 @@ import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { navigationItems } from "./navigation";
+import { useI18n } from "@/lib/i18n";
 
 export function Sidebar({
   collapsed,
@@ -11,11 +12,12 @@ export function Sidebar({
   onToggle: () => void;
 }) {
   const location = useLocation();
+  const { t } = useI18n();
   return (
     <aside
       id="desktop-sidebar"
       className={cn(
-        "fixed inset-y-0 left-0 z-40 hidden border-r border-slate-200/80 bg-white/95 shadow-[8px_0_30px_rgba(15,23,42,0.025)] backdrop-blur-xl transition-[width] duration-200 dark:border-slate-800 dark:bg-slate-950/95 lg:flex lg:flex-col",
+        "fixed inset-y-0 left-0 z-40 hidden border-r border-slate-200/80 bg-white/95 shadow-[8px_0_30px_rgba(15,23,42,0.025)] backdrop-blur-xl transition-[width] duration-200 ease-out motion-reduce:transition-none dark:border-slate-800 dark:bg-slate-950/95 lg:flex lg:flex-col",
         collapsed ? "w-16" : "w-60",
       )}
     >
@@ -33,16 +35,17 @@ export function Sidebar({
             <p className="text-sm font-semibold tracking-tight text-slate-900 dark:text-white">
               KnowTier
             </p>
-            <p className="mt-0.5 text-[10px] tracking-wide text-slate-500 dark:text-slate-400">认知学习工作台</p>
+            <p className="mt-0.5 text-[10px] tracking-wide text-slate-500 dark:text-slate-400">{t("shell.productTagline")}</p>
           </div>
         )}
       </div>
       <nav
         id="desktop-primary-navigation"
         className="flex-1 space-y-1 overflow-y-auto px-2.5 py-5"
-        aria-label="主导航"
+        aria-label={t("shell.primaryNavigation")}
       >
         {navigationItems.map((item) => {
+          const label = t(item.labelKey);
           const active =
             location.pathname === item.path ||
             (item.key === "materials" &&
@@ -62,14 +65,14 @@ export function Sidebar({
                 collapsed ? "justify-center" : "gap-3",
               )}
               aria-current={active ? "page" : undefined}
-              aria-label={collapsed ? item.label : undefined}
-              title={collapsed ? item.label : undefined}
+              aria-label={collapsed ? label : undefined}
+              title={collapsed ? label : undefined}
             >
               {active && !collapsed && (
                 <span className="absolute inset-y-2 left-0 w-0.5 rounded-full bg-[#3157D5]" aria-hidden="true" />
               )}
               <Icon className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />
-              {!collapsed && <span>{item.label}</span>}
+              {!collapsed && <span>{label}</span>}
             </NavLink>
           );
         })}
@@ -78,7 +81,7 @@ export function Sidebar({
         type="button"
         onClick={onToggle}
         className="icon-button m-2 self-center"
-        aria-label={collapsed ? "展开侧栏" : "收起侧栏"}
+        aria-label={collapsed ? t("shell.expandNavigation") : t("shell.collapseNavigation")}
         aria-controls="desktop-primary-navigation"
         aria-expanded={!collapsed}
       >

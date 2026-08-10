@@ -18,7 +18,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { ErrorState } from "@/components/shared/States";
-import { ApiError } from "@/lib/api/errors";
+import { ApiError, UserFacingError } from "@/lib/api/errors";
 import { apiClient } from "@/lib/api/client";
 import { queryKeys } from "@/lib/queryKeys";
 import { api } from "@/services/api";
@@ -30,6 +30,8 @@ import type {
   RoleModels,
   UUID,
 } from "@/types/api";
+import { useI18n } from "@/lib/i18n";
+import type { UiLocale } from "@/types/app";
 
 const SILICONFLOW_BASE_URL = "https://api.siliconflow.cn/v1";
 const NEW_PROFILE = Symbol("new-profile");
@@ -46,13 +48,15 @@ const ROLE_FIELDS: Array<{
   key: keyof RoleModels;
   label: string;
   description: string;
+  labelEn: string;
+  descriptionEn: string;
 }> = [
-  { key: "teacher", label: "教学模型", description: "回答问题与学习引导" },
-  { key: "extractor", label: "知识抽取模型", description: "从资料中提取知识" },
-  { key: "grader", label: "学习评估模型", description: "评估回答与掌握程度" },
-  { key: "graph", label: "图谱模型", description: "比较图谱并生成建议" },
-  { key: "vision", label: "图像理解模型", description: "理解图片与扫描件" },
-  { key: "embedding", label: "向量模型", description: "用于语义检索" },
+  { key: "teacher", label: "教学模型", description: "回答问题与学习引导", labelEn: "Teaching model", descriptionEn: "Answers questions and guides learning" },
+  { key: "extractor", label: "知识抽取模型", description: "从资料中提取知识", labelEn: "Extraction model", descriptionEn: "Extracts knowledge from materials" },
+  { key: "grader", label: "学习评估模型", description: "评估回答与掌握程度", labelEn: "Grading model", descriptionEn: "Evaluates answers and mastery" },
+  { key: "graph", label: "图谱模型", description: "比较图谱并生成建议", labelEn: "Graph model", descriptionEn: "Compares graphs and suggests changes" },
+  { key: "vision", label: "图像理解模型", description: "理解图片与扫描件", labelEn: "Vision model", descriptionEn: "Understands images and scans" },
+  { key: "embedding", label: "向量模型", description: "用于语义检索", labelEn: "Embedding model", descriptionEn: "Supports semantic retrieval" },
 ];
 const GENERATION_ROLE_KEYS: Array<Exclude<keyof RoleModels, "embedding">> = [
   "teacher",
@@ -155,6 +159,7 @@ function suggestedEmbeddingModel(models: string[]): string | undefined {
 }
 
 export function ModelConfigurationSection() {
+  const { locale, pick } = useI18n();
   const queryClient = useQueryClient();
   const configuration = useQuery({
     queryKey: queryKeys.modelConfiguration,
@@ -224,11 +229,11 @@ export function ModelConfigurationSection() {
     setActionError(null);
   };
   const recordActionError = (error: unknown) => {
-    setActionError(error instanceof Error ? error : new Error("模型配置操作失败。"));
+    setActionError(error instanceof Error ? error : new UserFacingError(pick("模型配置操作失败。", "The model configuration action failed.")));
   };
 
   const persist = async (): Promise<ModelProfile> => {
-    if (!form.name.trim()) throw new Error("请输入配置名称。");
+    if (!form.name.trim()) throw new UserFacingError(pick("请输入配置名称。", "Enter a configuration name."));
     const input: ModelProfileInput = {
       name: form.name.trim(),
       provider: form.provider,
@@ -258,7 +263,7 @@ export function ModelConfigurationSection() {
       !apiKey.trim() &&
       !selectedProfile?.credential_present
     ) {
-      throw new Error("请先输入 API Key，再刷新模型或测试连接。");
+      throw new UserFacingError(pick("请先输入 API Key，再刷新模型或测试连接。", "Enter an API key before refreshing models or testing the connection."));
     }
   };
 
@@ -267,8 +272,11 @@ export function ModelConfigurationSection() {
       (role) => !form.models[role.key].trim(),
     );
     if (missing.length > 0) {
-      throw new Error(
-        `请先刷新模型，并完成模型用途配置：${missing.map((role) => role.label).join("、")}。`,
+      throw new UserFacingError(
+        pick(
+          `请先刷新模型，并完成模型用途配置：${missing.map((role) => role.label).join("、")}。`,
+          `Refresh models and assign every role: ${missing.map((role) => role.labelEn).join(", ")}.`,
+        ),
       );
     }
   };
@@ -276,7 +284,7 @@ export function ModelConfigurationSection() {
   const saveMutation = useMutation({
     mutationFn: persist,
     onMutate: beginAction,
-    onSuccess: () => setActionFeedback("配置已安全保存。"),
+    onSuccess: () => setActionFeedback(pick("配置已安全保存。", "Configuration saved securely.")),
     onError: recordActionError,
   });
   const discoverMutation = useMutation({
@@ -287,7 +295,7 @@ export function ModelConfigurationSection() {
     },
     onSuccess: (result) => {
       setAvailableModels(result.models);
-      setActionFeedback(`已从供应商发现 ${result.models.length} 个可用模型。`);
+      setActionFeedback(pick(`已从供应商发现 ${result.models.length} 个可用模型。`, `Discovered ${result.models.length} available models.`));
       setForm((current) => {
         const currentEmbedding = current.models.embedding;
         const shouldSuggest =
@@ -317,7 +325,7 @@ export function ModelConfigurationSection() {
     onSuccess: async (result) => {
       setAvailableModels(result.models);
       await refreshConfiguration();
-      setActionFeedback(`连接测试成功，供应商返回 ${result.models.length} 个模型。`);
+      setActionFeedback(pick(`连接测试成功，供应商返回 ${result.models.length} 个模型。`, `Connection succeeded. The provider returned ${result.models.length} models.`));
     },
     onMutate: beginAction,
     onError: async (error) => {
@@ -335,33 +343,33 @@ export function ModelConfigurationSection() {
     onMutate: beginAction,
     onSuccess: async () => {
       await refreshConfiguration();
-      setActionFeedback("配置已启用，新的模型调用将使用此映射。");
+      setActionFeedback(pick("配置已启用，新的模型调用将使用此映射。", "Configuration enabled. New model calls will use this mapping."));
     },
     onError: recordActionError,
   });
   const deleteCredentialMutation = useMutation({
     mutationFn: async () => {
-      if (!selectedProfile) throw new Error("请先选择配置。");
+      if (!selectedProfile) throw new UserFacingError(pick("请先选择配置。", "Select a configuration first."));
       return api.deleteModelCredential(selectedProfile.id);
     },
     onMutate: beginAction,
     onSuccess: async () => {
       setApiKey("");
       await refreshConfiguration();
-      setActionFeedback("已删除该配置保存的 API Key。");
+      setActionFeedback(pick("已删除该配置保存的 API Key。", "Saved API key deleted."));
     },
     onError: recordActionError,
   });
   const deleteProfileMutation = useMutation({
     mutationFn: async () => {
-      if (!selectedProfile) throw new Error("请先选择配置。");
+      if (!selectedProfile) throw new UserFacingError(pick("请先选择配置。", "Select a configuration first."));
       await api.deleteModelProfile(selectedProfile.id);
     },
     onMutate: beginAction,
     onSuccess: async () => {
       setSelectedId(null);
       await refreshConfiguration();
-      setActionFeedback("模型配置已删除。");
+      setActionFeedback(pick("模型配置已删除。", "Model configuration deleted."));
     },
     onError: recordActionError,
   });
@@ -429,7 +437,23 @@ export function ModelConfigurationSection() {
           className="flex items-center gap-2 text-sm text-slate-500"
           role="status"
         >
-          <LoaderCircle className="h-4 w-4 animate-spin" /> 正在读取模型配置
+          <LoaderCircle className="h-4 w-4 animate-spin" /> {pick("正在读取模型配置", "Loading model configuration")}
+        </p>
+      </section>
+    );
+  }
+  // Do not expose the transient new-profile form while an existing profile is
+  // being selected from the freshly loaded configuration. Otherwise a quick
+  // edit can be overwritten by the profile hydration effect a moment later.
+  if (selectedId === null && profiles.length > 0) {
+    return (
+      <section className="mb-5 rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
+        <p
+          className="flex items-center gap-2 text-sm text-slate-500"
+          role="status"
+        >
+          <LoaderCircle className="h-4 w-4 animate-spin" />{" "}
+          {pick("正在准备模型配置", "Preparing model configuration")}
         </p>
       </section>
     );
@@ -454,7 +478,7 @@ export function ModelConfigurationSection() {
             }}
           >
             <label className="block text-sm font-medium" htmlFor="model-admin-token">
-              管理员配置令牌
+              {pick("管理员配置令牌", "Administrator configuration token")}
             </label>
             <div className="mt-2 flex flex-wrap gap-2">
               <input
@@ -464,10 +488,10 @@ export function ModelConfigurationSection() {
                 autoComplete="new-password"
                 value={configurationToken}
                 onChange={(event) => setConfigurationToken(event.target.value)}
-                placeholder="仅保存在当前页面会话"
+                placeholder={pick("仅保存在当前页面会话", "Kept only for this page session")}
               />
               <button type="submit" className="primary-button">
-                验证并读取配置
+                {pick("验证并读取配置", "Verify and load configuration")}
               </button>
             </div>
           </form>
@@ -484,12 +508,15 @@ export function ModelConfigurationSection() {
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-xs font-medium text-[#3157D5]">统一模型网关</p>
+          <p className="text-xs font-medium text-[#3157D5]">{pick("统一模型网关", "Unified model gateway")}</p>
           <h2 id="model-configuration-heading" className="mt-1 text-lg font-semibold">
-            模型与供应商
+            {pick("模型与供应商", "Models and providers")}
           </h2>
           <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-500">
-            所有模型调用都由 KnowTier 服务统一执行。API Key 不会进入浏览器存储、网址或普通配置文件。
+            {pick(
+              "所有模型调用都由 KnowTier 服务统一执行。API Key 不会进入浏览器存储、网址或普通配置文件。",
+              "KnowTier runs every model call through its backend service. API keys never enter browser storage, URLs, or ordinary configuration files.",
+            )}
           </p>
         </div>
         <button
@@ -500,7 +527,7 @@ export function ModelConfigurationSection() {
             setSelectedId(NEW_PROFILE);
           }}
         >
-          <Plus className="h-4 w-4" /> 新建配置
+          <Plus className="h-4 w-4" /> {pick("新建配置", "New configuration")}
         </button>
       </div>
 
@@ -510,22 +537,23 @@ export function ModelConfigurationSection() {
           aria-live="polite"
         >
           <span className="inline-flex items-center gap-1.5 font-medium text-emerald-800 dark:text-emerald-300">
-            <ShieldCheck className="h-4 w-4" /> 当前启用：{active.name}
+            <ShieldCheck className="h-4 w-4" />{" "}
+            {pick(`当前启用：${active.name}`, `Active: ${active.name}`)}
           </span>
           <span className="text-slate-600 dark:text-slate-300">
-            教学模型 · {providerLabel(active.provider)} / {active.models.teacher || "未配置"}
+            {pick("教学模型", "Teaching model")} · {providerLabel(active.provider, locale)} / {active.models.teacher || pick("未配置", "Not configured")}
           </span>
           <span className="text-xs text-slate-500">
             {active.connection_status === "connected"
-              ? `最近测试 ${formatDate(active.last_tested_at)}`
-              : "尚未成功测试连接"}
+              ? pick(`最近测试 ${formatDate(active.last_tested_at, locale)}`, `Last tested ${formatDate(active.last_tested_at, locale)}`)
+              : pick("尚未成功测试连接", "Connection not tested successfully yet")}
           </span>
         </div>
       )}
 
       <div className="mt-5 grid gap-5 xl:grid-cols-[240px_minmax(0,1fr)]">
         <nav
-          aria-label="模型配置"
+          aria-label={pick("模型配置", "Model configurations")}
           className="grid gap-2 sm:grid-cols-2 xl:block xl:space-y-2"
         >
           {profiles.map((profile) => (
@@ -545,23 +573,23 @@ export function ModelConfigurationSection() {
                 <ConnectionDot status={effectiveConnectionStatus(profile)} />
               </span>
               <span className="mt-1 block truncate text-xs text-slate-600 dark:text-slate-400">
-                {providerLabel(profile.provider)}
+                {providerLabel(profile.provider, locale)}
                 {profile.provider !== "mock" && !profile.credential_present
-                  ? " · 未添加密钥"
+                  ? pick(" · 未添加密钥", " · No API key")
                   : ""}
               </span>
             </button>
           ))}
           {selectedId === NEW_PROFILE && (
             <div className="rounded-lg border border-dashed border-[#3157D5] bg-indigo-50 px-3 py-3 text-sm font-medium text-[#3157D5] dark:bg-indigo-950/40">
-              新配置
+              {pick("新配置", "New configuration")}
             </div>
           )}
         </nav>
 
         <div className="min-w-0 space-y-5">
           <div className="grid gap-4 md:grid-cols-2">
-            <Field label="配置名称">
+            <Field label={pick("配置名称", "Configuration name")}>
               <input
                 className="form-input"
                 value={form.name}
@@ -571,7 +599,7 @@ export function ModelConfigurationSection() {
                 required
               />
             </Field>
-            <Field label="供应商">
+            <Field label={pick("供应商", "Provider")}>
               <select
                 className="form-input"
                 value={form.provider}
@@ -579,10 +607,10 @@ export function ModelConfigurationSection() {
                   setProvider(event.target.value as ModelProviderKind)
                 }
               >
-                <option value="mock">离线模拟（Mock）</option>
+                <option value="mock">{pick("离线模拟（Mock）", "Offline mock")}</option>
                 <option value="siliconflow">SiliconFlow</option>
                 <option value="custom_openai_compatible">
-                  自定义 OpenAI 兼容接口
+                  {pick("自定义 OpenAI 兼容接口", "Custom OpenAI-compatible")}
                 </option>
               </select>
             </Field>
@@ -590,7 +618,7 @@ export function ModelConfigurationSection() {
 
           {form.provider !== "mock" && (
             <div className="grid gap-4 md:grid-cols-2">
-              <Field label="服务地址（Base URL）">
+              <Field label={pick("服务地址（Base URL）", "Service address (Base URL)")}>
                 <input
                   className="form-input font-mono text-xs"
                   value={form.baseUrl}
@@ -617,8 +645,8 @@ export function ModelConfigurationSection() {
                     className="break-all text-right text-slate-500"
                   >
                     {selectedProfile?.credential_present
-                      ? `已安全保存：${selectedProfile.credential_masked ?? "••••••••"}`
-                      : "只发送到 KnowTier 服务"}
+                      ? pick(`已安全保存：${selectedProfile.credential_masked ?? "••••••••"}`, `Saved securely: ${selectedProfile.credential_masked ?? "••••••••"}`)
+                      : pick("只发送到 KnowTier 服务", "Sent only to the KnowTier service")}
                   </span>
                 </div>
                 <div className="relative">
@@ -632,15 +660,15 @@ export function ModelConfigurationSection() {
                     onChange={(event) => setApiKey(event.target.value)}
                     placeholder={
                       selectedProfile?.credential_present
-                        ? "留空以保留现有凭据"
-                        : "输入 API Key"
+                        ? pick("留空以保留现有凭据", "Leave blank to keep the saved credential")
+                        : pick("输入 API Key", "Enter API key")
                     }
                   />
                   <button
                     type="button"
                     className="absolute inset-y-0 right-1 my-auto inline-flex h-9 w-9 items-center justify-center rounded-lg text-slate-500 hover:bg-slate-100 hover:text-slate-800 focus:outline-none focus:ring-2 focus:ring-[#3157D5]/40 dark:hover:bg-slate-800 dark:hover:text-slate-100"
                     onClick={() => setShowApiKey((visible) => !visible)}
-                    aria-label={showApiKey ? "隐藏密钥内容" : "显示密钥内容"}
+                    aria-label={showApiKey ? pick("隐藏密钥内容", "Hide API key") : pick("显示密钥内容", "Show API key")}
                     aria-pressed={showApiKey}
                   >
                     {showApiKey ? (
@@ -651,10 +679,10 @@ export function ModelConfigurationSection() {
                   </button>
                 </div>
                 <span id="model-api-key-safety" className="sr-only">
-                  默认遮蔽。密钥只发送给 KnowTier 服务，不会写入浏览器本地存储。
+                  {pick("默认遮蔽。密钥只发送给 KnowTier 服务，不会写入浏览器本地存储。", "Masked by default. The key is sent only to KnowTier and is never written to browser storage.")}
                 </span>
               </div>
-              <Field label="凭据保存方式">
+              <Field label={pick("凭据保存方式", "Credential storage")}>
                 <select
                   className="form-input"
                   value={form.credentialStorage}
@@ -665,9 +693,9 @@ export function ModelConfigurationSection() {
                     }))
                   }
                 >
-                  <option value="session">仅本次应用会话</option>
+                  <option value="session">{pick("仅本次应用会话", "This app session only")}</option>
                   <option value="os_keyring" disabled={!isDesktopRuntime()}>
-                    操作系统凭据库{isDesktopRuntime() ? "（推荐）" : "（桌面端）"}
+                    {pick("操作系统凭据库", "Operating-system credential vault")}{isDesktopRuntime() ? pick("（推荐）", " (recommended)") : pick("（桌面端）", " (desktop only)")}
                   </option>
                 </select>
               </Field>
@@ -686,12 +714,12 @@ export function ModelConfigurationSection() {
                     }
                   />
                   <span>
-                    允许本机 HTTP 模型服务
+                    {pick("允许本机 HTTP 模型服务", "Allow a local HTTP model service")}
                     <span
                       id="allow-local-provider-help"
                       className="mt-0.5 block text-[11px] leading-4 text-slate-500"
                     >
-                      仅用于本机开发服务；其他地址仍必须使用 HTTPS。
+                      {pick("仅用于本机开发服务；其他地址仍必须使用 HTTPS。", "Use this only for a local service. All other addresses must use HTTPS.")}
                     </span>
                   </span>
                 </label>
@@ -702,25 +730,25 @@ export function ModelConfigurationSection() {
           <div className="rounded-lg border border-slate-200 p-4 dark:border-slate-800">
             <div className="flex flex-wrap items-center justify-between gap-3">
               <div>
-                <h3 className="text-sm font-semibold">模型用途分配</h3>
+                <h3 className="text-sm font-semibold">{pick("模型用途分配", "Model role assignment")}</h3>
                 <p className="mt-1 text-xs text-slate-500">
-                  模型列表从供应商实时获取，不绑定固定型号。
-                  {availableModels.length > 0 && ` 已加载 ${availableModels.length} 个模型。`}
+                  {pick("模型列表从供应商实时获取，不绑定固定型号。", "The model list is loaded live from the provider; no model IDs are hard-coded.")}
+                  {availableModels.length > 0 && pick(` 已加载 ${availableModels.length} 个模型。`, ` ${availableModels.length} models loaded.`)}
                 </p>
                 {form.provider !== "mock" && (
                   <p className="mt-1 text-[11px] leading-5 text-slate-500">
-                    “刷新模型”“测试连接”和“启用配置”都会先安全保存当前表单。
+                    {pick("“刷新模型”“测试连接”和“启用配置”都会先安全保存当前表单。", "Refresh, connection test, and activation securely save the current form first.")}
                   </p>
                 )}
               </div>
-              <div className="flex gap-2" role="group" aria-label="模型分配方式">
+              <div className="flex gap-2" role="group" aria-label={pick("模型分配方式", "Model assignment mode")}>
                 <button
                   type="button"
                   className="quiet-button"
                   aria-pressed={!advanced}
                   onClick={() => setAdvanced(false)}
                 >
-                  快速配置
+                  {pick("快速配置", "Quick setup")}
                 </button>
                 <button
                   type="button"
@@ -728,7 +756,7 @@ export function ModelConfigurationSection() {
                   aria-pressed={advanced}
                   onClick={() => setAdvanced(true)}
                 >
-                  按用途配置
+                  {pick("按用途配置", "Assign by role")}
                 </button>
               </div>
             </div>
@@ -740,8 +768,8 @@ export function ModelConfigurationSection() {
             {!advanced ? (
               <div className="mt-4 grid gap-3 md:grid-cols-2">
                 <Field
-                  label="统一生成模型"
-                  hint="用于教学、抽取、评估、图谱和图像理解"
+                  label={pick("统一生成模型", "Generation model")}
+                  hint={pick("用于教学、抽取、评估、图谱和图像理解", "Used for teaching, extraction, grading, graph analysis, and vision")}
                 >
                   <input
                     className="form-input font-mono text-xs"
@@ -762,10 +790,10 @@ export function ModelConfigurationSection() {
                         },
                       }));
                     }}
-                    placeholder="先刷新模型，再搜索选择"
+                    placeholder={pick("先刷新模型，再搜索选择", "Refresh models, then search and select")}
                   />
                 </Field>
-                <Field label="向量模型" hint="需支持 Embeddings 接口">
+                <Field label={pick("向量模型", "Embedding model")} hint={pick("需支持 Embeddings 接口", "Must support the embeddings endpoint")}>
                   <input
                     className="form-input font-mono text-xs"
                     list="provider-model-options"
@@ -779,14 +807,18 @@ export function ModelConfigurationSection() {
                         },
                       }))
                     }
-                    placeholder="刷新后自动建议，也可搜索选择"
+                    placeholder={pick("刷新后自动建议，也可搜索选择", "Suggested after refresh, or search and select")}
                   />
                 </Field>
               </div>
             ) : (
               <div className="mt-4 grid gap-3 md:grid-cols-2 xl:grid-cols-3">
                 {ROLE_FIELDS.map((role) => (
-                  <Field key={role.key} label={role.label} hint={role.description}>
+                  <Field
+                    key={role.key}
+                    label={locale === "en" ? role.labelEn : role.label}
+                    hint={locale === "en" ? role.descriptionEn : role.description}
+                  >
                     <input
                       className="form-input font-mono text-xs"
                       list="provider-model-options"
@@ -800,7 +832,7 @@ export function ModelConfigurationSection() {
                           },
                         }))
                       }
-                      placeholder="搜索模型"
+                      placeholder={pick("搜索模型", "Search models")}
                     />
                   </Field>
                 ))}
@@ -810,14 +842,14 @@ export function ModelConfigurationSection() {
 
           <details className="rounded-lg border border-slate-200 px-4 py-3 dark:border-slate-800">
             <summary className="cursor-pointer text-xs font-medium text-slate-600 dark:text-slate-300">
-              生成参数（高级）
+              {pick("生成参数（高级）", "Generation parameters (advanced)")}
             </summary>
             <p className="mt-2 text-[11px] leading-5 text-slate-500">
-              默认值适合大多数情况；仅在响应过慢、输出过长或需要调整随机性时修改。
+              {pick("默认值适合大多数情况；仅在响应过慢、输出过长或需要调整随机性时修改。", "The defaults suit most cases. Adjust them only for slow responses, overly long output, or creativity control.")}
             </p>
             <div className="mt-2 grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
               <NumberField
-                label="超时（秒）"
+                label={pick("超时（秒）", "Timeout (seconds)")}
                 value={form.timeoutSeconds}
                 min={1}
                 max={300}
@@ -827,7 +859,7 @@ export function ModelConfigurationSection() {
                 }
               />
               <NumberField
-                label="重试次数"
+                label={pick("重试次数", "Retries")}
                 value={form.maxRetries}
                 min={0}
                 max={5}
@@ -837,7 +869,7 @@ export function ModelConfigurationSection() {
                 }
               />
               <NumberField
-                label="回答随机性（Temperature）"
+                label={pick("回答随机性（Temperature）", "Response randomness (Temperature)")}
                 value={form.temperature}
                 min={0}
                 max={2}
@@ -847,7 +879,7 @@ export function ModelConfigurationSection() {
                 }
               />
               <NumberField
-                label="最长输出（Tokens）"
+                label={pick("最长输出（Tokens）", "Maximum output (tokens)")}
                 value={form.maxTokens}
                 min={64}
                 max={131072}
@@ -887,7 +919,7 @@ export function ModelConfigurationSection() {
               ) : (
                 <ServerCog className="h-4 w-4" />
               )}
-              {saveMutation.isPending ? "正在保存" : "保存配置"}
+              {saveMutation.isPending ? pick("正在保存", "Saving") : pick("保存配置", "Save configuration")}
             </button>
             <button
               type="button"
@@ -896,7 +928,7 @@ export function ModelConfigurationSection() {
               onClick={() => discoverMutation.mutate()}
             >
               <RefreshCw className={`h-4 w-4 ${discoverMutation.isPending ? "animate-spin" : ""}`} />
-              {discoverMutation.isPending ? "正在刷新" : "刷新模型"}
+              {discoverMutation.isPending ? pick("正在刷新", "Refreshing") : pick("刷新模型", "Refresh models")}
             </button>
             <button
               type="button"
@@ -909,7 +941,7 @@ export function ModelConfigurationSection() {
               ) : (
                 <Wifi className="h-4 w-4" />
               )}
-              {testMutation.isPending ? "正在测试" : "测试连接"}
+              {testMutation.isPending ? pick("正在测试", "Testing") : pick("测试连接", "Test connection")}
             </button>
             <button
               type="button"
@@ -917,7 +949,7 @@ export function ModelConfigurationSection() {
               disabled={busy || selectedProfile?.active === true}
               onClick={() => activateMutation.mutate()}
             >
-              <CheckCircle2 className="h-4 w-4" /> 启用配置
+              <CheckCircle2 className="h-4 w-4" /> {pick("启用配置", "Enable configuration")}
             </button>
           </div>
           {((selectedProfile?.credential_present &&
@@ -926,10 +958,10 @@ export function ModelConfigurationSection() {
             <div className="flex flex-col gap-3 border-t border-slate-200 pt-4 dark:border-slate-800 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <p className="text-xs font-medium text-slate-700 dark:text-slate-200">
-                  安全维护
+                  {pick("安全维护", "Secure maintenance")}
                 </p>
                 <p className="mt-1 text-[11px] text-slate-500">
-                  删除操作不会显示或返回已保存的 API Key。
+                  {pick("删除操作不会显示或返回已保存的 API Key。", "Delete actions never display or return the saved API key.")}
                 </p>
               </div>
               <div className="flex flex-wrap gap-2">
@@ -942,14 +974,14 @@ export function ModelConfigurationSection() {
                       onClick={() => {
                         if (
                           window.confirm(
-                            `删除模型配置“${selectedProfile.name}”保存的 API Key？`,
+                            pick(`删除模型配置“${selectedProfile.name}”保存的 API Key？`, `Delete the API key saved for “${selectedProfile.name}”?`),
                           )
                         ) {
                           deleteCredentialMutation.mutate();
                         }
                       }}
                     >
-                      <KeyRound className="h-4 w-4" /> 删除凭据
+                      <KeyRound className="h-4 w-4" /> {pick("删除凭据", "Delete credential")}
                     </button>
                   )}
                 {selectedProfile && !selectedProfile.active && (
@@ -958,12 +990,12 @@ export function ModelConfigurationSection() {
                   className="secondary-button border-red-200 text-red-700"
                   disabled={busy}
                   onClick={() => {
-                    if (window.confirm(`删除模型配置“${selectedProfile.name}”？`)) {
+                    if (window.confirm(pick(`删除模型配置“${selectedProfile.name}”？`, `Delete model configuration “${selectedProfile.name}”?`))) {
                       deleteProfileMutation.mutate();
                     }
                   }}
                 >
-                  <Trash2 className="h-4 w-4" /> 删除配置
+                  <Trash2 className="h-4 w-4" /> {pick("删除配置", "Delete configuration")}
                 </button>
               )}
               </div>
@@ -1034,8 +1066,13 @@ function ConnectionDot({
 }: {
   status: ModelProfile["connection_status"];
 }) {
+  const { pick } = useI18n();
   const label =
-    status === "connected" ? "连接成功" : status === "error" ? "连接失败" : "未测试";
+    status === "connected"
+      ? pick("连接成功", "Connected")
+      : status === "error"
+        ? pick("连接失败", "Connection failed")
+        : pick("未测试", "Not tested");
   return (
     <span
       title={label}
@@ -1059,17 +1096,20 @@ function effectiveConnectionStatus(
   return profile.connection_status;
 }
 
-function providerLabel(provider: ModelProviderKind): string {
-  if (provider === "mock") return "离线模拟（Mock）";
+function providerLabel(provider: ModelProviderKind, locale: UiLocale = "zh-CN"): string {
+  if (provider === "mock") return locale === "en" ? "Offline mock" : "离线模拟（Mock）";
   if (provider === "siliconflow") return "SiliconFlow";
-  return "自定义 OpenAI 兼容接口";
+  return locale === "en" ? "Custom OpenAI-compatible" : "自定义 OpenAI 兼容接口";
 }
 
-function formatDate(value: string | null): string {
-  if (!value) return "从未";
+function formatDate(
+  value: string | null,
+  locale: UiLocale = "zh-CN",
+): string {
+  if (!value) return locale === "en" ? "Never" : "从未";
   const parsed = new Date(value);
-  if (Number.isNaN(parsed.getTime())) return "时间不可用";
-  return new Intl.DateTimeFormat("zh-CN", {
+  if (Number.isNaN(parsed.getTime())) return locale === "en" ? "Time unavailable" : "时间不可用";
+  return new Intl.DateTimeFormat(locale === "en" ? "en" : "zh-CN", {
     dateStyle: "short",
     timeStyle: "short",
   }).format(parsed);

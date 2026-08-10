@@ -2,12 +2,12 @@ import {
   asRecord,
   firstNumber,
   firstText,
-  humanizeUnknown,
   mergedRecord,
   recordArray,
   textValue,
   type UnknownRecord,
 } from "./dataAdapter";
+import type { UiLocale } from "@/types/app";
 
 export interface DomainNodeSummary {
   id: string | null;
@@ -90,80 +90,84 @@ export interface DomainAssertionDetailModel {
   raw: UnknownRecord;
 }
 
-const relationLabels: Record<string, string> = {
-  IS_A: "属于",
-  PART_OF: "是组成部分",
-  REQUIRES: "需要先掌握",
-  PREREQUISITE_OF: "前置于",
-  ENABLES: "为学习或应用提供基础",
-  EXPLAINS: "解释",
-  CONTRASTS_WITH: "与之形成对照",
-  SIMILAR_TO: "与之相似",
-  APPLIES_TO: "适用于",
-  FAILS_WHEN: "在该条件下失效",
-  SUPPORTED_BY: "由来源支持",
-  DERIVED_FROM: "源自",
-  EXAMPLE_OF: "是其示例",
-  COUNTEREXAMPLE_OF: "是其反例",
-  MISCONCEPTION_ABOUT: "是关于它的误解",
-  ASSESSES: "用于检测",
-  TEACHES: "用于教授",
-  MASTERED_BY: "被学习者掌握",
-  SUPERSEDES: "替代",
-  CONFLICTS_WITH: "与之冲突",
+const relationLabels: Record<string, readonly [string, string]> = {
+  IS_A: ["属于", "Is a"],
+  PART_OF: ["是组成部分", "Part of"],
+  REQUIRES: ["需要先掌握", "Requires"],
+  PREREQUISITE_OF: ["前置于", "Prerequisite for"],
+  ENABLES: ["为学习或应用提供基础", "Enables"],
+  EXPLAINS: ["解释", "Explains"],
+  CONTRASTS_WITH: ["与之形成对照", "Contrasts with"],
+  SIMILAR_TO: ["与之相似", "Similar to"],
+  APPLIES_TO: ["适用于", "Applies to"],
+  FAILS_WHEN: ["在该条件下失效", "Fails when"],
+  SUPPORTED_BY: ["由来源支持", "Supported by"],
+  DERIVED_FROM: ["源自", "Derived from"],
+  EXAMPLE_OF: ["是其示例", "Example of"],
+  COUNTEREXAMPLE_OF: ["是其反例", "Counterexample of"],
+  MISCONCEPTION_ABOUT: ["是关于它的误解", "Misconception about"],
+  ASSESSES: ["用于检测", "Assesses"],
+  TEACHES: ["用于教授", "Teaches"],
+  MASTERED_BY: ["被学习者掌握", "Mastered by"],
+  SUPERSEDES: ["替代", "Supersedes"],
+  CONFLICTS_WITH: ["与之冲突", "Conflicts with"],
 };
 
-const nodeTypeLabels: Record<string, string> = {
-  Domain: "领域",
-  Theory: "理论",
-  KnowledgePoint: "知识点",
-  Definition: "定义",
-  Method: "方法",
-  Example: "示例",
-  Counterexample: "反例",
-  Misconception: "误解",
-  Question: "掌握检测",
-  LearningStage: "教学阶段",
-  SourceDocument: "来源文档",
-  SourceSpan: "来源片段",
-  EntityType: "实体类型",
-  RelationType: "关系类型",
-  EpistemicStatus: "知识状态",
-  Constraint: "约束",
-  ConflictSet: "冲突集合",
-  Session: "学习会话",
-  LearningGoal: "学习目标",
-  MasteryEvidence: "掌握证据",
-  ErrorPattern: "错误模式",
-  Learner: "学习者",
-  LearnerKnowledgeState: "学习者知识状态",
-  LearnerGraphResource: "学习图谱资源",
+const nodeTypeLabels: Record<string, readonly [string, string]> = {
+  Domain: ["领域", "Domain"],
+  Theory: ["理论", "Theory"],
+  KnowledgePoint: ["知识点", "Knowledge point"],
+  Definition: ["定义", "Definition"],
+  Method: ["方法", "Method"],
+  Example: ["示例", "Example"],
+  Counterexample: ["反例", "Counterexample"],
+  Misconception: ["误解", "Misconception"],
+  Question: ["掌握检测", "Mastery check"],
+  LearningStage: ["教学阶段", "Learning stage"],
+  SourceDocument: ["来源文档", "Source material"],
+  SourceSpan: ["来源片段", "Source excerpt"],
+  EntityType: ["实体类型", "Content type"],
+  RelationType: ["关系类型", "Relationship type"],
+  EpistemicStatus: ["知识状态", "Knowledge status"],
+  Constraint: ["约束", "Constraint"],
+  ConflictSet: ["冲突集合", "Conflict set"],
+  Session: ["学习会话", "Learning session"],
+  LearningGoal: ["学习目标", "Learning goal"],
+  MasteryEvidence: ["掌握证据", "Mastery evidence"],
+  ErrorPattern: ["错误模式", "Error pattern"],
+  Learner: ["学习者", "Learner"],
+  LearnerKnowledgeState: ["学习者知识状态", "Learner progress"],
+  LearnerGraphResource: ["学习图谱资源", "Learning map resource"],
 };
 
-const epistemicLabels: Record<string, string> = {
-  CONFIRMED: "已确认",
-  PROPOSED: "待审提议",
-  INFERRED: "推断",
-  USER_SUPPLIED: "用户提供",
-  UNVERIFIED: "未验证",
-  DISPUTED: "有争议",
-  SUPERSEDED: "已被替代",
+const epistemicLabels: Record<string, readonly [string, string]> = {
+  CONFIRMED: ["已确认", "Confirmed"],
+  PROPOSED: ["待审提议", "Proposed"],
+  INFERRED: ["推断", "Inferred"],
+  USER_SUPPLIED: ["用户提供", "User supplied"],
+  UNVERIFIED: ["未验证", "Unverified"],
+  DISPUTED: ["有争议", "Disputed"],
+  SUPERSEDED: ["已被替代", "Superseded"],
 };
 
-export function relationTypeLabel(value: string): string {
-  return relationLabels[value] ?? humanizeUnknown(value);
+function localizedLabel(value: readonly [string, string], locale: UiLocale): string {
+  return value[locale === "en" ? 1 : 0];
 }
 
-export function domainNodeTypeLabel(value: string): string {
-  return nodeTypeLabels[value] ?? humanizeUnknown(value);
+export function relationTypeLabel(value: string, locale: UiLocale = "zh-CN"): string {
+  return localizedLabel(relationLabels[value] ?? ["其他知识关系", "Other knowledge relationship"], locale);
 }
 
-export function epistemicStatusLabel(value: string | null): string {
-  if (!value) return "状态未知";
-  return epistemicLabels[value] ?? humanizeUnknown(value);
+export function domainNodeTypeLabel(value: string, locale: UiLocale = "zh-CN"): string {
+  return localizedLabel(nodeTypeLabels[value] ?? ["学习内容", "Learning content"], locale);
 }
 
-export function adaptDomainNodeDetail(value: unknown): DomainNodeDetailModel | null {
+export function epistemicStatusLabel(value: string | null, locale: UiLocale = "zh-CN"): string {
+  if (!value) return locale === "en" ? "Status unavailable" : "状态未知";
+  return localizedLabel(epistemicLabels[value] ?? ["状态待确认", "Pending confirmation"], locale);
+}
+
+export function adaptDomainNodeDetail(value: unknown, locale: UiLocale = "zh-CN"): DomainNodeDetailModel | null {
   const raw = asRecord(value);
   if (!raw) return null;
   const nodeRecord = asRecord(raw.node) ?? raw;
@@ -189,10 +193,10 @@ export function adaptDomainNodeDetail(value: unknown): DomainNodeDetailModel | n
       ...recordArray(raw.related_nodes),
     ].map((item) => adaptNode(item)),
     incoming: recordArray(raw.incoming_assertions).map((item) =>
-      adaptIncidentRelation(item, "incoming"),
+      adaptIncidentRelation(item, "incoming", locale),
     ),
     outgoing: recordArray(raw.outgoing_assertions).map((item) =>
-      adaptIncidentRelation(item, "outgoing"),
+      adaptIncidentRelation(item, "outgoing", locale),
     ),
     learningStages: recordArray(raw.learning_stages).map(adaptLearningStage),
     sources: recordArray(raw.sources).map(adaptSource),
@@ -208,6 +212,7 @@ export function adaptDomainNodeDetail(value: unknown): DomainNodeDetailModel | n
 
 export function adaptDomainAssertionDetail(
   value: unknown,
+  locale: UiLocale = "zh-CN",
 ): DomainAssertionDetailModel | null {
   const raw = asRecord(value);
   if (!raw) return null;
@@ -236,11 +241,11 @@ export function adaptDomainAssertionDetail(
   }
   const subject = adaptNode(
     asRecord(raw.subject) ?? { id: firstText(assertion, "subject_id") },
-    "未知主体",
+    locale === "en" ? "Unknown source" : "未知主体",
   );
   const object = adaptNode(
     asRecord(raw.object) ?? { id: firstText(assertion, "object_id") },
-    "未知客体",
+    locale === "en" ? "Unknown target" : "未知客体",
   );
   const active = booleanValue(assertion.is_active ?? assertion.active);
   const validTo = firstText(assertion, "valid_to", "superseded_at");
@@ -253,9 +258,9 @@ export function adaptDomainAssertionDetail(
         assertion,
         "natural_language_description",
         "description",
-      ) ?? `${subject.name} ${relationTypeLabel(relationType)} ${object.name}`,
+      ) ?? `${subject.name} ${relationTypeLabel(relationType, locale)} ${object.name}`,
     relationType,
-    relationTypeLabel: relationTypeLabel(relationType),
+    relationTypeLabel: relationTypeLabel(relationType, locale),
     confidence: firstNumber(assertion, "confidence"),
     epistemicStatus: firstText(assertion, "epistemic_status"),
     validFrom: firstText(assertion, "valid_from", "created_at"),
@@ -296,6 +301,7 @@ function adaptNode(value: UnknownRecord, fallback = "未命名节点"): DomainNo
 function adaptIncidentRelation(
   value: UnknownRecord,
   direction: "incoming" | "outgoing",
+  locale: UiLocale,
 ): DomainRelationSummary {
   const assertionRecord = asRecord(value.assertion) ?? value;
   const assertion = mergedRecord(assertionRecord);
@@ -308,13 +314,13 @@ function adaptIncidentRelation(
   return {
     id: firstText(assertion, "id", "assertion_id"),
     predicate,
-    predicateLabel: relationTypeLabel(predicate),
+    predicateLabel: relationTypeLabel(predicate, locale),
     description:
       firstText(
         assertion,
         "natural_language_description",
         "description",
-      ) ?? relationTypeLabel(predicate),
+      ) ?? relationTypeLabel(predicate, locale),
     endpoint: endpointRecord ? adaptNode(endpointRecord) : null,
     endpointId:
       endpointRecord

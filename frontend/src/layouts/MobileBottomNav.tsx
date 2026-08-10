@@ -1,13 +1,15 @@
 import { NavLink, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
 import { navigationItems } from "./navigation";
+import { useI18n } from "@/lib/i18n";
 
 export function MobileBottomNav() {
   const location = useLocation();
+  const { t } = useI18n();
   return (
     <nav
       className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-slate-200/80 bg-white/92 px-1 pb-[env(safe-area-inset-bottom)] shadow-[0_-8px_30px_rgba(15,23,42,0.06)] backdrop-blur-xl lg:hidden dark:border-slate-800 dark:bg-slate-950/92"
-      aria-label="移动端导航"
+      aria-label={t("shell.mobileNavigation")}
     >
       {navigationItems
         .filter((item) => item.mobile)
@@ -37,7 +39,7 @@ export function MobileBottomNav() {
               >
                 <Icon className="h-[19px] w-[19px]" aria-hidden="true" />
               </span>
-              <span className="max-w-full truncate px-0.5">{item.label}</span>
+              <span className="max-w-full truncate px-0.5">{t(item.labelKey)}</span>
             </NavLink>
           );
         })}

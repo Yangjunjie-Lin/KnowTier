@@ -143,6 +143,21 @@ describe("SettingsPage learning preferences", () => {
     expect(screen.getByLabelText("提示强度")).toHaveValue("balanced");
   });
 
+  it("switches the interface between Chinese and English and persists it", async () => {
+    renderPage();
+    const language = await screen.findByLabelText("界面语言");
+    fireEvent.change(language, { target: { value: "en" } });
+
+    expect(await screen.findByRole("heading", { name: "Settings" })).toBeVisible();
+    expect(screen.getByText("Learning preferences")).toBeVisible();
+    expect(document.documentElement.lang).toBe("en");
+    await waitFor(() =>
+      expect(localStorage.getItem("knowtier.app-state.v1")).toContain(
+        '"uiLocale":"en"',
+      ),
+    );
+  });
+
   it("keeps a supplied model credential out of localStorage", async () => {
     const siliconFlow: ModelProfile = {
       ...mockProfile,

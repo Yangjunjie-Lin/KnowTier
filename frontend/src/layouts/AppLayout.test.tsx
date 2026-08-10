@@ -14,6 +14,12 @@ vi.mock("@/stores/AppContext", () => ({
   useAppStore: () => ({
     currentWorkspace: { name: "测试空间" },
     currentLearner: { display_name: "测试学习者", language: "zh-CN" },
+    preferences: { uiLocale: "zh-CN" },
+    setUiLocale: vi.fn(),
+  }),
+  useOptionalAppStore: () => ({
+    preferences: { uiLocale: "zh-CN" },
+    setUiLocale: vi.fn(),
   }),
 }));
 
@@ -75,6 +81,24 @@ afterEach(() => {
 });
 
 describe("application shell accessibility", () => {
+  it("reclaims the desktop sidebar width when navigation is collapsed", () => {
+    installViewport(true);
+    renderLayout();
+
+    const contentShell = screen.getByTestId("application-content-shell");
+    expect(contentShell).toHaveAttribute("data-sidebar-state", "expanded");
+    expect(contentShell).toHaveClass("lg:pl-60");
+    expect(contentShell).not.toHaveClass("lg:pl-16");
+    expect(screen.getByRole("main")).not.toHaveClass("max-w-[1600px]");
+
+    fireEvent.click(screen.getByRole("button", { name: "收起侧栏" }));
+
+    expect(contentShell).toHaveAttribute("data-sidebar-state", "collapsed");
+    expect(contentShell).toHaveClass("lg:pl-16");
+    expect(contentShell).toHaveClass("motion-reduce:transition-none");
+    expect(screen.getByRole("complementary")).toHaveClass("w-16");
+  });
+
   it("keeps collapsed desktop navigation links named", () => {
     render(
       <MemoryRouter initialEntries={["/overview"]}>

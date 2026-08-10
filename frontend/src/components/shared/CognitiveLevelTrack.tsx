@@ -1,6 +1,7 @@
 import { Check } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { cognitiveLevels } from "./cognitiveLevels";
+import { useI18n } from "@/lib/i18n";
 
 export function CognitiveLevelTrack({
   currentLevel,
@@ -9,10 +10,11 @@ export function CognitiveLevelTrack({
   currentLevel: number;
   compact?: boolean;
 }) {
+  const { pick } = useI18n();
   return (
     <div
       className={cn("flex items-center", compact ? "gap-1" : "gap-2")}
-      aria-label={`当前认知层级 L${currentLevel}`}
+      aria-label={`${pick("当前认知层级", "Current cognitive level")} L${currentLevel}`}
     >
       {cognitiveLevels.map((item, index) => (
         <div key={item.id} className="flex items-center">

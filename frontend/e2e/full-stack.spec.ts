@@ -5,6 +5,7 @@ import {
   expect,
   test,
   type APIRequestContext,
+  type Locator,
   type Page,
   type Response,
 } from "@playwright/test";
@@ -100,6 +101,38 @@ async function waitUntilReady(request: APIRequestContext): Promise<void> {
       },
     )
     .toBe(200);
+}
+
+async function learningPanel(page: Page, name: string): Promise<Locator> {
+  const directPanel = page.getByRole("region", { name, exact: true });
+  if (await directPanel.isVisible()) return directPanel;
+
+  let dialog = page.getByRole("dialog");
+  if (!(await dialog.isVisible())) {
+    const detailsButton = page.getByRole("button", {
+      name: "查看详情",
+      exact: true,
+    });
+    const statusButton = page.getByRole("button", {
+      name: "学习状态",
+      exact: true,
+    });
+    if (await detailsButton.isVisible()) await detailsButton.click();
+    else await statusButton.click();
+    dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+  }
+  await dialog.getByRole("tab", { name, exact: true }).click();
+  return dialog.getByRole("region", { name, exact: true });
+}
+
+async function closeLearningDetails(page: Page): Promise<void> {
+  const dialog = page.getByRole("dialog");
+  if (!(await dialog.isVisible())) return;
+  await dialog
+    .getByRole("button", { name: /关闭详情|Close details/, exact: true })
+    .click();
+  await expect(dialog).toHaveCount(0);
 }
 
 function restartApi(): void {
@@ -265,9 +298,11 @@ test("real stack persists ingestion, tutoring, graphs, and versions across an AP
   await expect(page.getByText(targetChat.response, { exact: false }).last()).toBeVisible();
   await expect(page.getByText(/掌握度/).first()).toBeVisible();
 
-  const prerequisitePanel = page.getByRole("region", { name: "前置知识" });
-  const misconceptionPanel = page.getByRole("region", { name: "误解" });
-  const evidencePanel = page.getByRole("region", { name: "掌握证据" });
+  const prerequisitePanel = page.getByRole("region", {
+    name: "前置知识",
+    exact: true,
+  });
+  await expect(prerequisitePanel).toBeVisible();
   await expect(prerequisitePanel).toContainText("conditional probability foundation");
   await expect(prerequisitePanel).toContainText("已掌握");
 
@@ -283,11 +318,14 @@ test("real stack persists ingestion, tutoring, graphs, and versions across an AP
   expect(wrongAnswer.target_knowledge_point.id).toBe(
     targetChat.target_knowledge_point.id,
   );
+  const misconceptionPanel = await learningPanel(page, "误解");
   await expect(misconceptionPanel).toContainText(
     "Bayesian updating ignores the likelihood evidence.",
   );
-  await expect(misconceptionPanel).toContainText("当前有效");
+  await expect(misconceptionPanel).toContainText("仍然有效");
+  const evidencePanel = await learningPanel(page, "掌握证据");
   await expect(evidencePanel).toContainText("正确性");
+  await closeLearningDetails(page);
 
   await learningInput.fill(
     "E2E_CORRECT_BAYES_ANSWER The posterior combines the prior and likelihood evidence.",
@@ -298,17 +336,19 @@ test("real stack persists ingestion, tutoring, graphs, and versions across an AP
     "/v1/chat",
     () => page.getByRole("button", { name: /发送/ }).click(),
   );
-  await expect(misconceptionPanel).toContainText(
+  const resolvedMisconceptionPanel = await learningPanel(page, "误解");
+  await expect(resolvedMisconceptionPanel).toContainText(
     "当前没有记录到仍然有效的误解。",
   );
-  const historyToggle = misconceptionPanel.getByRole("button", {
+  const historyToggle = resolvedMisconceptionPanel.getByRole("button", {
     name: /历史误解（1）/,
   });
   await historyToggle.click();
-  await expect(misconceptionPanel).toContainText("已解决");
-  await expect(misconceptionPanel).toContainText(
+  await expect(resolvedMisconceptionPanel).toContainText("已解决");
+  await expect(resolvedMisconceptionPanel).toContainText(
     "Bayesian updating ignores the likelihood evidence.",
   );
+  await closeLearningDetails(page);
 
   const learnerModel = await captureJson<LearnerModelPayload>(
     page,
@@ -444,14 +484,16 @@ test("real stack persists ingestion, tutoring, graphs, and versions across an AP
 
   const recoveredPrerequisitePanel = page.getByRole("region", {
     name: "前置知识",
+    exact: true,
   });
-  const recoveredMisconceptionPanel = page.getByRole("region", { name: "误解" });
-  const recoveredEvidencePanel = page.getByRole("region", { name: "掌握证据" });
+  await expect(recoveredPrerequisitePanel).toBeVisible();
   await expect(recoveredPrerequisitePanel).toContainText(
     "conditional probability foundation",
   );
   await expect(recoveredPrerequisitePanel).toContainText("已掌握");
+  const recoveredEvidencePanel = await learningPanel(page, "掌握证据");
   await expect(recoveredEvidencePanel).toContainText("正确性");
+  const recoveredMisconceptionPanel = await learningPanel(page, "误解");
   await expect(recoveredMisconceptionPanel).toContainText(
     "当前没有记录到仍然有效的误解。",
   );
@@ -462,4 +504,5 @@ test("real stack persists ingestion, tutoring, graphs, and versions across an AP
   await expect(recoveredMisconceptionPanel).toContainText(
     "Bayesian updating ignores the likelihood evidence.",
   );
+  await closeLearningDetails(page);
 });
