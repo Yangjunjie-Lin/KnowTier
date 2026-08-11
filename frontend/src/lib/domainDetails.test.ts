@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   adaptDomainAssertionDetail,
   adaptDomainNodeDetail,
+  domainNodeTypeLabel,
   epistemicStatusLabel,
   relationTypeLabel,
 } from "./domainDetails";
@@ -152,8 +153,11 @@ describe("domain detail adapters", () => {
   });
 
   it("uses readable fallbacks for unknown enum extensions", () => {
-    expect(relationTypeLabel("FUTURE_RELATION")).toBe("Future Relation");
-    expect(epistemicStatusLabel("FUTURE_STATUS")).toBe("Future Status");
+    expect(relationTypeLabel("PREREQUISITE_OF")).toBe("前置于");
+    expect(relationTypeLabel("FUTURE_RELATION")).toBe("其他知识关系");
+    expect(epistemicStatusLabel("FUTURE_STATUS")).toBe("状态待确认");
+    expect(relationTypeLabel("REQUIRES", "en")).toBe("Requires");
+    expect(domainNodeTypeLabel("FUTURE_NODE", "en")).toBe("Learning content");
     expect(adaptDomainNodeDetail(null)).toBeNull();
     expect(adaptDomainAssertionDetail(["invalid"])).toBeNull();
   });

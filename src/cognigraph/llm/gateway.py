@@ -47,6 +47,12 @@ class _ToolBudget:
 class ModelGatewayError(RuntimeError):
     """Raised after all configured provider attempts fail."""
 
+    def __init__(self, message: str, *, cause: Exception | None = None) -> None:
+        super().__init__(message)
+        self.cause = cause
+        status_code = getattr(cause, "status_code", None)
+        self.status_code = status_code if isinstance(status_code, int) else None
+
 
 class ToolCallRejected(ModelGatewayError):
     """Raised when an untrusted model requests an unknown or unsafe operation."""
@@ -274,7 +280,9 @@ class ModelGateway:
                         if attempt > 1:
                             await asyncio.sleep(min(0.05 * (2 ** min(attempt, 5)), 0.5))
         summary = "; ".join(type(item).__name__ for item in errors[-3:])
-        raise ModelGatewayError(f"structured model call failed after {attempt} attempts: {summary}")
+        last_error = errors[-1] if errors else None
+        message = f"structured model call failed after {attempt} attempts: {summary}"
+        raise ModelGatewayError(message, cause=last_error) from last_error
 
     async def _complete_attempt(
         self,
@@ -529,7 +537,25 @@ class ModelGateway:
                 raise ValueError("provider returned neither content nor tool calls")
             if tool_choice in ("required",) or _forced_tool_name(tool_choice) is not None:
                 raise ToolCallRejected("provider did not honor the required tool choice")
-            parsed = self._validate_json(raw.content, response_model)
+            try:
+                parsed = self._validate_json(raw.content, response_model)
+            except (ValidationError, json.JSONDecodeError):
+                encoded = raw.content.encode("utf-8")
+                logger.warning(
+                    "invalid structured output metadata schema=%s provider=%s model=%s "
+                    "finish_reason=%s output_tokens=%s response_bytes=%s "
+                    "has_open_brace=%s has_close_brace=%s starts_fence=%s",
+                    response_model.__name__,
+                    raw.provider,
+                    raw.model,
+                    raw.finish_reason or "unknown",
+                    raw.usage.output_tokens,
+                    len(encoded),
+                    "{" in raw.content,
+                    "}" in raw.content,
+                    raw.content.lstrip().startswith("```"),
+                )
+                raise
             latency = int((perf_counter() - started) * 1000)
             await self.sink.record_model_run(
                 model_run_record(
@@ -697,12 +723,40 @@ class ModelGateway:
             normalized = "\n".join(lines[1:-1]).strip()
         try:
             return response_model.model_validate_json(normalized)
-        except (ValidationError, json.JSONDecodeError):
+        except (ValidationError, json.JSONDecodeError) as initial_error:
             start = normalized.find("{")
             end = normalized.rfind("}")
             if start < 0 or end <= start:
+                _log_schema_validation_failure(response_model, initial_error)
                 raise
-            return response_model.model_validate(json.loads(normalized[start : end + 1]))
+            try:
+                return response_model.model_validate(json.loads(normalized[start : end + 1]))
+            except (ValidationError, json.JSONDecodeError) as final_error:
+                _log_schema_validation_failure(response_model, final_error)
+                raise
+
+
+def _log_schema_validation_failure(
+    response_model: type[BaseModel],
+    error: ValidationError | json.JSONDecodeError,
+) -> None:
+    if isinstance(error, ValidationError):
+        summaries: list[str] = []
+        for item in error.errors(
+            include_url=False,
+            include_context=False,
+            include_input=False,
+        )[:12]:
+            location = ".".join(str(part) for part in item.get("loc", ())) or "<root>"
+            summaries.append(f"{location}:{item.get('type', 'validation_error')}")
+        detail = "|".join(summaries) or "validation_error"
+    else:
+        detail = "invalid_json"
+    logger.warning(
+        "model output schema validation failed schema=%s errors=%s",
+        response_model.__name__,
+        detail,
+    )
 
 
 async def _provider_complete(

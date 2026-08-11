@@ -13,6 +13,7 @@ export type HintStrength = "light" | "balanced" | "strong";
 export type ReviewFrequency = "daily" | "twice-weekly" | "weekly";
 export type FontSizePreference = "small" | "medium" | "large";
 export type GraphLabelDensity = "minimal" | "balanced" | "detailed";
+export type UiLocale = "zh-CN" | "en";
 
 export interface RecentDocument {
   id: UUID;
@@ -25,6 +26,7 @@ export interface RecentDocument {
 
 export interface LocalPreferences {
   apiBaseUrl: string;
+  uiLocale: UiLocale;
   theme: ThemePreference;
   reducedMotion: boolean;
   graphDensity: GraphDensity;

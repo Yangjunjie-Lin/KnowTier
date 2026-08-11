@@ -22,6 +22,8 @@ from cognigraph.api.routes import (
     workspaces,
 )
 from cognigraph.config import Settings
+from cognigraph.llm.gateway import ModelGatewayError
+from cognigraph.llm.openai_compatible import OpenAICompatibleError
 from cognigraph.logging import configure_logging, request_id_context
 from cognigraph.services.runtime import ApplicationRuntime
 
@@ -75,6 +77,7 @@ def create_app(
         call_next: RequestResponseEndpoint,
     ) -> StarletteResponse:
         request_id = request.headers.get("x-request-id", str(uuid4()))
+        request.state.request_id = request_id
         token = request_id_context.set(request_id)
         try:
             response = await call_next(request)
@@ -84,17 +87,94 @@ def create_app(
             request_id_context.reset(token)
 
     @application.exception_handler(LookupError)
-    async def lookup_error(_request: Request, exception: LookupError) -> JSONResponse:
-        return JSONResponse(status_code=404, content={"detail": str(exception)})
+    async def lookup_error(request: Request, exception: LookupError) -> JSONResponse:
+        return _error_response(404, str(exception), request=request)
 
     @application.exception_handler(ValueError)
-    async def validation_error(_request: Request, exception: ValueError) -> JSONResponse:
-        return JSONResponse(status_code=422, content={"detail": str(exception)})
+    async def validation_error(request: Request, exception: ValueError) -> JSONResponse:
+        return _error_response(422, str(exception), request=request)
+
+    @application.exception_handler(OpenAICompatibleError)
+    async def model_provider_error(
+        request: Request,
+        exception: OpenAICompatibleError,
+    ) -> JSONResponse:
+        if exception.status_code == 429:
+            status_code = 429
+        elif exception.status_code == 408 or "timed out" in str(exception).casefold():
+            status_code = 504
+        else:
+            status_code = 502
+        return _error_response(
+            status_code,
+            f"model provider error: {exception}",
+            request=request,
+        )
+
+    @application.exception_handler(ModelGatewayError)
+    async def model_gateway_error(
+        request: Request,
+        exception: ModelGatewayError,
+    ) -> JSONResponse:
+        cause = exception.cause
+        cause_text = " ".join(
+            text for text in (str(exception), str(cause) if cause is not None else "") if text
+        ).casefold()
+        if exception.status_code == 429 or getattr(cause, "status_code", None) == 429:
+            return _error_response(
+                429,
+                "model provider error: rate limit reached; retry later",
+                request=request,
+            )
+        if (
+            exception.status_code == 408
+            or getattr(cause, "status_code", None) == 408
+            or "timeouterror" in cause_text
+            or "timed out" in cause_text
+        ):
+            return _error_response(
+                504,
+                "model generation timed out; retry or increase the configured timeout",
+                request=request,
+            )
+        return _error_response(
+            502,
+            "model output failed validation after the configured retries",
+            request=request,
+        )
 
     @application.exception_handler(Exception)
-    async def internal_error(_request: Request, exception: Exception) -> JSONResponse:
-        logger.error("unhandled request error", extra={"error_type": type(exception).__name__})
-        return JSONResponse(status_code=500, content={"detail": "internal server error"})
+    async def internal_error(request: Request, exception: Exception) -> JSONResponse:
+        request_id = _request_id(request)
+        logger.error(
+            "unhandled request error",
+            extra={
+                "error_type": type(exception).__name__,
+                "request_id": request_id,
+            },
+            exc_info=(type(exception), exception, exception.__traceback__),
+        )
+        return _error_response(500, "internal server error", request=request)
+
+    def _error_response(
+        status_code: int,
+        detail: str,
+        *,
+        request: Request,
+    ) -> JSONResponse:
+        request_id = _request_id(request)
+        headers = {"X-Request-ID": request_id} if request_id else None
+        return JSONResponse(
+            status_code=status_code,
+            content={"detail": detail},
+            headers=headers,
+        )
+
+    def _request_id(request: Request) -> str | None:
+        state_value = getattr(request.state, "request_id", None)
+        if isinstance(state_value, str) and state_value:
+            return state_value
+        return request_id_context.get() or request.headers.get("x-request-id")
 
     @application.get("/health", tags=["operations"])
     async def health() -> dict[str, str]:

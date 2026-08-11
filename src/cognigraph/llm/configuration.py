@@ -12,7 +12,11 @@ from uuid import UUID, uuid4
 from pydantic import BaseModel, Field, SecretStr
 
 from cognigraph.config import Settings
-from cognigraph.llm.openai_compatible import OpenAICompatibleProvider
+from cognigraph.llm.openai_compatible import (
+    OpenAICompatibleError,
+    OpenAICompatibleProvider,
+)
+from cognigraph.llm.schemas import ChatMessage
 
 SILICONFLOW_BASE_URL = "https://api.siliconflow.cn/v1"
 MOCK_MODEL_ID = "mock/default"
@@ -280,16 +284,92 @@ class ModelConfigurationService:
             profile = self._required(profile_id)
             secret = await self._credential(profile)
         tested_at = datetime.now(UTC)
+        if profile.provider is ProviderKind.MOCK:
+            models = [MOCK_MODEL_ID]
+        else:
+            _validate_activatable(profile, secret, require_models=False)
+            if secret is None:
+                raise ValueError("API credential is not available")
+            provider = _external_provider(profile, secret)
+            try:
+                models = await provider.list_models()
+            finally:
+                await provider.aclose()
+        return ModelDiscoveryResult(
+            profile_id=profile_id,
+            provider=profile.provider,
+            models=models,
+            tested_at=tested_at,
+        )
+
+    async def test_connection(self, profile_id: UUID) -> ModelDiscoveryResult:
+        async with self._lock:
+            profile = self._required(profile_id)
+            secret = await self._credential(profile)
+        tested_at = datetime.now(UTC)
         try:
             if profile.provider is ProviderKind.MOCK:
                 models = [MOCK_MODEL_ID]
             else:
-                _validate_activatable(profile, secret, require_models=False)
+                _validate_activatable(profile, secret)
                 if secret is None:
                     raise ValueError("API credential is not available")
-                provider = _external_provider(profile, secret)
+                provider = _external_provider(
+                    profile,
+                    secret,
+                    max_tokens=min(profile.max_tokens, 32),
+                    temperature=0.0,
+                )
                 try:
                     models = await provider.list_models()
+                    configured = set(profile.models.model_dump().values())
+                    missing = sorted(configured.difference(models), key=str.casefold)
+                    if missing:
+                        summary = ", ".join(missing[:3])
+                        raise ValueError(
+                            f"configured model was not returned by GET /models: {summary}"
+                        )
+                    try:
+                        await provider.embed(
+                            model=profile.models.embedding,
+                            texts=["KnowTier connection test"],
+                        )
+                    except OpenAICompatibleError as exc:
+                        raise OpenAICompatibleError(
+                            "Embedding model "
+                            f"'{profile.models.embedding}' failed the connection test: {exc}",
+                            status_code=exc.status_code,
+                        ) from exc
+                    try:
+                        response = await provider.complete(
+                            model=profile.models.teacher,
+                            messages=[
+                                ChatMessage(
+                                    role="user",
+                                    content="Return JSON with ok=true and no other content.",
+                                )
+                            ],
+                            response_schema={
+                                "type": "object",
+                                "properties": {"ok": {"type": "boolean"}},
+                                "required": ["ok"],
+                                "additionalProperties": False,
+                            },
+                        )
+                        payload = json.loads(response.content or "")
+                        if not isinstance(payload, dict) or payload.get("ok") is not True:
+                            raise ValueError("structured response did not contain ok=true")
+                    except (json.JSONDecodeError, ValueError) as exc:
+                        raise OpenAICompatibleError(
+                            "Teacher model "
+                            f"'{profile.models.teacher}' failed the structured-output test"
+                        ) from exc
+                    except OpenAICompatibleError as exc:
+                        raise OpenAICompatibleError(
+                            "Teacher model "
+                            f"'{profile.models.teacher}' failed the connection test: {exc}",
+                            status_code=exc.status_code,
+                        ) from exc
                 finally:
                     await provider.aclose()
         except Exception as exc:
@@ -302,9 +382,6 @@ class ModelConfigurationService:
             models=models,
             tested_at=tested_at,
         )
-
-    async def test_connection(self, profile_id: UUID) -> ModelDiscoveryResult:
-        return await self.discover_models(profile_id)
 
     async def delete_credential(self, profile_id: UUID) -> ModelProfileView:
         async with self._lock:
@@ -637,7 +714,13 @@ def _validate_activatable(
         raise ValueError("API credential is not available")
 
 
-def _external_provider(profile: ModelProfile, secret: SecretStr) -> OpenAICompatibleProvider:
+def _external_provider(
+    profile: ModelProfile,
+    secret: SecretStr,
+    *,
+    max_tokens: int | None = None,
+    temperature: float | None = None,
+) -> OpenAICompatibleProvider:
     if profile.base_url is None:
         raise ValueError("Base URL is required")
     return OpenAICompatibleProvider(
@@ -646,8 +729,8 @@ def _external_provider(profile: ModelProfile, secret: SecretStr) -> OpenAICompat
         api_key=secret,
         timeout_seconds=profile.timeout_seconds,
         max_retries=profile.max_retries,
-        temperature=profile.temperature,
-        max_tokens=profile.max_tokens,
+        temperature=profile.temperature if temperature is None else temperature,
+        max_tokens=profile.max_tokens if max_tokens is None else max_tokens,
         request_embedding_dimensions=profile.provider is not ProviderKind.SILICONFLOW,
     )
 

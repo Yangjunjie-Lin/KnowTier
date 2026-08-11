@@ -3,6 +3,7 @@ dist
 coverage
 playwright-report
 test-results
+src-tauri
 .env
 .env.*
 !.env.example

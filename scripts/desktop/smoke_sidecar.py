@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import argparse
+import json
 import os
 import queue
 import secrets
@@ -11,17 +12,22 @@ import time
 import urllib.error
 import urllib.request
 from pathlib import Path
+from uuid import uuid4
 
 from cognigraph.desktop.lifecycle import PARENT_PID_ENV
 from cognigraph.desktop.paths import DATA_DIR_ENV
 from cognigraph.desktop.security import BOOTSTRAP_TOKEN_ENV, CONTROL_TOKEN_ENV
-from cognigraph.desktop.sidecar import PORT_ANNOUNCEMENT_PREFIX, SESSION_COOKIE_NAME
+from cognigraph.desktop.sidecar import (
+    LIVE_MODEL_ENV,
+    PORT_ANNOUNCEMENT_PREFIX,
+    SESSION_COOKIE_NAME,
+)
 
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(description="Smoke-test a built KnowTier desktop sidecar")
     parser.add_argument("binary", type=Path)
-    parser.add_argument("--startup-timeout", type=float, default=60.0)
+    parser.add_argument("--startup-timeout", type=float, default=120.0)
     return parser.parse_args()
 
 
@@ -30,13 +36,46 @@ def request(
     *,
     method: str = "GET",
     headers: dict[str, str] | None = None,
+    body: bytes | None = None,
+    timeout: float = 2.0,
 ) -> tuple[int, bytes]:
-    outgoing = urllib.request.Request(url, method=method, headers=headers or {})
+    outgoing = urllib.request.Request(
+        url,
+        data=body,
+        method=method,
+        headers=headers or {},
+    )
     try:
-        with urllib.request.urlopen(outgoing, timeout=2) as response:
+        with urllib.request.urlopen(outgoing, timeout=timeout) as response:
             return response.status, response.read()
     except urllib.error.HTTPError as error:
         return error.code, error.read()
+
+
+def json_request(
+    url: str,
+    payload: dict[str, object],
+    *,
+    control_token: str,
+    timeout: float = 30.0,
+) -> tuple[int, dict[str, object]]:
+    status, body = request(
+        url,
+        method="POST",
+        headers={
+            "Authorization": f"Bearer {control_token}",
+            "Content-Type": "application/json",
+        },
+        body=json.dumps(payload, ensure_ascii=False).encode("utf-8"),
+        timeout=timeout,
+    )
+    try:
+        decoded = json.loads(body)
+    except (UnicodeDecodeError, json.JSONDecodeError) as error:
+        raise RuntimeError(f"sidecar returned non-JSON status {status}") from error
+    if not isinstance(decoded, dict):
+        raise RuntimeError(f"sidecar returned a non-object JSON payload with status {status}")
+    return status, decoded
 
 
 def _wait_until_ready(
@@ -74,6 +113,7 @@ def run_smoke(binary: Path, *, startup_timeout: float) -> dict[str, int | bool]:
                 BOOTSTRAP_TOKEN_ENV: bootstrap_token,
                 CONTROL_TOKEN_ENV: control_token,
                 DATA_DIR_ENV: temporary,
+                LIVE_MODEL_ENV: "0",
             }
         )
         creation_flags = int(getattr(subprocess, "CREATE_NO_WINDOW", 0))
@@ -88,16 +128,15 @@ def run_smoke(binary: Path, *, startup_timeout: float) -> dict[str, int | bool]:
         try:
             if process.stdout is None:
                 raise RuntimeError("sidecar control output pipe was not created")
+            control_output = process.stdout
             output: queue.Queue[bytes] = queue.Queue(maxsize=1)
 
             def read_announcement() -> None:
-                output.put(process.stdout.readline())
+                output.put(control_output.readline())
 
             threading.Thread(target=read_announcement, daemon=True).start()
             try:
-                announcement = (
-                    output.get(timeout=min(startup_timeout, 30.0)).decode("utf-8").strip()
-                )
+                announcement = output.get(timeout=startup_timeout).decode("utf-8").strip()
             except queue.Empty as error:
                 raise RuntimeError("sidecar did not announce its loopback port") from error
             if not announcement.startswith(PORT_ANNOUNCEMENT_PREFIX):
@@ -128,6 +167,58 @@ def run_smoke(binary: Path, *, startup_timeout: float) -> dict[str, int | bool]:
             )
             if authenticated_status != 200 or b'id="root"' not in index:
                 raise RuntimeError("authenticated desktop UI did not serve the React entry point")
+
+            workspace_status, workspace = json_request(
+                f"{base_url}/api/v1/workspaces",
+                {
+                    "name": "Packaged sidecar smoke",
+                    "slug": f"packaged-smoke-{uuid4().hex[:12]}",
+                    "default_language": "zh-CN",
+                },
+                control_token=control_token,
+            )
+            workspace_id = workspace.get("id")
+            if workspace_status != 201 or not isinstance(workspace_id, str):
+                raise RuntimeError(
+                    f"packaged workspace creation returned {workspace_status}, expected 201"
+                )
+            learner_status, learner = json_request(
+                f"{base_url}/api/v1/learners",
+                {
+                    "workspace_id": workspace_id,
+                    "display_name": "Packaged smoke learner",
+                },
+                control_token=control_token,
+            )
+            learner_id = learner.get("id")
+            if learner_status != 201 or not isinstance(learner_id, str):
+                raise RuntimeError(
+                    f"packaged learner creation returned {learner_status}, expected 201"
+                )
+            chat_status, chat = json_request(
+                f"{base_url}/api/v1/chat",
+                {
+                    "workspace_id": workspace_id,
+                    "learner_id": learner_id,
+                    "session_id": str(uuid4()),
+                    "message": "什么是RAG",
+                    "requested_mode": "learn",
+                },
+                control_token=control_token,
+                timeout=60.0,
+            )
+            graph_update = chat.get("graph_update")
+            target = chat.get("target_knowledge_point")
+            if (
+                chat_status != 200
+                or not isinstance(graph_update, dict)
+                or not isinstance(graph_update.get("revision_id"), str)
+                or not isinstance(target, dict)
+                or not isinstance(target.get("id"), str)
+            ):
+                detail = chat.get("detail")
+                safe_detail = str(detail)[:200] if detail is not None else "invalid response"
+                raise RuntimeError(f"packaged Mock chat returned {chat_status}: {safe_detail}")
             shutdown_status, _body = request(
                 f"{base_url}/desktop/shutdown",
                 method="POST",
@@ -142,6 +233,9 @@ def run_smoke(binary: Path, *, startup_timeout: float) -> dict[str, int | bool]:
                 "ready": ready,
                 "anonymous_status": anonymous_status,
                 "authenticated_status": authenticated_status,
+                "workspace_status": workspace_status,
+                "learner_status": learner_status,
+                "chat_status": chat_status,
                 "exit_code": exit_code,
             }
         finally:

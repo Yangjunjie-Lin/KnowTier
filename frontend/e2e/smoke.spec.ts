@@ -269,8 +269,25 @@ async function expectNoSeriousAxeViolations(page: Page) {
 
 async function expectVisualSnapshot(page: Page, name: string) {
   await page.addStyleTag({ path: visualStylePath });
-  await page.evaluate(() => window.scrollTo(0, 0));
-  await expect.poll(() => page.evaluate(() => window.scrollY)).toBe(0);
+  await page.evaluate(() => {
+    window.scrollTo({ top: 0, left: 0, behavior: "instant" });
+    document.scrollingElement?.scrollTo({ top: 0, left: 0, behavior: "instant" });
+    document.documentElement.scrollTop = 0;
+    document.body.scrollTop = 0;
+  });
+  await expect
+    .poll(
+      () =>
+        page.evaluate(() =>
+          Math.max(window.scrollY, document.scrollingElement?.scrollTop ?? 0),
+        ),
+      { timeout: 10_000 },
+    )
+    .toBeLessThanOrEqual(1);
+  await page.evaluate(() => document.fonts.ready);
+  // Allow ResizeObserver-driven responsive layouts to commit after the
+  // deterministic scroll reset before capturing the visual contract.
+  await page.waitForTimeout(250);
   await expect(page).toHaveScreenshot(name, {
     fullPage: false,
     animations: "disabled",
@@ -287,6 +304,17 @@ async function learningPanel(page: Page, name: string): Promise<Locator> {
   }
   if (await trigger.isVisible()) {
     await trigger.click();
+    dialog = page.getByRole("dialog");
+    await expect(dialog).toBeVisible();
+    await dialog.getByRole("tab", { name, exact: true }).click();
+    return dialog.getByRole("region", { name });
+  }
+  const desktopDetails = page.getByRole("button", {
+    name: "查看详情",
+    exact: true,
+  });
+  if (await desktopDetails.isVisible()) {
+    await desktopDetails.click();
     dialog = page.getByRole("dialog");
     await expect(dialog).toBeVisible();
     await dialog.getByRole("tab", { name, exact: true }).click();
@@ -493,7 +521,8 @@ async function installApiContract(page: Page) {
       });
     }
     if (path !== "/v1/workspaces" && path !== "/health" && path !== "/ready") {
-      if (request.headers()["x-workspace-id"] === workspaceId)
+      const requestHeaders = await request.allHeaders();
+      if (requestHeaders["x-workspace-id"] === workspaceId)
         scopedRequests.push(`${method} ${path}`);
     }
 
@@ -655,7 +684,7 @@ async function installApiContract(page: Page) {
               ? "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa2"
               : "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaa1",
             switched ? switchedKnowledgePointId : knowledgePointId,
-            switched ? "GRADIENT_APPLICATION" : "BAYES_EXPLANATION",
+            switched ? "APPLICATION" : "EXPLANATION",
             switched ? "把梯度方向弄反了" : "把后验概率当作先验概率",
           ),
           evidenceItem(
@@ -810,8 +839,7 @@ test("initialization, ingestion, tutoring, model and both graph views", async ({
   const { scopedRequests, setEvidenceFailure } = await installApiContract(page);
   await page.goto("/init");
   await page.getByPlaceholder("例如：机器学习基础").fill("Smoke Workspace");
-  await page.getByPlaceholder("machine-learning").fill("smoke-workspace");
-  await page.getByRole("button", { name: /创建 Workspace/ }).click();
+  await page.getByRole("button", { name: /创建学习空间/ }).click();
   await expect(page.getByRole("heading", { name: "学习者" })).toBeVisible();
   await page.getByPlaceholder("例如：林同学").fill("Smoke Learner");
   await page.getByRole("button", { name: /创建并进入总览/ }).click();
@@ -827,6 +855,15 @@ test("initialization, ingestion, tutoring, model and both graph views", async ({
     buffer: Buffer.from("贝叶斯定理需要条件概率。", "utf8"),
   });
   await expect(page).toHaveURL(new RegExp(`/materials/${documentId}$`));
+  const overviewTab = page.getByRole("tab", { name: "概览" });
+  const chunksTab = page.getByRole("tab", { name: "内容分块" });
+  await overviewTab.focus();
+  await overviewTab.press("ArrowRight");
+  await expect(chunksTab).toBeFocused();
+  await expect(chunksTab).toHaveAttribute("aria-selected", "true");
+  await chunksTab.press("Home");
+  await expect(overviewTab).toBeFocused();
+  await expect(overviewTab).toHaveAttribute("aria-selected", "true");
   await page.getByRole("button", { name: "开始摄取" }).click();
   await expect(
     page.getByRole("region", { name: "本次摄取报告" }),
@@ -849,11 +886,11 @@ test("initialization, ingestion, tutoring, model and both graph views", async ({
   });
   if (await learningStatusTrigger.isVisible()) {
     await learningStatusTrigger.click();
-    await expect(page.getByRole("dialog")).toContainText("掌握与模型变化");
-    await expect(page.getByRole("dialog")).toContainText("学生关系+1");
+    await expect(page.getByRole("dialog")).toContainText("本轮学习进展");
+    await expect(page.getByRole("dialog")).toContainText("参考来源");
     await closeLearningStatus(page);
   } else {
-    await expect(page.getByText(/版本 77777777/)).toBeVisible();
+    await expect(page.getByText("本轮进展")).toBeVisible();
   }
 
   let prerequisitePanel = await learningPanel(page, "前置知识");
@@ -862,7 +899,7 @@ test("initialization, ingestion, tutoring, model and both graph views", async ({
   let misconceptionPanel = await learningPanel(page, "误解");
   await expect(misconceptionPanel).toContainText("把后验概率当作先验概率");
   let evidencePanel = await learningPanel(page, "掌握证据");
-  await expect(evidencePanel).toContainText("BAYES_EXPLANATION");
+  await expect(evidencePanel).toContainText("解释");
   await expect(evidencePanel).not.toContainText("OTHER_KP_EVIDENCE");
   await expect(evidencePanel).not.toContainText("UNASSOCIATED_EVIDENCE");
   await closeLearningStatus(page);
@@ -879,14 +916,14 @@ test("initialization, ingestion, tutoring, model and both graph views", async ({
   misconceptionPanel = await learningPanel(page, "误解");
   await expect(misconceptionPanel).toContainText("把梯度方向弄反了");
   evidencePanel = await learningPanel(page, "掌握证据");
-  await expect(evidencePanel).toContainText("GRADIENT_APPLICATION");
+  await expect(evidencePanel).toContainText("应用");
   prerequisitePanel = await learningPanel(page, "前置知识");
   await expect(prerequisitePanel).not.toContainText("联合分布基础");
   await expect(prerequisitePanel).not.toContainText("概率公理基础");
   misconceptionPanel = await learningPanel(page, "误解");
   await expect(misconceptionPanel).not.toContainText("把后验概率当作先验概率");
   evidencePanel = await learningPanel(page, "掌握证据");
-  await expect(evidencePanel).not.toContainText("BAYES_EXPLANATION");
+  await expect(evidencePanel).not.toContainText("解释");
   await closeLearningStatus(page);
 
   setEvidenceFailure(true);
@@ -903,36 +940,48 @@ test("initialization, ingestion, tutoring, model and both graph views", async ({
   setEvidenceFailure(false);
   evidencePanel = await learningPanel(page, "掌握证据");
   await evidencePanel.getByRole("button", { name: "重试" }).click();
-  await expect(evidencePanel).toContainText("GRADIENT_APPLICATION");
+  await expect(evidencePanel).toContainText("应用");
   await expect(evidencePanel).not.toContainText("部分数据不可用");
   await closeLearningStatus(page);
   await expect(page.getByLabel("学习消息", { exact: true })).toBeEnabled();
 
   await page.goto("/model");
   await expect(page.getByRole("heading", { name: "个人模型" })).toBeVisible();
-  await expect(page.getByText("梯度下降", { exact: true })).toBeVisible();
+  await expect(
+    page
+      .getByRole("button", { name: "查看 梯度下降 的个人模型详情" })
+      .filter({ visible: true }),
+  ).toBeVisible();
 
   await page.goto("/graph/domain");
   await expect(
     page.getByRole("heading", { name: "领域知识图谱" }),
   ).toBeVisible();
-  await expect(
-    page
-      .getByRole("application", { name: /知识图谱/ })
-      .locator("canvas")
-      .first(),
-  ).toBeVisible();
+  if ((page.viewportSize()?.width ?? 0) < 640) {
+    await expect(page.getByRole("listbox", { name: "图谱节点" })).toBeVisible();
+  } else {
+    await expect(
+      page
+        .getByRole("application", { name: /知识图谱/ })
+        .locator("canvas")
+        .first(),
+    ).toBeVisible();
+  }
 
   await page.goto("/graph/student");
   await expect(
     page.getByRole("heading", { name: "学生知识图谱" }),
   ).toBeVisible();
-  await expect(
-    page
-      .getByRole("application", { name: /知识图谱/ })
-      .locator("canvas")
-      .first(),
-  ).toBeVisible();
+  if ((page.viewportSize()?.width ?? 0) < 640) {
+    await expect(page.getByRole("listbox", { name: "图谱节点" })).toBeVisible();
+  } else {
+    await expect(
+      page
+        .getByRole("application", { name: /知识图谱/ })
+        .locator("canvas")
+        .first(),
+    ).toBeVisible();
+  }
   expect(scopedRequests).toContain(`POST /v1/learners`);
   expect(scopedRequests).toContain(`POST /v1/documents/${documentId}/ingest`);
   expect(scopedRequests).toContain("POST /v1/chat");
@@ -943,14 +992,22 @@ test("initialization, ingestion, tutoring, model and both graph views", async ({
   await expectVisualSnapshot(page, "overview-desktop.png");
 
   await page.goto("/materials");
-  await expect(page.getByRole("heading", { name: /资料/ })).toBeVisible();
+  await expect(
+    page.getByRole("heading", { name: "资料库", exact: true }),
+  ).toBeVisible();
   await expectNoHorizontalOverflow(page);
   await expectNoSeriousAxeViolations(page);
   await expectVisualSnapshot(page, "materials-list.png");
 
   await page.goto("/learn");
-  await expect(page.getByLabel("学习消息", { exact: true })).toBeVisible();
-  await expect(page.getByLabel(/Teacher 运行模型/)).toBeVisible();
+  const learningMessage = page.getByLabel("学习消息", { exact: true });
+  await expect(learningMessage).toBeVisible();
+  await page.evaluate(() =>
+    window.scrollTo({ top: 0, left: 0, behavior: "instant" }),
+  );
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeLessThanOrEqual(1);
+  await expect(learningMessage).toBeInViewport({ ratio: 0.9 });
+  await expect(page.getByLabel(/^教学模型:/)).toBeVisible();
   await expectNoHorizontalOverflow(page);
   await expectNoSeriousAxeViolations(page);
   await expectVisualSnapshot(page, "learn-workbench.png");
@@ -1019,19 +1076,23 @@ test("SiliconFlow profile lifecycle is visible, dynamic and secret-safe", async 
     .selectOption("siliconflow");
   await page.getByLabel("配置名称").fill("SiliconFlow 验收");
   await expect(
-    page.getByRole("textbox", { name: "Base URL", exact: true }),
+    page.getByRole("textbox", {
+      name: "服务地址（Base URL）",
+      exact: true,
+    }),
   ).toHaveValue(
     "https://api.siliconflow.cn/v1",
   );
   await page.getByLabel("API Key").fill("e2e-secret-never-persist-me");
 
   await page.getByRole("button", { name: "刷新模型" }).click();
-  await page.getByRole("button", { name: "统一模型" }).click();
-  await expect(page.getByLabel("所有角色使用")).toBeEnabled();
-  await page.getByLabel("所有角色使用").fill("sf-chat");
+  await expect(page.getByLabel(/统一生成模型/)).toBeVisible();
+  await page.getByLabel(/统一生成模型/).fill("sf-chat");
+  await page.getByRole("button", { name: "按用途配置", exact: true }).click();
+  await expect(page.getByLabel("教学模型")).toHaveValue("sf-chat");
   await page.getByRole("button", { name: "启用配置" }).click();
   await expect(page.getByText("当前启用：SiliconFlow 验收")).toBeVisible();
-  await expect(page.getByText(/Teacher · siliconflow \/ sf-chat/)).toBeVisible();
+  await expect(page.getByText(/教学模型 · SiliconFlow \/ sf-chat/)).toBeVisible();
   await page.getByRole("button", { name: "测试连接" }).click();
   await expect(
     page.getByRole("button", { name: /SiliconFlow 验收 连接成功/ }),
@@ -1043,6 +1104,11 @@ test("SiliconFlow profile lifecycle is visible, dynamic and secret-safe", async 
   );
   expect(persistedState).not.toContain("e2e-secret-never-persist-me");
 
+  page.once("dialog", async (dialog) => {
+    expect(dialog.type()).toBe("confirm");
+    expect(dialog.message()).toContain("删除模型配置");
+    await dialog.accept();
+  });
   await page.getByRole("button", { name: "删除凭据" }).click();
   await expect(page.getByRole("button", { name: "删除凭据" })).toHaveCount(0);
   await expect(page.getByText("当前启用：Mock Provider")).toBeVisible();
@@ -1059,6 +1125,21 @@ test("global search shortcut, graph keyboard list and responsive visuals", async
   await installApiContract(page);
 
   await page.goto("/overview");
+  if ((page.viewportSize()?.width ?? 0) < 1024) {
+    const menuButton = page.getByRole("button", { name: "打开导航" });
+    await menuButton.focus();
+    await menuButton.press("Enter");
+    const mobileNavigation = page.getByRole("dialog", {
+      name: "移动端主导航",
+    });
+    await expect(mobileNavigation).toBeVisible();
+    await expect(
+      mobileNavigation.getByRole("button", { name: "关闭导航" }),
+    ).toBeFocused();
+    await page.keyboard.press("Escape");
+    await expect(mobileNavigation).toHaveCount(0);
+    await expect(menuButton).toBeFocused();
+  }
   await expect(page.getByRole("link", { name: "打开全局搜索" })).toBeVisible();
   await page.evaluate(() => {
     window.dispatchEvent(
@@ -1092,9 +1173,11 @@ test("global search shortcut, graph keyboard list and responsive visuals", async
   await page.keyboard.press("ArrowDown");
   await expect(secondNode).toBeFocused();
   await page.keyboard.press("Enter");
-  await expect(page.getByRole("dialog")).toContainText("节点详情");
-  await page.keyboard.press("Escape");
-  await expect(page.getByRole("dialog")).toHaveCount(0);
+  const graphDetail = page.getByRole("dialog");
+  await expect(graphDetail).toContainText("知识点详情");
+  await graphDetail.getByRole("button", { name: "关闭详情" }).focus();
+  await graphDetail.press("Escape");
+  await expect(graphDetail).toBeHidden();
 
   await expectNoHorizontalOverflow(page);
   await expectNoSeriousAxeViolations(page);

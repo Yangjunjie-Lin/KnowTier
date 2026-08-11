@@ -3,7 +3,10 @@ import { ApiClient } from "./client";
 import type { ApiError } from "./errors";
 
 describe("ApiClient", () => {
-  afterEach(() => vi.restoreAllMocks());
+  afterEach(() => {
+    sessionStorage.clear();
+    vi.restoreAllMocks();
+  });
 
   it("injects the workspace scope and parses JSON", async () => {
     const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
@@ -22,6 +25,24 @@ describe("ApiClient", () => {
     expect(new Headers(request?.[1]?.headers).get("X-Workspace-ID")).toBe(
       "11111111-1111-4111-8111-111111111111",
     );
+  });
+
+  it("shares the current workspace across hot-reloaded client instances", async () => {
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(JSON.stringify({ ok: true }), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      }),
+    );
+    const contextClient = new ApiClient("/api", 1_000, true);
+    const serviceClient = new ApiClient("/api", 1_000, true);
+    contextClient.setWorkspaceId("11111111-1111-4111-8111-111111111111");
+
+    await serviceClient.get("/v1/example");
+
+    expect(
+      new Headers(fetchMock.mock.calls[0]?.[1]?.headers).get("X-Workspace-ID"),
+    ).toBe("11111111-1111-4111-8111-111111111111");
   });
 
   it("does not leak workspace scope to provisioning calls", async () => {

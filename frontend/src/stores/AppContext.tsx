@@ -28,6 +28,7 @@ import type {
   RecentDocument,
   ReviewFrequency,
   ThemePreference,
+  UiLocale,
 } from "@/types/app";
 
 const STORAGE_KEY = "knowtier.app-state.v1";
@@ -44,6 +45,7 @@ interface AppContextValue extends PersistedAppState {
   newSession: () => UUID;
   setSessionId: (sessionId: UUID) => void;
   setApiBaseUrl: (baseUrl: string) => void;
+  setUiLocale: (locale: UiLocale) => void;
   setTheme: (theme: ThemePreference) => void;
   setReducedMotion: (reduced: boolean) => void;
   setGraphDensity: (density: GraphDensity) => void;
@@ -59,6 +61,7 @@ interface AppContextValue extends PersistedAppState {
 
 const defaultPreferences: LocalPreferences = {
   apiBaseUrl: FALLBACK_API_BASE_URL,
+  uiLocale: "zh-CN",
   theme: "light",
   reducedMotion: false,
   graphDensity: "comfortable",
@@ -104,6 +107,11 @@ function readPreferences(value: unknown): LocalPreferences {
   return {
     apiBaseUrl:
       sanitizeApiBaseUrl(stored.apiBaseUrl) ?? defaultPreferences.apiBaseUrl,
+    uiLocale: stringPreference(
+      stored.uiLocale,
+      ["zh-CN", "en"] as const,
+      defaultPreferences.uiLocale,
+    ),
     theme: stringPreference(
       stored.theme,
       ["light", "dark", "system"] as const,
@@ -213,7 +221,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(state));
   }, [state]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const root = document.documentElement;
     const media = window.matchMedia("(prefers-color-scheme: dark)");
     const apply = () => {
@@ -223,6 +231,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       root.classList.toggle("dark", dark);
       root.dataset.reduceMotion = String(state.preferences.reducedMotion);
       root.dataset.fontSize = state.preferences.fontSize;
+      root.lang = state.preferences.uiLocale;
     };
     apply();
     media.addEventListener("change", apply);
@@ -231,10 +240,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     state.preferences.fontSize,
     state.preferences.reducedMotion,
     state.preferences.theme,
+    state.preferences.uiLocale,
   ]);
 
   const setWorkspace = useCallback(
-    (workspace: Workspace | null) =>
+    (workspace: Workspace | null) => {
+      apiClient.setWorkspaceId(workspace?.id ?? null);
       setState((current) => ({
         ...current,
         currentWorkspace: workspace,
@@ -247,7 +258,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         recentWorkspaces: workspace
           ? prependUnique(current.recentWorkspaces, workspace, 8)
           : current.recentWorkspaces,
-      })),
+      }));
+    },
     [],
   );
 
@@ -326,6 +338,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           apiBaseUrl:
             sanitizeApiBaseUrl(apiBaseUrl) ?? defaultPreferences.apiBaseUrl,
         }),
+      setUiLocale: (uiLocale) => updatePreferences({ uiLocale }),
       setTheme: (theme) => updatePreferences({ theme }),
       setReducedMotion: (reducedMotion) => updatePreferences({ reducedMotion }),
       setGraphDensity: (graphDensity) => updatePreferences({ graphDensity }),
@@ -360,9 +373,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 }
 
 export function useAppStore(): AppContextValue {
-  const value = useContext(AppContext);
+  const value = useOptionalAppStore();
   if (!value) throw new Error("useAppStore must be used inside AppProvider");
   return value;
+}
+
+export function useOptionalAppStore(): AppContextValue | null {
+  return useContext(AppContext);
 }
 
 export function documentsForWorkspace(

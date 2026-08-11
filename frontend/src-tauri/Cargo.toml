@@ -1,6 +1,6 @@
 [package]
 name = "knowtier-desktop"
-version = "1.0.0-rc.1"
+version = "1.0.0-rc.4"
 description = "KnowTier native desktop shell"
 authors = ["KnowTier contributors"]
 edition = "2021"

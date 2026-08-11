@@ -17,8 +17,8 @@ jobs:
       run:
         working-directory: frontend
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: npm
@@ -39,7 +39,7 @@ jobs:
         run: npm run e2e
       - name: Upload contract E2E diagnostics
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: frontend-contract-e2e-diagnostics
           path: |
@@ -56,8 +56,8 @@ jobs:
       COMPOSE_PROJECT_NAME: knowtier-full-stack-e2e
       COGNIGRAPH_E2E_FRONTEND_URL: http://127.0.0.1:18080
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
         with:
           node-version: "22"
           cache: npm
@@ -92,7 +92,7 @@ jobs:
           docker compose -f docker-compose.e2e.yml logs --no-color frontend > full-stack-artifacts/frontend-nginx.log 2>&1
       - name: Upload traces, screenshots, and container logs
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: frontend-full-stack-e2e-diagnostics
           path: |

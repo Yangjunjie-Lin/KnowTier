@@ -15,9 +15,78 @@ from cognigraph.persistence.postgres.models import (
     ConversationTurn,
     GraphRevision,
     MasteryEvidence,
+    ModelRun,
 )
 from cognigraph.services.chat import ChatService
 from cognigraph.services.runtime import ApplicationRuntime
+
+
+@pytest.mark.e2e
+async def test_mock_chat_answers_rag_with_compact_schema_validated_target(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    settings = Settings(
+        database_url=f"sqlite+aiosqlite:///{(tmp_path / 'rag-chat.db').as_posix()}",
+        storage_path=tmp_path / "uploads-rag-chat",
+        use_mock_llm=True,
+        neo4j_required=False,
+    )
+    runtime = ApplicationRuntime(settings)
+    await runtime.startup()
+    try:
+        workspace_id = uuid4()
+        learner_id = uuid4()
+        session_id = uuid4()
+        async with runtime.database.unit_of_work() as unit:
+            await unit.workspaces.create(
+                workspace_id=workspace_id,
+                name="RAG chat regression",
+                slug=f"rag-chat-{workspace_id.hex[:8]}",
+            )
+            await unit.learners.create(
+                workspace_id=workspace_id,
+                learner_id=learner_id,
+                display_name="RAG learner",
+            )
+            await unit.commit()
+
+        chat = ChatService(runtime)
+
+        async def semantic_search_misses(_snapshot: object, _message: str) -> None:
+            return None
+
+        monkeypatch.setattr(chat, "_find_semantic_target", semantic_search_misses)
+        response = await chat.chat(
+            ChatRequest(
+                workspace_id=workspace_id,
+                learner_id=learner_id,
+                session_id=session_id,
+                message="什么是RAG",
+            )
+        )
+
+        assert response.turn_id is not None
+        assert response.response
+        assert response.target_knowledge_point.name == "retrieval-augmented generation"
+        assert response.graph_update.nodes_added == 1
+        assert response.graph_update.revision_id is not None
+        assert response.learner_graph_update is not None
+        snapshot = runtime.graph_applier.store.get_snapshot(workspace_id)
+        points = [node for node in snapshot.nodes if node.node_type is NodeType.KNOWLEDGE_POINT]
+        assert len(points) == 1
+        assert all(point.epistemic_status.value == "UNVERIFIED" for point in points)
+        async with runtime.database.session() as session:
+            roles = set(
+                (
+                    await session.scalars(
+                        select(ModelRun.role).where(ModelRun.workspace_id == workspace_id)
+                    )
+                ).all()
+            )
+        assert {"extractor_model", "graph_model", "teacher_model"}.issubset(roles)
+    finally:
+        await runtime.shutdown()
 
 
 @pytest.mark.e2e

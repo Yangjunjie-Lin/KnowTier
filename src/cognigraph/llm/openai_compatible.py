@@ -63,6 +63,10 @@ class OpenAICompatibleProvider(ModelProvider):
         if not secret:
             raise ValueError("an API key is required for an external provider")
         self.provider_name = provider_name
+        # SiliconFlow discovery does not expose per-model tool capability. Sending
+        # function tools to an arbitrary discovered model can leave a valid chat
+        # pending until timeout; the gateway retains its bounded prefetched context.
+        self.supports_tool_calling = not provider_name.casefold().startswith("siliconflow")
         self.base_url = base_url.rstrip("/") + "/"
         self.timeout_seconds = timeout_seconds
         self.max_retries = max_retries
@@ -104,17 +108,38 @@ class OpenAICompatibleProvider(ModelProvider):
         tools: list[ToolDefinition] | None = None,
         tool_choice: str | dict[str, object] | None = None,
     ) -> ProviderResponse:
-        request: dict[str, object] = {
-            "model": model,
-            "messages": [_message_payload(message) for message in messages],
-            "response_format": {
+        provider_messages = [_message_payload(message) for message in messages]
+        if self.provider_name.casefold().startswith("siliconflow"):
+            compact_schema = json.dumps(
+                response_schema,
+                ensure_ascii=False,
+                separators=(",", ":"),
+                sort_keys=True,
+            )
+            provider_messages.insert(
+                0,
+                {
+                    "role": "system",
+                    "content": (
+                        "Return exactly one concise JSON object and no other text. "
+                        "The object must satisfy this JSON Schema:\n" + compact_schema
+                    ),
+                },
+            )
+            response_format: dict[str, object] = {"type": "json_object"}
+        else:
+            response_format = {
                 "type": "json_schema",
                 "json_schema": {
                     "name": "structured_response",
                     "strict": True,
                     "schema": response_schema,
                 },
-            },
+            }
+        request: dict[str, object] = {
+            "model": model,
+            "messages": provider_messages,
+            "response_format": response_format,
             "temperature": self.temperature,
             "max_tokens": self.max_tokens,
         }
@@ -290,7 +315,13 @@ class OpenAICompatibleEmbeddingProvider:
         self.model = model
 
     async def embed(self, texts: list[str]) -> list[list[float]]:
-        return await self.provider.embed(model=self.model, texts=texts)
+        try:
+            return await self.provider.embed(model=self.model, texts=texts)
+        except OpenAICompatibleError as exc:
+            raise OpenAICompatibleError(
+                f"Embedding model '{self.model}' failed: {exc}",
+                status_code=exc.status_code,
+            ) from exc
 
 
 def _message_payload(message: ChatMessage) -> dict[str, object]:

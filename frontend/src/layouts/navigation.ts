@@ -11,10 +11,11 @@ import {
   Target,
   type LucideIcon,
 } from "lucide-react";
+import type { TranslationKey } from "@/lib/i18n";
 
 export interface NavigationItem {
   key: string;
-  label: string;
+  labelKey: TranslationKey;
   path: string;
   icon: LucideIcon;
   mobile?: boolean;
@@ -23,60 +24,60 @@ export interface NavigationItem {
 export const navigationItems: NavigationItem[] = [
   {
     key: "overview",
-    label: "总览",
+    labelKey: "nav.overview",
     path: "/overview",
     icon: Home,
     mobile: true,
   },
   {
     key: "learn",
-    label: "学习空间",
+    labelKey: "nav.learn",
     path: "/learn",
     icon: BookOpen,
     mobile: true,
   },
   {
     key: "search",
-    label: "全局搜索",
+    labelKey: "nav.search",
     path: "/search",
     icon: Search,
   },
   {
     key: "materials",
-    label: "资料库",
+    labelKey: "nav.materials",
     path: "/materials",
     icon: Archive,
     mobile: true,
   },
   {
     key: "domain-graph",
-    label: "领域知识图谱",
+    labelKey: "nav.domainGraph",
     path: "/graph/domain",
     icon: Network,
   },
   {
     key: "personal-model",
-    label: "个人模型",
+    labelKey: "nav.personalModel",
     path: "/model",
     icon: Brain,
     mobile: true,
   },
   {
     key: "student-graph",
-    label: "学生知识图谱",
+    labelKey: "nav.studentGraph",
     path: "/graph/student",
     icon: Target,
   },
   {
     key: "learning-path",
-    label: "学习路径",
+    labelKey: "nav.learningPath",
     path: "/learning-path",
     icon: Compass,
   },
-  { key: "history", label: "版本记录", path: "/history/domain", icon: History },
+  { key: "history", labelKey: "nav.history", path: "/history/domain", icon: History },
   {
     key: "settings",
-    label: "设置",
+    labelKey: "nav.settings",
     path: "/settings",
     icon: Settings,
     mobile: true,

@@ -1,5 +1,13 @@
 import { describe, expect, it } from "vitest";
-import { sanitizeApiBaseUrl } from "./utils";
+import { formatMimeType, sanitizeApiBaseUrl } from "./utils";
+
+describe("formatMimeType", () => {
+  it("uses readable document labels without exposing raw MIME values", () => {
+    expect(formatMimeType("application/pdf")).toBe("PDF 文档");
+    expect(formatMimeType("text/plain")).toBe("文本文档");
+    expect(formatMimeType("application/x-internal-format")).toBe("文件");
+  });
+});
 
 describe("sanitizeApiBaseUrl", () => {
   it("keeps relative paths and safe absolute origins", () => {

@@ -8,13 +8,14 @@ import {
   Undo2,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import { useSearchParams } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { api } from "@/services/api";
 import { queryKeys } from "@/lib/queryKeys";
 import { rawGraphToCytoscape } from "@/lib/graph";
 import { isUuid } from "@/lib/utils";
 import { useAppStore } from "@/stores/AppContext";
 import type {
+  CytoscapeGraph,
   GraphEdgeData,
   GraphNodeData,
   JsonObject,
@@ -33,14 +34,51 @@ import {
 import { PageHeader } from "@/components/shared/PageHeader";
 import { RuntimeModelBadge } from "@/components/shared/RuntimeModelBadge";
 import { Sheet } from "@/components/shared/Sheet";
+import {
+  domainNodeTypeLabel,
+  relationTypeLabel,
+} from "@/lib/domainDetails";
+import { useI18n } from "@/lib/i18n";
+
+const productDomainNodeTypes = new Set([
+  "Domain",
+  "Theory",
+  "KnowledgePoint",
+  "Definition",
+  "Method",
+  "Example",
+  "Counterexample",
+  "Misconception",
+]);
+
+export function domainGraphForProduct(
+  graph: CytoscapeGraph,
+  includeTechnicalNodes = false,
+): CytoscapeGraph {
+  if (includeTechnicalNodes) return graph;
+  const nodes = graph.elements.nodes.filter((node) =>
+    productDomainNodeTypes.has(node.data.type),
+  );
+  const nodeIds = new Set(nodes.map((node) => node.data.id));
+  const edges = graph.elements.edges.filter(
+    (edge) =>
+      nodeIds.has(edge.data.source) && nodeIds.has(edge.data.target),
+  );
+  return {
+    ...graph,
+    elements: { nodes, edges },
+  };
+}
 
 export function DomainGraphPage() {
+  const { locale, pick } = useI18n();
   const { currentWorkspace, preferences } = useAppStore();
   const workspaceId = currentWorkspace?.id;
   const [searchParams] = useSearchParams();
   const [search, setSearch] = useState("");
   const [typeFilter, setTypeFilter] = useState<string[]>([]);
   const [relationFilter, setRelationFilter] = useState<string[]>([]);
+  const [showTechnicalNodes, setShowTechnicalNodes] = useState(false);
   const [selectedNode, setSelectedNode] = useState<GraphNodeData | null>(null);
   const [selectedEdge, setSelectedEdge] = useState<GraphEdgeData | null>(null);
   const [detailOpen, setDetailOpen] = useState(false);
@@ -99,30 +137,48 @@ export function DomainGraphPage() {
     );
   }, [focusNodeId, subgraph.data]);
   const displayedGraph = focusedGraph ?? graph.data;
+  const productGraph = useMemo(
+    () =>
+      displayedGraph
+        ? domainGraphForProduct(displayedGraph, showTechnicalNodes)
+        : null,
+    [displayedGraph, showTechnicalNodes],
+  );
   const types = useMemo(
     () =>
       Array.from(
         new Set(
-          (displayedGraph?.elements.nodes ?? []).map((node) => node.data.type),
+          (productGraph?.elements.nodes ?? []).map((node) => node.data.type),
         ),
       ).sort(),
-    [displayedGraph],
+    [productGraph],
   );
   const relations = useMemo(
     () =>
       Array.from(
         new Set(
-          (displayedGraph?.elements.edges ?? []).map(
+          (productGraph?.elements.edges ?? []).map(
             (edge) => edge.data.relation_type ?? edge.data.predicate ?? "",
           ),
         ),
       )
         .filter(Boolean)
         .sort(),
-    [displayedGraph],
+    [productGraph],
   );
-  if (!workspaceId) return <EmptyState title="尚未选择 Workspace" />;
-  if (graph.isLoading) return <LoadingState label="正在加载领域知识图谱" />;
+  if (!workspaceId)
+    return (
+      <EmptyState
+        title={pick("尚未选择学习空间", "No workspace selected")}
+        description={pick("先选择学习空间，才能查看对应的领域知识图谱。", "Select a workspace to view its domain knowledge map.")}
+        action={
+          <Link to="/init" className="primary-button">
+            {pick("选择学习空间", "Select workspace")}
+          </Link>
+        }
+      />
+    );
+  if (graph.isLoading) return <LoadingState label={pick("正在加载领域知识图谱", "Loading domain knowledge map")} />;
   if (graph.isError)
     return (
       <ErrorState error={graph.error} onRetry={() => void graph.refetch()} />
@@ -131,8 +187,13 @@ export function DomainGraphPage() {
   if (!data || data.elements.nodes.length === 0)
     return (
       <EmptyState
-        title="领域图谱为空"
-        description="上传并摄取一份资料，或使用一个已有的 Workspace。"
+        title={pick("领域图谱为空", "The domain map is empty")}
+        description={pick("添加并处理一份学习资料后，知识点和关系会显示在这里。", "Add and process a learning material to create knowledge points and relationships.")}
+        action={
+          <Link to="/materials" className="primary-button">
+            {pick("添加学习资料", "Add material")}
+          </Link>
+        }
       />
     );
   const toggle = (
@@ -173,42 +234,39 @@ export function DomainGraphPage() {
   return (
     <div>
       <PageHeader
-        eyebrow="Domain graph"
-        title="领域知识图谱"
-        description="真实 Cytoscape 导出；关系边以 assertion_id 作为唯一身份。"
+        eyebrow={pick("知识结构", "Knowledge structure")}
+        title={pick("领域知识图谱", "Domain knowledge map")}
+        description={pick("探索知识点之间的联系。点击节点或关系可查看来源与详细信息。", "Explore how knowledge points connect. Select a node or relationship to view details and sources.")}
         actions={
-          <div className="flex gap-2">
-            <button
-              type="button"
-              onClick={() => void exportGraph("cytoscape")}
-              className="secondary-button"
-            >
-              <Download className="h-4 w-4" />
-              Cytoscape
-            </button>
-            <details className="relative">
-              <summary className="secondary-button list-none cursor-pointer">
+          <details className="relative">
+              <summary className="secondary-button cursor-pointer list-none [&::-webkit-details-marker]:hidden">
                 <Download className="h-4 w-4" />
-                导出
+                {pick("导出图谱", "Export map")}
               </summary>
-              <div className="absolute right-0 top-11 z-10 w-32 rounded-lg border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-700 dark:bg-slate-900">
+              <div className="absolute right-0 top-11 z-20 w-44 rounded-lg border border-slate-200 bg-white p-1 shadow-lg dark:border-slate-700 dark:bg-slate-900">
+                <button
+                  type="button"
+                  onClick={() => void exportGraph("cytoscape")}
+                  className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-slate-50 dark:hover:bg-slate-800"
+                >
+                  Cytoscape（JSON）
+                </button>
                 <button
                   type="button"
                   onClick={() => void exportGraph("jsonld")}
-                  className="block w-full rounded px-2 py-2 text-left text-xs hover:bg-slate-50 dark:hover:bg-slate-800"
+                  className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-slate-50 dark:hover:bg-slate-800"
                 >
                   JSON-LD
                 </button>
                 <button
                   type="button"
                   onClick={() => void exportGraph("turtle")}
-                  className="block w-full rounded px-2 py-2 text-left text-xs hover:bg-slate-50 dark:hover:bg-slate-800"
+                  className="block w-full rounded px-3 py-2 text-left text-xs hover:bg-slate-50 dark:hover:bg-slate-800"
                 >
-                  Turtle
+                  Turtle（TTL）
                 </button>
               </div>
-            </details>
-          </div>
+          </details>
         }
       />
       {exportError !== null && (
@@ -220,33 +278,36 @@ export function DomainGraphPage() {
         </div>
       )}
       <div className="mb-4">
-        <RuntimeModelBadge role="graph" label="Graph" />
+        <RuntimeModelBadge role="graph" label={pick("图谱分析", "Graph analysis")} />
       </div>
-      <div className="mb-4 grid gap-3 rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900 md:grid-cols-[1fr_auto]">
+      <div className="toolbar-card mb-4 grid gap-3 md:grid-cols-[minmax(16rem,1fr)_auto]">
         <div className="relative">
           <Search className="pointer-events-none absolute left-3 top-2.5 h-4 w-4 text-slate-400" />
           <input
-            aria-label="搜索领域图节点"
+            aria-label={pick("搜索领域图节点", "Search domain map nodes")}
             value={search}
             onChange={(event) => setSearch(event.target.value)}
             className="form-input pl-9"
-            placeholder="搜索节点名称或 ID"
+            placeholder={pick("搜索知识点", "Search knowledge points")}
           />
         </div>
         <div className="flex flex-wrap items-center gap-2 text-xs">
           <Filter className="h-4 w-4 text-slate-400" />
-          <span className="text-slate-500">类型</span>
+          <span className="text-slate-500">{pick("类型", "Type")}</span>
           {types.slice(0, 8).map((type) => (
             <button
               type="button"
               key={type}
               onClick={() => toggle(type, typeFilter, setTypeFilter)}
-              className={`rounded-md border px-2 py-1 ${typeFilter.includes(type) ? "border-[#3157D5] bg-indigo-50 text-[#3157D5]" : "border-slate-200 text-slate-500 dark:border-slate-700"}`}
+              aria-pressed={typeFilter.includes(type)}
+              className={`filter-chip ${typeFilter.includes(type) ? "filter-chip-active" : ""}`}
             >
-              {type}
+              {domainNodeTypeLabel(type, locale)}
             </button>
           ))}
-          <span className="ml-2 text-slate-500">关系</span>
+          {relations.length > 0 && (
+            <span className="ml-2 text-slate-500">{pick("关系", "Relationship")}</span>
+          )}
           {relations.slice(0, 6).map((relation) => (
             <button
               type="button"
@@ -254,11 +315,36 @@ export function DomainGraphPage() {
               onClick={() =>
                 toggle(relation, relationFilter, setRelationFilter)
               }
-              className={`rounded-md border px-2 py-1 ${relationFilter.includes(relation) ? "border-[#3157D5] bg-indigo-50 text-[#3157D5]" : "border-slate-200 text-slate-500 dark:border-slate-700"}`}
+              aria-pressed={relationFilter.includes(relation)}
+              className={`filter-chip ${relationFilter.includes(relation) ? "filter-chip-active" : ""}`}
             >
-              {relation}
+              {relationTypeLabel(relation, locale)}
             </button>
           ))}
+          <button
+            type="button"
+            onClick={() => {
+              setShowTechnicalNodes((value) => !value);
+              setTypeFilter([]);
+              setRelationFilter([]);
+            }}
+            aria-pressed={showTechnicalNodes}
+            className={`filter-chip ${showTechnicalNodes ? "filter-chip-active" : ""}`}
+          >
+            {showTechnicalNodes ? pick("隐藏技术节点", "Hide technical nodes") : pick("显示技术节点", "Show technical nodes")}
+          </button>
+          {(typeFilter.length > 0 || relationFilter.length > 0) && (
+            <button
+              type="button"
+              className="quiet-button min-h-8 px-2"
+              onClick={() => {
+                setTypeFilter([]);
+                setRelationFilter([]);
+              }}
+            >
+              {pick("清除筛选", "Clear filters")}
+            </button>
+          )}
         </div>
       </div>
       {focusNodeId && (
@@ -269,8 +355,7 @@ export function DomainGraphPage() {
             <Focus className="h-4 w-4" />
           )}
           <span>
-            {subgraph.isLoading ? "正在加载局部子图" : "正在查看局部子图"} ·{" "}
-            {focusNodeId.slice(0, 8)}
+            {subgraph.isLoading ? pick("正在加载局部子图", "Loading focused map") : pick("正在查看局部子图", "Viewing focused map")}
           </span>
           {subgraph.isError && (
             <button
@@ -278,7 +363,7 @@ export function DomainGraphPage() {
               onClick={() => void subgraph.refetch()}
               className="underline"
             >
-              加载失败，重试
+              {pick("加载失败，重试", "Loading failed. Retry")}
             </button>
           )}
           <button
@@ -287,13 +372,13 @@ export function DomainGraphPage() {
             className="quiet-button ml-auto min-h-8 px-2"
           >
             <Undo2 className="h-3.5 w-3.5" />
-            返回完整图谱
+            {pick("返回完整图谱", "Return to full map")}
           </button>
         </div>
       )}
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_260px]">
         <GraphCanvas
-          graph={displayedGraph ?? data}
+          graph={productGraph ?? data}
           search={search}
           nodeTypes={typeFilter}
           relationTypes={relationFilter}
@@ -304,36 +389,59 @@ export function DomainGraphPage() {
           onEdgeSelect={handleEdge}
         />
         <aside className="space-y-4">
-          <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
-            <h2 className="text-sm font-semibold">Manifest</h2>
+          <div className="surface-card p-4">
+            <h2 className="text-sm font-semibold">{pick("图谱概览", "Map overview")}</h2>
+            {manifest.isError && (
+              <p className="mt-2 text-xs leading-5 text-amber-700 dark:text-amber-300" role="status">
+                {pick("汇总数据暂时不可用，以下展示图谱内可计算的数据。", "Summary data is unavailable. Values calculated from the visible map are shown instead.")}
+                <button
+                  type="button"
+                  className="ml-1 underline"
+                  onClick={() => void manifest.refetch()}
+                >
+                  {pick("重试", "Retry")}
+                </button>
+              </p>
+            )}
             <dl className="mt-3 space-y-2 text-xs">
               <Metric
-                label="知识点"
-                value={manifest.data?.data.knowledge_point_count ?? 0}
-              />
-              <Metric
-                label="关系"
+                label={pick("知识点", "Knowledge points")}
                 value={
-                  manifest.data?.data.assertion_count ??
-                  data.elements.edges.length
+                  manifest.data?.data.knowledge_point_count ??
+                  data.elements.nodes.filter(
+                    (node) => node.data.type === "KnowledgePoint",
+                  ).length
                 }
               />
               <Metric
-                label="来源"
-                value={manifest.data?.data.source_count ?? 0}
+                label={pick("当前关系", "Relationships")}
+                value={productGraph?.elements.edges.length ?? data.elements.edges.length}
               />
               <Metric
-                label="版本"
+                label={pick("来源", "Sources")}
+                value={
+                  manifest.data?.data.source_count ??
+                  (manifest.isLoading ? pick("读取中", "Loading") : pick("暂不可用", "Unavailable"))
+                }
+              />
+              <Metric
+                label={pick("版本状态", "Version status")}
                 value={
                   typeof data.meta.revision_id === "string"
-                    ? data.meta.revision_id.slice(0, 8)
-                    : "—"
+                    ? pick("已加载", "Loaded")
+                    : pick("暂无", "Unavailable")
                 }
               />
             </dl>
+            <Link
+              to="/history/domain"
+              className="mt-3 inline-flex text-xs font-medium text-[#3157D5] hover:underline"
+            >
+              {pick("查看版本记录 →", "View version history →")}
+            </Link>
           </div>
-          <div className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
-            <h2 className="text-sm font-semibold">图例</h2>
+          <div className="surface-card p-4">
+            <h2 className="text-sm font-semibold">{pick("图例", "Legend")}</h2>
             <div className="mt-3 space-y-2 text-xs text-slate-500">
               {[
                 "Domain",
@@ -357,7 +465,7 @@ export function DomainGraphPage() {
                       )[type],
                     }}
                   />
-                  {type}
+                  {domainNodeTypeLabel(type, locale)}
                 </div>
               ))}
             </div>
@@ -367,7 +475,7 @@ export function DomainGraphPage() {
       {detailOpen && (
         <GraphDetailDrawer
           kind={selectedNode ? "node" : "assertion"}
-          title={selectedNode ? "节点详情" : "RelationAssertion 详情"}
+          title={selectedNode ? pick("知识点详情", "Knowledge point details") : pick("知识关系详情", "Relationship details")}
           loading={nodeDetail.isLoading || edgeDetail.isLoading}
           error={nodeDetail.error ?? edgeDetail.error}
           data={
@@ -384,6 +492,10 @@ export function DomainGraphPage() {
                 }
               : undefined
           }
+          onRetry={() => {
+            if (selectedNode) void nodeDetail.refetch();
+            else void edgeDetail.refetch();
+          }}
           onClose={() => setDetailOpen(false)}
         />
       )}
@@ -407,6 +519,7 @@ function GraphDetailDrawer({
   loading,
   error,
   onFocus,
+  onRetry,
   onClose,
 }: {
   kind: "node" | "assertion";
@@ -415,8 +528,10 @@ function GraphDetailDrawer({
   loading: boolean;
   error: unknown;
   onFocus?: () => void;
+  onRetry: () => void;
   onClose: () => void;
 }) {
+  const { pick } = useI18n();
   return (
     <Sheet
       open
@@ -424,14 +539,14 @@ function GraphDetailDrawer({
         if (!open) onClose();
       }}
       title={title}
-      description={`${title}侧边栏`}
+      description={pick(`${title}侧边栏`, `${title} panel`)}
       width="lg"
     >
       {loading ? (
-        <LoadingState label="正在读取详情" />
+        <LoadingState label={pick("正在读取详情", "Loading details")} />
       ) : error ? (
         <div className="mt-4">
-          <ErrorState error={error} />
+          <ErrorState error={error} onRetry={onRetry} />
         </div>
       ) : (
         kind === "node" ? (

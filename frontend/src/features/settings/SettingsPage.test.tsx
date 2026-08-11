@@ -91,6 +91,9 @@ describe("SettingsPage learning preferences", () => {
 
   it("persists local teaching preferences and applies font size", async () => {
     const view = renderPage();
+    expect(
+      await screen.findByRole("button", { name: "浅色" }),
+    ).toHaveAttribute("aria-pressed", "true");
     fireEvent.change(screen.getByLabelText("默认教学模式"), {
       target: { value: "research" },
     });
@@ -140,6 +143,21 @@ describe("SettingsPage learning preferences", () => {
     expect(screen.getByLabelText("提示强度")).toHaveValue("balanced");
   });
 
+  it("switches the interface between Chinese and English and persists it", async () => {
+    renderPage();
+    const language = await screen.findByLabelText("界面语言");
+    fireEvent.change(language, { target: { value: "en" } });
+
+    expect(await screen.findByRole("heading", { name: "Settings" })).toBeVisible();
+    expect(screen.getByText("Learning preferences")).toBeVisible();
+    expect(document.documentElement.lang).toBe("en");
+    await waitFor(() =>
+      expect(localStorage.getItem("knowtier.app-state.v1")).toContain(
+        '"uiLocale":"en"',
+      ),
+    );
+  });
+
   it("keeps a supplied model credential out of localStorage", async () => {
     const siliconFlow: ModelProfile = {
       ...mockProfile,
@@ -157,9 +175,13 @@ describe("SettingsPage learning preferences", () => {
 
     expect(await screen.findByText("模型与供应商")).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "新建配置" }));
-    fireEvent.change(screen.getByLabelText("API Key"), {
+    const apiKeyInput = screen.getByLabelText("API Key");
+    expect(apiKeyInput).toHaveAttribute("type", "password");
+    fireEvent.change(apiKeyInput, {
       target: { value: "never-persist-this-key" },
     });
+    fireEvent.click(screen.getByRole("button", { name: "显示密钥内容" }));
+    expect(apiKeyInput).toHaveAttribute("type", "text");
     fireEvent.click(screen.getByRole("button", { name: "保存配置" }));
 
     await waitFor(() =>
@@ -170,5 +192,109 @@ describe("SettingsPage learning preferences", () => {
     expect(localStorage.getItem("knowtier.app-state.v1")).not.toContain(
       "never-persist-this-key",
     );
+  });
+
+  it("preserves a custom profile name when the provider changes", async () => {
+    renderPage();
+    const name = await screen.findByLabelText("配置名称");
+    fireEvent.change(name, { target: { value: "课程专用模型" } });
+
+    fireEvent.change(screen.getByLabelText("供应商"), {
+      target: { value: "custom_openai_compatible" },
+    });
+
+    expect(name).toHaveValue("课程专用模型");
+  });
+
+  it("keeps embedding separate from the unified generation model", async () => {
+    const siliconFlow: ModelProfile = {
+      ...mockProfile,
+      id: "22222222-2222-4222-8222-222222222222",
+      name: "SiliconFlow",
+      provider: "siliconflow",
+      base_url: "https://api.siliconflow.cn/v1",
+      models: {
+        teacher: "Qwen/Qwen2.5-7B-Instruct",
+        extractor: "Qwen/Qwen2.5-7B-Instruct",
+        grader: "Qwen/Qwen2.5-7B-Instruct",
+        graph: "Qwen/Qwen2.5-7B-Instruct",
+        vision: "Qwen/Qwen2.5-7B-Instruct",
+        embedding: "Qwen/Qwen2.5-7B-Instruct",
+      },
+      credential_present: true,
+      credential_masked: "••••••••",
+    };
+    vi.mocked(api.getModelConfiguration).mockResolvedValue({
+      profiles: [siliconFlow],
+      active_profile_id: siliconFlow.id,
+    });
+    vi.mocked(api.updateModelProfile).mockImplementation((_id, input) =>
+      Promise.resolve({
+        ...siliconFlow,
+        models: input.models,
+      }),
+    );
+    vi.mocked(api.discoverProviderModels).mockResolvedValue({
+      profile_id: siliconFlow.id,
+      provider: "siliconflow",
+      models: [
+        "Qwen/Qwen2.5-7B-Instruct",
+        "BAAI/bge-reranker-v2-m3",
+        "Qwen/Qwen3-Embedding-0.6B",
+        "BAAI/bge-m3",
+      ],
+      tested_at: "2026-08-08T00:00:00Z",
+    });
+
+    renderPage();
+    const generation = await screen.findByLabelText(/统一生成模型/);
+    const embedding = screen.getByLabelText(/^向量模型/);
+    await waitFor(() => {
+      expect(generation).toHaveValue("Qwen/Qwen2.5-7B-Instruct");
+      expect(embedding).toHaveValue("Qwen/Qwen2.5-7B-Instruct");
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "刷新模型" }));
+    await waitFor(() =>
+      expect(embedding).toHaveValue("Qwen/Qwen3-Embedding-0.6B"),
+    );
+
+    fireEvent.change(generation, { target: { value: "provider/next-chat" } });
+    expect(embedding).toHaveValue("Qwen/Qwen3-Embedding-0.6B");
+  });
+
+  it("runs an explicit offline connection test for the Mock provider", async () => {
+    vi.mocked(api.updateModelProfile).mockResolvedValue(mockProfile);
+    vi.mocked(api.testModelConnection).mockResolvedValue({
+      profile_id: mockProfile.id,
+      provider: "mock",
+      models: ["mock/default"],
+      tested_at: "2026-08-09T00:00:00Z",
+    });
+    renderPage();
+
+    await waitFor(() =>
+      expect(screen.getByLabelText("配置名称")).toHaveValue("Mock Provider"),
+    );
+    fireEvent.click(await screen.findByRole("button", { name: "测试连接" }));
+
+    await waitFor(() =>
+      expect(api.testModelConnection).toHaveBeenCalledWith(mockProfile.id),
+    );
+    expect(
+      await screen.findByText("连接测试成功，供应商返回 1 个模型。"),
+    ).toBeVisible();
+  });
+
+  it("explains required SiliconFlow setup before sending a connection test", async () => {
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "新建配置" }));
+    fireEvent.click(screen.getByRole("button", { name: "测试连接" }));
+
+    expect(
+      await screen.findByText("请先输入 API Key，再刷新模型或测试连接。"),
+    ).toBeVisible();
+    expect(api.createModelProfile).not.toHaveBeenCalled();
+    expect(api.testModelConnection).not.toHaveBeenCalled();
   });
 });

@@ -30,11 +30,14 @@ describe("VersionDetails", () => {
 
     expect(screen.getByText("v3")).toBeInTheDocument();
     expect(screen.getByText("状态 · 已应用")).toBeInTheDocument();
-    expect(screen.getByText("Projection · 已投影")).toBeInTheDocument();
+    expect(screen.getByText("图谱投影 · 已投影")).toBeInTheDocument();
+    expect(screen.getByText("基于上一个版本")).toBeInTheDocument();
+    expect(screen.getByText("资料摄取创建")).toBeInTheDocument();
+    expect(screen.getByText("已记录")).toBeInTheDocument();
     expect(screen.getByText("新增节点 4；新增关系 3；替代关系 1；记录冲突 0。")).toBeInTheDocument();
     expect(screen.getByText("来源变化")).toBeInTheDocument();
-    expect(screen.getAllByText("后端未提供").length).toBeGreaterThan(0);
-    expect(screen.getByText("原始数据（调试）")).toBeInTheDocument();
+    expect(screen.getAllByText("暂无数据").length).toBeGreaterThan(0);
+    expect(screen.getByText("技术原始数据")).toBeInTheDocument();
   });
 
   it("renders learner assertion groups, evidence, events and honest deltas", () => {
@@ -88,12 +91,12 @@ describe("VersionDetails", () => {
     expect(screen.getByText("Still confuses two boundary cases.")).toBeInTheDocument();
     expect(screen.getByText("old-id")).toBeInTheDocument();
     expect(screen.getByText(/本轮掌握度 80%/)).toBeInTheDocument();
-    expect(screen.getByText(/无法计算前后差异/)).toBeInTheDocument();
-    expect(screen.getByText("LEARNER_GRAPH_DELTA")).toBeInTheDocument();
+    expect(screen.getByText(/没有上一版本的推荐动作可供比较/)).toBeInTheDocument();
+    expect(screen.getByText("学习状态更新")).toBeInTheDocument();
   });
 
   it("handles incompatible version detail payloads safely", () => {
     render(<DomainVersionDetail data={["unexpected"]} />);
-    expect(screen.getByText(/不是对象/)).toBeInTheDocument();
+    expect(screen.getByText(/详情格式异常/)).toBeInTheDocument();
   });
 });

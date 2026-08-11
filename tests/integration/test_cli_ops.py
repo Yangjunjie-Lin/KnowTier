@@ -49,9 +49,22 @@ def test_init_migrates_settings_database_before_runtime_startup(tmp_path: Path) 
             str(row[0])
             for row in connection.execute("SELECT name FROM sqlite_master WHERE type = 'table'")
         }
-        prompt_count = int(connection.execute("SELECT COUNT(*) FROM prompt_versions").fetchone()[0])
+        prompt_rows = list(
+            connection.execute(
+                "SELECT prompt_name, version FROM prompt_versions ORDER BY prompt_name"
+            )
+        )
+        prompt_names = {str(row[0]) for row in prompt_rows}
     assert {"alembic_version", "workspaces", "prompt_versions"}.issubset(tables)
-    assert prompt_count == 5
+    assert {
+        "chat_topic_extractor",
+        "conflict_resolver",
+        "graph_delta_builder",
+        "knowledge_extractor",
+        "response_grader",
+        "teacher_system",
+    }.issubset(prompt_names)
+    assert len(prompt_rows) == len(prompt_names)
 
 
 def test_seed_demo_is_persistent_and_idempotent(

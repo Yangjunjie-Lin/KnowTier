@@ -636,7 +636,7 @@ export function adaptEvidence({
     .filter((item) => item.knowledge_point_id === target.id)
     .map((item) => {
       const record = item as unknown as Record<string, unknown>;
-      const evidenceType = nonEmptyText(item.evidence_type) ?? "后端未提供";
+      const evidenceType = nonEmptyText(item.evidence_type) ?? "未分类证据";
       return {
         id: item.id,
         evidenceType,

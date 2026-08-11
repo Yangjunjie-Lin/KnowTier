@@ -6,6 +6,7 @@ import pytest
 from pydantic import SecretStr
 
 from cognigraph.config import Settings
+from cognigraph.llm import configuration as configuration_module
 from cognigraph.llm.configuration import (
     SILICONFLOW_BASE_URL,
     CredentialStorage,
@@ -16,6 +17,50 @@ from cognigraph.llm.configuration import (
     RoleModels,
     validate_provider_base_url,
 )
+from cognigraph.llm.openai_compatible import OpenAICompatibleError
+from cognigraph.llm.schemas import ChatMessage, ProviderResponse, ToolDefinition
+
+
+class ConnectionProbeProvider:
+    def __init__(self, *, reject_embedding: bool = False) -> None:
+        self.reject_embedding = reject_embedding
+        self.calls: list[tuple[str, str]] = []
+        self.closed = False
+
+    async def list_models(self) -> list[str]:
+        self.calls.append(("models", ""))
+        return ["chat-model", "embedding-model", "vision-model"]
+
+    async def embed(self, *, model: str, texts: list[str]) -> list[list[float]]:
+        self.calls.append(("embedding", model))
+        assert texts == ["KnowTier connection test"]
+        if self.reject_embedding:
+            raise OpenAICompatibleError(
+                "provider rejected the request or model",
+                status_code=400,
+            )
+        return [[1.0, 0.0]]
+
+    async def complete(
+        self,
+        *,
+        model: str,
+        messages: list[ChatMessage],
+        response_schema: dict[str, object],
+        tools: list[ToolDefinition] | None = None,
+        tool_choice: str | dict[str, object] | None = None,
+    ) -> ProviderResponse:
+        del response_schema, tools, tool_choice
+        self.calls.append(("chat", model))
+        assert messages[0].content == "Return JSON with ok=true and no other content."
+        return ProviderResponse(
+            content='{"ok": true}',
+            provider="contract",
+            model=model,
+        )
+
+    async def aclose(self) -> None:
+        self.closed = True
 
 
 def settings(path: Path) -> Settings:
@@ -212,6 +257,111 @@ async def test_switching_to_mock_removes_the_previous_session_credential(
 
     assert restored_external.credential_present is False
     assert "credential-to-remove" not in (tmp_path / "profiles.json").read_text(encoding="utf-8")
+
+
+@pytest.mark.unit
+async def test_connection_probes_configured_embedding_and_teacher_models(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def activate(_profile: ModelProfile, _secret: SecretStr | None) -> None:
+        return
+
+    probe = ConnectionProbeProvider()
+
+    def provider_factory(
+        _profile: ModelProfile,
+        _secret: SecretStr,
+        **_overrides: object,
+    ) -> ConnectionProbeProvider:
+        return probe
+
+    monkeypatch.setattr(configuration_module, "_external_provider", provider_factory)
+    service = ModelConfigurationService(
+        settings(tmp_path / "profiles.json"),
+        activate_profile=activate,
+    )
+    await service.initialize()
+    profile = await service.create(
+        ModelProfileDraft(
+            name="External",
+            provider=ProviderKind.SILICONFLOW,
+            api_key=SecretStr("connection-probe-key"),
+            models=RoleModels(
+                teacher="chat-model",
+                extractor="chat-model",
+                grader="chat-model",
+                graph="chat-model",
+                vision="vision-model",
+                embedding="embedding-model",
+            ),
+        )
+    )
+
+    result = await service.test_connection(profile.id)
+    snapshot = await service.snapshot()
+    tested = next(item for item in snapshot.profiles if item.id == profile.id)
+
+    assert result.models == ["chat-model", "embedding-model", "vision-model"]
+    assert probe.calls == [
+        ("models", ""),
+        ("embedding", "embedding-model"),
+        ("chat", "chat-model"),
+    ]
+    assert probe.closed is True
+    assert tested.connection_status.value == "connected"
+    assert tested.error_summary is None
+
+
+@pytest.mark.unit
+async def test_connection_rejects_chat_model_used_for_embedding(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    async def activate(_profile: ModelProfile, _secret: SecretStr | None) -> None:
+        return
+
+    probe = ConnectionProbeProvider(reject_embedding=True)
+
+    def provider_factory(
+        _profile: ModelProfile,
+        _secret: SecretStr,
+        **_overrides: object,
+    ) -> ConnectionProbeProvider:
+        return probe
+
+    monkeypatch.setattr(configuration_module, "_external_provider", provider_factory)
+    service = ModelConfigurationService(
+        settings(tmp_path / "profiles.json"),
+        activate_profile=activate,
+    )
+    await service.initialize()
+    profile = await service.create(
+        ModelProfileDraft(
+            name="Invalid role mapping",
+            provider=ProviderKind.SILICONFLOW,
+            api_key=SecretStr("connection-probe-key"),
+            models=RoleModels(
+                teacher="chat-model",
+                extractor="chat-model",
+                grader="chat-model",
+                graph="chat-model",
+                vision="vision-model",
+                embedding="chat-model",
+            ),
+        )
+    )
+
+    with pytest.raises(OpenAICompatibleError, match="Embedding model 'chat-model'"):
+        await service.test_connection(profile.id)
+    snapshot = await service.snapshot()
+    tested = next(item for item in snapshot.profiles if item.id == profile.id)
+
+    assert probe.calls == [("models", ""), ("embedding", "chat-model")]
+    assert probe.closed is True
+    assert tested.connection_status.value == "error"
+    assert tested.error_summary is not None
+    assert "Embedding model 'chat-model'" in tested.error_summary
 
 
 @pytest.mark.unit

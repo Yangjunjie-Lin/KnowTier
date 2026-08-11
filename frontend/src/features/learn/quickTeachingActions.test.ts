@@ -7,6 +7,7 @@ import {
 
 const preferences: LocalPreferences = {
   apiBaseUrl: "/api",
+  uiLocale: "zh-CN",
   theme: "light",
   reducedMotion: false,
   graphDensity: "comfortable",

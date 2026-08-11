@@ -17,8 +17,8 @@ export type ErrorKind =
 
 const statusMessages: Record<number, string> = {
   400: "请求格式不正确，请检查输入。",
-  401: "身份或 Workspace 凭证无效，请重新验证。",
-  403: "当前账号没有访问该 Workspace 的权限。",
+  401: "身份或学习空间凭证无效，请重新验证。",
+  403: "当前账号没有访问该学习空间的权限。",
   404: "找不到请求的资源，请确认 ID 是否正确。",
   409: "资源已存在或状态冲突，请刷新后重试。",
   422: "提交的数据未通过校验，请检查必填项。",
@@ -51,6 +51,14 @@ export class ApiError extends Error {
     this.technicalDetail = options.technicalDetail ?? null;
     this.retryable = options.retryable ?? false;
     this.requestId = options.requestId ?? null;
+  }
+}
+
+/** A message authored by the UI and safe to present without exposing internals. */
+export class UserFacingError extends Error {
+  constructor(message: string) {
+    super(message);
+    this.name = "UserFacingError";
   }
 }
 
@@ -99,4 +107,8 @@ export function friendlyStatusMessage(
 
 export function isApiError(error: unknown): error is ApiError {
   return error instanceof ApiError;
+}
+
+export function isUserFacingError(error: unknown): error is UserFacingError {
+  return error instanceof UserFacingError;
 }

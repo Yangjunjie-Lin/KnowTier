@@ -1,5 +1,5 @@
 import { fireEvent, render, screen, within } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { EvidencePanel } from "./EvidencePanel";
 import { LearningStatusSheet } from "./LearningStatusSheet";
 import { MisconceptionPanel } from "./MisconceptionPanel";
@@ -81,15 +81,25 @@ const evidence: EvidenceInsight = {
 };
 
 describe("learning insight panels", () => {
+  beforeEach(() => {
+    document.documentElement.lang = "zh-CN";
+  });
+
+  afterEach(() => {
+    document.documentElement.lang = "zh-CN";
+  });
+
   it("renders missing grader dimensions without crashing", () => {
-    render(<EvidencePanel target={target} items={[evidence]} state={panelState()} />);
-    expect(screen.getByText("评分维度由后端未提供")).toBeInTheDocument();
-    expect(screen.getByText("回答摘要：后端未提供")).toBeInTheDocument();
+    render(
+      <EvidencePanel target={target} items={[evidence]} state={panelState()} />,
+    );
+    expect(screen.getByText("暂无评分维度")).toBeInTheDocument();
+    expect(screen.getByText("回答摘要：暂无摘要")).toBeInTheDocument();
     const details = screen.getByRole("button", { name: "查看评分与来源" });
     expect(details).toHaveAttribute("aria-expanded", "false");
     fireEvent.click(details);
     expect(details).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByText(/用于当前掌握判断：/)).toBeInTheDocument();
+    expect(screen.getByText(/当前用途：/)).toHaveTextContent("已用于掌握判断");
   });
 
   it("keeps prerequisites and misconceptions usable when evidence fails", () => {
@@ -178,5 +188,76 @@ describe("learning insight panels", () => {
     fireEvent.click(evidenceTab);
     expect(evidenceTab).toHaveAttribute("aria-selected", "true");
     expect(within(dialog).getByText("解释")).toBeInTheDocument();
+  });
+
+  it("does not stack empty learning sections before a real turn", () => {
+    const result: UseLearningInsightsResult = {
+      insights: {
+        targetKnowledgePoint: null,
+        prerequisites: [],
+        prerequisiteStructureSource: "unavailable",
+        misconceptions: { current: [], history: [] },
+        evidence: [],
+        lastUpdatedAt: null,
+        isRefreshing: false,
+        partialErrors: {},
+      },
+      panels: {
+        prerequisites: panelState({ lastUpdatedAt: null }),
+        misconceptions: panelState({ lastUpdatedAt: null }),
+        evidence: panelState({ lastUpdatedAt: null }),
+      },
+    };
+
+    render(
+      <LearningStatusSheet
+        open
+        onOpenChange={vi.fn()}
+        result={result}
+        onStartPrerequisite={vi.fn()}
+      />,
+    );
+
+    const dialog = screen.getByRole("dialog");
+    expect(within(dialog).queryByRole("tab")).not.toBeInTheDocument();
+    expect(within(dialog).getByText(/完成一轮学习后/)).toBeVisible();
+    expect(within(dialog).queryByText("工具调用")).not.toBeInTheDocument();
+    expect(within(dialog).queryByText("图谱更新")).not.toBeInTheDocument();
+  });
+
+  it("renders English insight copy and hides unknown backend enums", () => {
+    document.documentElement.lang = "en";
+    const unknownEvidence: EvidenceInsight = {
+      ...evidence,
+      evidenceType: "FUTURE_PRIVATE_ENUM",
+      evidenceForm: "FUTURE_PRIVATE_ENUM",
+      dimensions: [
+        {
+          key: "future_private_score",
+          label: "future private score",
+          score: 0.7,
+        },
+      ],
+    };
+
+    render(
+      <EvidencePanel
+        target={target}
+        items={[unknownEvidence]}
+        state={panelState()}
+      />,
+    );
+
+    expect(
+      screen.getByRole("region", { name: "Mastery evidence" }),
+    ).toBeVisible();
+    expect(screen.getByText("Learning evidence")).toBeVisible();
+    expect(screen.getByText("Score dimension")).toBeVisible();
+    expect(
+      screen.getByRole("button", { name: "View scoring and source" }),
+    ).toBeVisible();
+    expect(
+      screen.queryByText(/FUTURE_PRIVATE_ENUM|future private score/),
+    ).not.toBeInTheDocument();
   });
 });

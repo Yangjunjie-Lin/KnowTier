@@ -100,13 +100,13 @@ describe("KnowledgeBlueprintView", () => {
     expect(screen.getByText("递归总是更快")).toBeInTheDocument();
     expect(screen.getByText("请指出基础情形")).toBeInTheDocument();
     expect(screen.getByText("术语存在歧义")).toBeInTheDocument();
-    expect(screen.getByText("原始 JSON（调试）")).toBeInTheDocument();
+    expect(screen.getByText("技术原始数据")).toBeInTheDocument();
     expect(screen.queryByText('"knowledge_points"')).not.toBeInTheDocument();
     const graphButton = screen.getByRole("button", {
       name: "在图谱中查看",
     });
     expect(graphButton).toBeDisabled();
-    expect(screen.getByText(/仅提供候选键/)).toBeInTheDocument();
+    expect(screen.getByText(/尚未发布到领域图谱/)).toBeInTheDocument();
   });
 
   it("passes a user-confirmable learning target through navigation state", () => {
@@ -144,6 +144,6 @@ describe("KnowledgeBlueprintView", () => {
         <KnowledgeBlueprintView value={["unexpected"]} />
       </MemoryRouter>,
     );
-    expect(screen.getByText(/不是对象/)).toBeInTheDocument();
+    expect(screen.getByText(/数据格式异常/)).toBeInTheDocument();
   });
 });

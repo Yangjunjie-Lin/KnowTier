@@ -87,6 +87,21 @@ class FakeProvider(ModelProvider):
                     "explanation": "The answer identifies the central idea and gives a reason.",
                 }
             )
+        if "assessment_question" in properties:
+            return json.dumps(
+                {
+                    "core_explanation": (
+                        "We will handle one idea at a time using the current evidence."
+                    ),
+                    "illustration": (
+                        "Think of a prerequisite as a key needed before opening a door."
+                    ),
+                    "key_takeaway": (
+                        "A new step is reliable only when its prerequisite is usable."
+                    ),
+                    "assessment_question": ("Which prerequisite would you check first, and why?"),
+                }
+            )
         if "core_explanation" in properties:
             return json.dumps(
                 {
@@ -102,6 +117,70 @@ class FakeProvider(ModelProvider):
                         "type": "RECOGNIZE",
                         "question": "Which prerequisite would you check first, and why?",
                     },
+                }
+            )
+        if {"canonical_name", "plain_definition"}.issubset(properties) and not {
+            "formal_definition",
+            "must_cover",
+        }.intersection(properties):
+            if _contains_rag_topic(messages):
+                return json.dumps(
+                    {
+                        "canonical_name": "retrieval-augmented generation",
+                        "plain_definition": (
+                            "RAG retrieves relevant evidence before a language model "
+                            "generates an answer grounded in that evidence."
+                        ),
+                    }
+                )
+            return json.dumps(
+                {
+                    "canonical_name": "source concept",
+                    "plain_definition": "The central topic requested by the learner.",
+                }
+            )
+        if {
+            "canonical_name",
+            "plain_definition",
+            "formal_definition",
+            "must_cover",
+        }.issubset(properties):
+            if _contains_rag_topic(messages):
+                return json.dumps(
+                    {
+                        "title": "Retrieval-augmented generation",
+                        "domain": "artificial intelligence",
+                        "canonical_name": "retrieval-augmented generation",
+                        "plain_definition": (
+                            "RAG retrieves relevant evidence before a language model "
+                            "generates an answer grounded in that evidence."
+                        ),
+                        "formal_definition": (
+                            "A retrieval function supplies context to a conditional generator."
+                        ),
+                        "must_cover": ["retrieval", "grounded generation"],
+                        "common_confusions": ["treating retrieval as model training"],
+                        "applicability": ["question answering over external knowledge"],
+                        "limitations": ["answer quality depends on retrieved evidence"],
+                        "importance": 0.95,
+                        "difficulty": 0.55,
+                        "confidence": 0.8,
+                    }
+                )
+            return json.dumps(
+                {
+                    "title": "Requested learning topic",
+                    "domain": None,
+                    "canonical_name": "source concept",
+                    "plain_definition": "The central topic requested by the learner.",
+                    "formal_definition": "An unverified atomic teaching objective.",
+                    "must_cover": ["the requested topic"],
+                    "common_confusions": [],
+                    "applicability": ["the current learning request"],
+                    "limitations": ["pending external evidence"],
+                    "importance": 0.7,
+                    "difficulty": 0.4,
+                    "confidence": 0.6,
                 }
             )
         if "knowledge_points" in properties:
@@ -126,6 +205,8 @@ class FakeProvider(ModelProvider):
             )
             if self.learning_insights_fixture:
                 return json.dumps(_learning_insights_blueprint(source_id))
+            if _contains_rag_topic(messages):
+                return json.dumps(_rag_blueprint(source_id))
             stages = [
                 {
                     "cognitive_level": level,
@@ -195,6 +276,79 @@ def _message_text(message: ChatMessage) -> str:
         if isinstance(value, str):
             text_parts.append(value)
     return "\n".join(text_parts)
+
+
+def _contains_rag_topic(messages: list[ChatMessage]) -> bool:
+    joined = "\n".join(_message_text(message) for message in messages).casefold()
+    return re.search(r"(?<![a-z0-9])rag(?![a-z0-9])", joined) is not None
+
+
+def _rag_blueprint(source_id: str) -> dict[str, object]:
+    def stages(label: str) -> list[dict[str, object]]:
+        return [
+            {
+                "cognitive_level": level,
+                "learning_objective": f"Demonstrate {label} at level {level}.",
+                "teaching_strategy": f"Use the level {level} teaching policy.",
+                "must_cover": ["the source-supported central idea"],
+                "diagnostic_question": f"What shows level {level} understanding?",
+                "mastery_criteria": ["a correct answer with a reason"],
+                "promotion_requirements": ["two evidence forms across distinct turns"],
+                "remediation_policy": "Increase hint specificity one level at a time.",
+            }
+            for level in range(1, 7)
+        ]
+
+    return {
+        "title": "Retrieval-augmented generation",
+        "domain": "artificial intelligence",
+        "theories": [],
+        "knowledge_points": [
+            {
+                "candidate_key": "rag-target",
+                "canonical_name": "retrieval-augmented generation",
+                "plain_definition": (
+                    "RAG retrieves relevant evidence before a language model generates "
+                    "an answer grounded in that evidence."
+                ),
+                "formal_definition": (
+                    "A retrieval function supplies context to a conditional generator."
+                ),
+                "importance": 0.95,
+                "difficulty": 0.55,
+                "prerequisites": [],
+                "must_cover": ["retrieval", "grounded generation"],
+                "common_confusions": ["treating retrieval as model training"],
+                "applicability": ["question answering over external knowledge"],
+                "limitations": ["answer quality depends on retrieved evidence"],
+                "source_span_ids": [source_id],
+                "six_level_plan": stages("retrieval-augmented generation"),
+                "confidence": 0.9,
+            },
+            {
+                "candidate_key": "grounding-evidence",
+                "canonical_name": "grounding evidence",
+                "plain_definition": "Evidence used to support a generated answer.",
+                "formal_definition": "Retrieved context conditioned on a user query.",
+                "importance": 0.7,
+                "difficulty": 0.35,
+                "prerequisites": [],
+                "must_cover": ["evidence relevance"],
+                "common_confusions": ["assuming every retrieved passage is correct"],
+                "applicability": ["source-backed answers"],
+                "limitations": ["retrieved sources can be incomplete"],
+                "source_span_ids": [source_id],
+                "six_level_plan": stages("grounding evidence"),
+                "confidence": 0.85,
+            },
+        ],
+        "relations": [],
+        "examples": [],
+        "counterexamples": [],
+        "misconceptions": [],
+        "questions": [],
+        "unresolved_ambiguities": [],
+    }
 
 
 def _learning_insights_grade(messages: list[ChatMessage]) -> dict[str, object] | None:

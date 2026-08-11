@@ -83,7 +83,8 @@ describe("adaptKnowledgeBlueprint", () => {
     expect(point.examples.at(0)?.content).toBe("A grounded example.");
     expect(point.assessments.at(0)?.question).toContain("everyday words");
     expect(point.graphNodeId).toBeNull();
-    expect(point.graphLinkReason).toContain("候选键");
+    expect(point.graphLinkReason).toBe("该候选知识点尚未发布到领域图谱。");
+    expect(point.graphLinkReason).not.toMatch(/UUID|候选标识|source-concept/);
     expect(blueprint!.sourceSpanIds).toEqual(
       expect.arrayContaining(["span-point", "span-example", "span-question"]),
     );
@@ -110,8 +111,11 @@ describe("adaptKnowledgeBlueprint", () => {
     });
 
     expect(blueprint!.knowledgePoints.at(0)?.graphNodeId).toBeNull();
-    expect(blueprint!.knowledgePoints.at(1)?.graphLinkReason).toContain(
-      "不是有效 UUID",
+    expect(blueprint!.knowledgePoints.at(1)?.graphLinkReason).toBe(
+      "关联的图谱节点暂不可用。",
+    );
+    expect(blueprint!.knowledgePoints.at(1)?.graphLinkReason).not.toMatch(
+      /UUID|not-a-uuid/,
     );
     expect(blueprint!.knowledgePoints.at(2)?.graphNodeId).toBe(id);
   });
@@ -121,7 +125,7 @@ describe("adaptKnowledgeBlueprint", () => {
     expect(
       adaptKnowledgeBlueprint({ title: 42, knowledge_points: "future-shape" }),
     ).toMatchObject({
-      title: "未命名 Knowledge Blueprint",
+      title: "未命名知识蓝图",
       knowledgePoints: [],
       theories: [],
     });

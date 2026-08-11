@@ -1,7 +1,8 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { apiClient } from "@/lib/api/client";
 import { AppProvider } from "@/stores/AppContext";
 import { api } from "@/services/api";
 import { InitPage } from "./InitPage";
@@ -21,8 +22,11 @@ function renderPage() {
   return render(
     <QueryClientProvider client={client}>
       <AppProvider>
-        <MemoryRouter>
-          <InitPage />
+        <MemoryRouter initialEntries={["/init"]}>
+          <Routes>
+            <Route path="/init" element={<InitPage />} />
+            <Route path="/overview" element={<p>Overview destination</p>} />
+          </Routes>
         </MemoryRouter>
       </AppProvider>
     </QueryClientProvider>,
@@ -32,6 +36,8 @@ function renderPage() {
 describe("InitPage", () => {
   beforeEach(() => {
     localStorage.clear();
+    sessionStorage.clear();
+    apiClient.setWorkspaceId(null);
     vi.clearAllMocks();
   });
 
@@ -54,11 +60,11 @@ describe("InitPage", () => {
     fireEvent.change(screen.getByPlaceholderText("例如：机器学习基础"), {
       target: { value: "Test Space" },
     });
-    fireEvent.change(screen.getByPlaceholderText("machine-learning"), {
-      target: { value: "test-space" },
-    });
-    fireEvent.click(screen.getByRole("button", { name: /创建 Workspace/ }));
+    fireEvent.click(screen.getByRole("button", { name: /创建学习空间/ }));
     expect(await screen.findByText("学习者")).toBeInTheDocument();
+    expect(apiClient.getWorkspaceId()).toBe(
+      "11111111-1111-4111-8111-111111111111",
+    );
     fireEvent.change(screen.getByPlaceholderText("例如：林同学"), {
       target: { value: "测试学习者" },
     });
@@ -74,16 +80,41 @@ describe("InitPage", () => {
         }),
       ),
     );
+    expect(await screen.findByText("Overview destination")).toBeVisible();
   });
 
   it("rejects an invalid manually entered workspace id", async () => {
     renderPage();
-    fireEvent.change(screen.getByPlaceholderText("Workspace UUID"), {
+    fireEvent.change(screen.getByPlaceholderText("学习空间标识"), {
       target: { value: "not-a-uuid" },
     });
     fireEvent.click(screen.getByRole("button", { name: "连接" }));
     expect(
-      await screen.findByText("请输入有效的 Workspace UUID。"),
+      await screen.findByText("请输入有效的学习空间标识。"),
     ).toBeInTheDocument();
+  });
+
+  it("generates a stable safe identifier for a Chinese workspace name", async () => {
+    vi.mocked(api.createWorkspace).mockResolvedValue({
+      id: "11111111-1111-4111-8111-111111111111",
+      name: "产品体验验收",
+      slug: "study-example",
+      default_language: "zh-CN",
+      created_at: "2026-08-05T00:00:00Z",
+    });
+    renderPage();
+
+    fireEvent.change(screen.getAllByPlaceholderText("例如：机器学习基础").at(-1)!, {
+      target: { value: "产品体验验收" },
+    });
+    fireEvent.click(
+      screen.getAllByRole("button", { name: /创建学习空间/ }).at(-1)!,
+    );
+
+    await waitFor(() =>
+      expect(api.createWorkspace).toHaveBeenCalledWith(
+        expect.objectContaining({ slug: expect.stringMatching(/^study-[a-z0-9]+$/) }),
+      ),
+    );
   });
 });

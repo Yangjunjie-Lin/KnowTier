@@ -64,6 +64,7 @@ export interface ChatRequest {
   workspace_id: UUID;
   learner_id: UUID;
   session_id: UUID;
+  client_request_id?: UUID | null;
   message: string;
   attachment_ids: UUID[];
   requested_mode: RequestedMode;
@@ -100,6 +101,7 @@ export interface ChatResponse {
     tools: string[];
     fallback: boolean;
   } | null;
+  model_fallback?: boolean;
   sources: JsonObject[];
 }
 

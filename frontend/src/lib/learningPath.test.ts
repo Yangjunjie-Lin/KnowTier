@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { calculateLearningPathStates } from "./learningPath";
+import { calculateLearningPathStates, readableAction } from "./learningPath";
 import type { LearnerModelItem } from "@/types/api";
 
 function modelItem(
@@ -64,7 +64,7 @@ describe("calculateLearningPathStates", () => {
       "not_started",
     ]);
     expect(states[2]?.reason).toContain("前置概念");
-    expect(states[5]?.reason).toContain("中性状态");
+    expect(states[5]?.reason).toContain("个人学习状态");
   });
 
   it("falls back safely for future recommendation values", () => {
@@ -73,6 +73,7 @@ describe("calculateLearningPathStates", () => {
       [item.knowledge_point_id],
       new Map([[item.knowledge_point_id, item]]),
     );
-    expect(state?.recommendedAction).toBe("try new mode");
+    expect(state?.recommendedAction).toBe("继续当前学习计划");
+    expect(readableAction("TRY_NEW_MODE", "en")).toBe("Continue the current learning plan");
   });
 });

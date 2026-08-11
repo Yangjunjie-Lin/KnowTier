@@ -135,11 +135,11 @@ describe("DomainDetails", () => {
     );
 
     expect(screen.getByText("微积分需要先掌握极限。")).toBeInTheDocument();
-    expect(screen.getByText("需要先掌握")).toBeInTheDocument();
+    expect(screen.getAllByText("需要先掌握").length).toBeGreaterThan(0);
     expect(screen.getByText("来源存在分歧")).toBeInTheDocument();
     expect(screen.getByText("旧关系")).toBeInTheDocument();
     expect(screen.getByText("新关系")).toBeInTheDocument();
-    expect(screen.getByText("原始数据（调试）")).toBeInTheDocument();
+    expect(screen.getByText("技术原始数据")).toBeInTheDocument();
   });
 
   it("does not crash on a future incompatible detail shape", () => {
@@ -148,6 +148,6 @@ describe("DomainDetails", () => {
         <DomainNodeDetail data={["unexpected"]} />
       </MemoryRouter>,
     );
-    expect(screen.getByText(/不是对象/)).toBeInTheDocument();
+    expect(screen.getByText(/详情格式异常/)).toBeInTheDocument();
   });
 });

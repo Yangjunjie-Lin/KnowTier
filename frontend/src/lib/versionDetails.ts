@@ -2,7 +2,6 @@ import {
   asRecord,
   firstNumber,
   firstText,
-  humanizeUnknown,
   mergedRecord,
   numberValue,
   recordArray,
@@ -12,6 +11,7 @@ import {
   type UnknownRecord,
 } from "./dataAdapter";
 import { displayPercent } from "./utils";
+import type { UiLocale } from "@/types/app";
 
 export interface VersionChangeMetric {
   provided: boolean;
@@ -86,77 +86,82 @@ export interface LearnerVersionDetailModel {
   raw: UnknownRecord;
 }
 
-const statusLabels: Record<string, string> = {
-  PENDING: "等待处理",
-  APPLIED: "已应用",
-  FAILED: "失败",
-  PROJECTED: "已投影",
+const statusLabels: Record<string, readonly [string, string]> = {
+  PENDING: ["等待处理", "Pending"],
+  APPLIED: ["已应用", "Applied"],
+  FAILED: ["失败", "Failed"],
+  PROJECTED: ["已投影", "Projected"],
 };
 
-const learnerPredicateLabels: Record<string, string> = {
-  HAS_KNOWLEDGE_STATE: "知识状态",
-  HAS_MASTERY_EVIDENCE: "掌握证据",
-  HAS_MISCONCEPTION: "误解",
-  REQUIRES_REVIEW: "需要复习",
-  BLOCKED_BY_PREREQUISITE: "被前置知识阻塞",
-  READY_FOR_PROMOTION: "可进入更高层级",
-  LEARNING_GOAL: "学习目标",
-  RECENTLY_PRACTICED: "最近练习",
-  NEEDS_TRANSFER_EVIDENCE: "需要迁移证据",
-  USER_SUPPLIED: "用户提供主题",
+const learnerPredicateLabels: Record<string, readonly [string, string]> = {
+  HAS_KNOWLEDGE_STATE: ["知识状态", "Knowledge state"],
+  HAS_MASTERY_EVIDENCE: ["掌握证据", "Mastery evidence"],
+  HAS_MISCONCEPTION: ["误解", "Misconception"],
+  REQUIRES_REVIEW: ["需要复习", "Needs review"],
+  BLOCKED_BY_PREREQUISITE: ["被前置知识阻塞", "Blocked by a prerequisite"],
+  READY_FOR_PROMOTION: ["可进入更高层级", "Ready to advance"],
+  LEARNING_GOAL: ["学习目标", "Learning goal"],
+  RECENTLY_PRACTICED: ["最近练习", "Recently practiced"],
+  NEEDS_TRANSFER_EVIDENCE: ["需要迁移证据", "Needs transfer evidence"],
+  USER_SUPPLIED: ["用户提供主题", "Learner-supplied topic"],
 };
 
-const decisionLabels: Record<string, string> = {
-  PROMOTE: "提升认知层级",
-  HOLD: "保持当前进度",
-  REMEDIATE: "补救学习",
-  REVIEW_PREREQUISITE: "复习前置知识",
-  CHANGE_EXPLANATION: "更换解释方式",
-  REQUEST_MORE_EVIDENCE: "收集更多掌握证据",
-  REVIEW: "安排复习",
-  ASSESS_FOR_PROMOTION: "检测是否可进阶",
+const decisionLabels: Record<string, readonly [string, string]> = {
+  PROMOTE: ["提升认知层级", "Advance to the next level"],
+  HOLD: ["保持当前进度", "Continue at the current level"],
+  REMEDIATE: ["补救学习", "Strengthen weak areas"],
+  REVIEW_PREREQUISITE: ["复习前置知识", "Review prerequisites"],
+  CHANGE_EXPLANATION: ["更换解释方式", "Try a different explanation"],
+  REQUEST_MORE_EVIDENCE: ["收集更多掌握证据", "Collect more mastery evidence"],
+  REVIEW: ["安排复习", "Schedule a review"],
+  ASSESS_FOR_PROMOTION: ["检测是否可进阶", "Check readiness to advance"],
 };
 
-export function versionStatusLabel(value: string | null): string {
-  if (!value) return "后端未提供";
-  return statusLabels[value] ?? humanizeUnknown(value);
+function pair(value: readonly [string, string], locale: UiLocale): string {
+  return value[locale === "en" ? 1 : 0];
 }
 
-export function learnerRelationLabel(value: string): string {
-  return learnerPredicateLabels[value] ?? humanizeUnknown(value);
+export function versionStatusLabel(value: string | null, locale: UiLocale = "zh-CN"): string {
+  if (!value) return locale === "en" ? "Status unavailable" : "状态未知";
+  return pair(statusLabels[value] ?? ["其他处理状态", "Other processing status"], locale);
 }
 
-export function learnerDecisionLabel(value: string): string {
-  return decisionLabels[value] ?? humanizeUnknown(value);
+export function learnerRelationLabel(value: string, locale: UiLocale = "zh-CN"): string {
+  return pair(learnerPredicateLabels[value] ?? ["其他学习关系", "Other learning relationship"], locale);
+}
+
+export function learnerDecisionLabel(value: string, locale: UiLocale = "zh-CN"): string {
+  return pair(decisionLabels[value] ?? ["其他学习建议", "Other learning recommendation"], locale);
 }
 
 export function adaptDomainVersionDetail(
   value: unknown,
+  locale: UiLocale = "zh-CN",
 ): DomainVersionDetailModel | null {
   const raw = asRecord(value);
   if (!raw) return null;
   const summary = asRecord(raw.summary) ?? {};
-  const nodesAdded = metric(summary, ["nodes_added", "added_nodes"]);
-  const nodesUpdated = metric(summary, ["nodes_updated", "updated_nodes"]);
-  const relationsAdded = metric(summary, ["assertions_added", "relations_added"]);
+  const nodesAdded = metric(summary, ["nodes_added", "added_nodes"], locale);
+  const nodesUpdated = metric(summary, ["nodes_updated", "updated_nodes"], locale);
+  const relationsAdded = metric(summary, ["assertions_added", "relations_added"], locale);
   const relationsSuperseded = metric(summary, [
     "assertions_superseded",
     "relations_superseded",
     "superseded_relations",
-  ]);
-  const conflicts = metric(summary, ["conflict_count", "conflicts"]);
+  ], locale);
+  const conflicts = metric(summary, ["conflict_count", "conflicts"], locale);
   const sourceChanges = metric(summary, [
     "provenance_links_added",
     "source_changes",
     "sources_added",
-  ]);
+  ], locale);
   const sentences: string[] = [];
-  appendMetricSentence(sentences, nodesAdded, "新增节点");
-  appendMetricSentence(sentences, nodesUpdated, "更新节点");
-  appendMetricSentence(sentences, relationsAdded, "新增关系");
-  appendMetricSentence(sentences, relationsSuperseded, "替代关系");
-  appendMetricSentence(sentences, conflicts, "记录冲突");
-  appendMetricSentence(sentences, sourceChanges, "来源变化");
+  appendMetricSentence(sentences, nodesAdded, locale === "en" ? "nodes added" : "新增节点");
+  appendMetricSentence(sentences, nodesUpdated, locale === "en" ? "nodes updated" : "更新节点");
+  appendMetricSentence(sentences, relationsAdded, locale === "en" ? "relationships added" : "新增关系");
+  appendMetricSentence(sentences, relationsSuperseded, locale === "en" ? "relationships replaced" : "替代关系");
+  appendMetricSentence(sentences, conflicts, locale === "en" ? "conflicts recorded" : "记录冲突");
+  appendMetricSentence(sentences, sourceChanges, locale === "en" ? "source changes" : "来源变化");
   const explicitSummary = firstText(summary, "description", "text", "summary");
   const manifest = asRecord(raw.manifest);
   return {
@@ -181,29 +186,30 @@ export function adaptDomainVersionDetail(
     summaryNarrative:
       explicitSummary ??
       (sentences.length > 0
-        ? `${sentences.join("；")}。`
-        : "后端未提供可展示的版本摘要。"),
-    manifestFacts: manifest ? adaptManifestFacts(manifest) : [],
+        ? `${sentences.join(locale === "en" ? "; " : "；")}${locale === "en" ? "." : "。"}`
+        : locale === "en" ? "No version summary is available." : "暂无可展示的版本摘要。"),
+    manifestFacts: manifest ? adaptManifestFacts(manifest, locale) : [],
     raw,
   };
 }
 
 export function adaptLearnerVersionDetail(
   value: unknown,
+  locale: UiLocale = "zh-CN",
 ): LearnerVersionDetailModel | null {
   const raw = asRecord(value);
   if (!raw) return null;
   const summary = asRecord(raw.change_summary) ?? {};
   const eventRows = recordArray(raw.events);
   const events = eventRows.map(adaptLearnerEvent);
-  const detailed = recordArray(raw.assertions).map(adaptLearnerRelation);
+  const detailed = recordArray(raw.assertions).map((item) => adaptLearnerRelation(item, locale));
   const detailedIds = new Set(
     detailed.map((item) => item.id).filter((item): item is string => item !== null),
   );
   const eventRelations = eventRows.flatMap((event) => {
     const delta = asRecord(event.delta) ?? {};
     return recordArray(delta.assertions_added)
-      .map(adaptLearnerRelation)
+      .map((item) => adaptLearnerRelation(item, locale))
       .filter((item) => !item.id || !detailedIds.has(item.id));
   });
   const addedRelations = [...detailed, ...eventRelations];
@@ -245,12 +251,12 @@ export function adaptLearnerVersionDetail(
     supersededRelationIds,
     masteryScore,
     currentLevel,
-    masterySummary: masterySummary(masteryScore, currentLevel, masteryDelta),
+    masterySummary: masterySummary(masteryScore, currentLevel, masteryDelta, locale),
     misconceptionChanges,
     evidenceChanges,
     recommendation,
     recommendationLabel: recommendation
-      ? learnerDecisionLabel(recommendation)
+      ? learnerDecisionLabel(recommendation, locale)
       : null,
     events,
     raw,
@@ -260,6 +266,7 @@ export function adaptLearnerVersionDetail(
 function metric(
   summary: UnknownRecord,
   keys: string[],
+  locale: UiLocale,
 ): VersionChangeMetric {
   for (const key of keys) {
     if (!Object.hasOwn(summary, key)) continue;
@@ -270,14 +277,14 @@ function metric(
       return {
         provided: true,
         count: value.length,
-        items: value.map(versionItemLabel),
+        items: value.map((item) => versionItemLabel(item, locale)),
       };
     }
     const record = asRecord(value);
     if (record) {
       const count = firstNumber(record, "count", "total");
       const items = Array.isArray(record.items)
-        ? record.items.map(versionItemLabel)
+        ? record.items.map((item) => versionItemLabel(item, locale))
         : [];
       return {
         provided: true,
@@ -290,11 +297,11 @@ function metric(
   return { provided: false, count: null, items: [] };
 }
 
-function versionItemLabel(value: unknown): string {
+function versionItemLabel(value: unknown, locale: UiLocale): string {
   const text = textValue(value);
   if (text) return text;
   const record = asRecord(value);
-  if (!record) return "未命名记录";
+  if (!record) return locale === "en" ? "Unnamed record" : "未命名记录";
   const merged = mergedRecord(record);
   return (
     firstText(
@@ -304,8 +311,7 @@ function versionItemLabel(value: unknown): string {
       "canonical_name",
       "name",
       "description",
-      "id",
-    ) ?? "未命名记录"
+    ) ?? (locale === "en" ? "Unnamed record" : "未命名记录")
   );
 }
 
@@ -318,15 +324,15 @@ function appendMetricSentence(
   sentences.push(`${label} ${metricValue.count}`);
 }
 
-function adaptManifestFacts(manifest: UnknownRecord): Array<{
+function adaptManifestFacts(manifest: UnknownRecord, locale: UiLocale): Array<{
   label: string;
   value: string;
 }> {
   const definitions: Array<[string, string[]]> = [
-    ["知识点总数", ["knowledge_point_count"]],
-    ["关系总数", ["assertion_count"]],
-    ["来源总数", ["source_count"]],
-    ["节点总数", ["node_count"]],
+    [locale === "en" ? "Knowledge points" : "知识点总数", ["knowledge_point_count"]],
+    [locale === "en" ? "Relationships" : "关系总数", ["assertion_count"]],
+    [locale === "en" ? "Sources" : "来源总数", ["source_count"]],
+    [locale === "en" ? "Nodes" : "节点总数", ["node_count"]],
   ];
   return definitions.flatMap(([label, keys]) => {
     const value = firstNumber(manifest, ...keys);
@@ -334,7 +340,7 @@ function adaptManifestFacts(manifest: UnknownRecord): Array<{
   });
 }
 
-function adaptLearnerRelation(value: UnknownRecord): LearnerVersionRelation {
+function adaptLearnerRelation(value: UnknownRecord, locale: UiLocale): LearnerVersionRelation {
   const relation = mergedRecord(value);
   const predicate =
     firstText(relation, "predicate", "relation_type", "predicate_key") ??
@@ -342,7 +348,7 @@ function adaptLearnerRelation(value: UnknownRecord): LearnerVersionRelation {
   return {
     id: firstText(relation, "id", "assertion_id"),
     predicate,
-    predicateLabel: learnerRelationLabel(predicate),
+    predicateLabel: learnerRelationLabel(predicate, locale),
     subjectId: firstText(relation, "subject_id"),
     objectId: firstText(relation, "object_id"),
     description:
@@ -350,7 +356,7 @@ function adaptLearnerRelation(value: UnknownRecord): LearnerVersionRelation {
         relation,
         "natural_language_description",
         "description",
-      ) ?? `新增${learnerRelationLabel(predicate)}关系`,
+      ) ?? (locale === "en" ? `Added ${learnerRelationLabel(predicate, locale).toLowerCase()}` : `新增${learnerRelationLabel(predicate, locale)}关系`),
     confidence: firstNumber(relation, "confidence"),
     active: booleanValue(relation.is_active ?? relation.active),
     createdAt: firstText(relation, "created_at", "valid_from"),
@@ -380,19 +386,20 @@ function masterySummary(
   score: number | null,
   level: number | null,
   delta: number | null,
+  locale: UiLocale,
 ): string {
   if (score === null && level === null && delta === null)
-    return "后端未提供掌握度变化。";
+    return locale === "en" ? "No mastery change was recorded." : "暂无掌握度变化。";
   const parts: string[] = [];
-  if (score !== null) parts.push(`本轮掌握度 ${displayPercent(score)}`);
-  if (level !== null) parts.push(`认知层级 L${level}`);
+  if (score !== null) parts.push(locale === "en" ? `Mastery ${displayPercent(score)}` : `本轮掌握度 ${displayPercent(score)}`);
+  if (level !== null) parts.push(locale === "en" ? `Cognitive level L${level}` : `认知层级 L${level}`);
   if (delta !== null) {
     const sign = delta > 0 ? "+" : "";
-    parts.push(`变化 ${sign}${displayPercent(delta)}`);
+    parts.push(locale === "en" ? `Change ${sign}${displayPercent(delta)}` : `变化 ${sign}${displayPercent(delta)}`);
   } else {
-    parts.push("后端未提供前值，无法计算增减");
+    parts.push(locale === "en" ? "No prior value is available for comparison" : "缺少前值，暂无法计算增减");
   }
-  return `${parts.join("；")}。`;
+  return `${parts.join(locale === "en" ? "; " : "；")}${locale === "en" ? "." : "。"}`;
 }
 
 function booleanValue(value: unknown): boolean | null {

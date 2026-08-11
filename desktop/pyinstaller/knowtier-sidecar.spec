@@ -22,6 +22,10 @@ datas = [
 ]
 datas += collect_data_files("litellm")
 datas += copy_metadata("cognigraph-tutor")
+# owlrl imports its distribution version at module import time.  PyInstaller
+# collects the Python package through pySHACL, but not the dist-info metadata
+# that importlib.metadata needs unless it is declared explicitly.
+datas += copy_metadata("owlrl")
 
 hidden_imports = collect_submodules("cognigraph")
 hidden_imports += collect_submodules("keyring.backends")

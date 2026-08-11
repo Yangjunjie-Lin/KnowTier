@@ -15,12 +15,17 @@ describe("teaching enum labels", () => {
   });
 
   it("turns future enum values into readable fallbacks", () => {
-    expect(teachingActionLabel("FUTURE_SCAFFOLD")).toBe(
-      "其他教学动作：Future scaffold",
+    expect(teachingActionLabel("FUTURE_SCAFFOLD")).toBe("其他教学动作");
+    expect(assessmentTypeLabel("NEXT_GENERATION_CHECK")).toBe("其他掌握检测");
+    expect(learnerDecisionLabel("")).toBe("其他学习建议");
+  });
+
+  it("supports English labels without exposing internal enum values", () => {
+    expect(teachingActionLabel("EXPLAIN_CAUSALLY", "en")).toBe(
+      "Explain causes and principles",
     );
-    expect(assessmentTypeLabel("NEXT_GENERATION_CHECK")).toBe(
-      "其他掌握检测：Next generation check",
+    expect(assessmentTypeLabel("NEXT_GENERATION_CHECK", "en")).toBe(
+      "Other mastery check",
     );
-    expect(learnerDecisionLabel("")).toBe("其他模型决策：未说明");
   });
 });
