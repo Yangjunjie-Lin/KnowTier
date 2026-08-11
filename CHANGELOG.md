@@ -25,6 +25,9 @@ All notable changes to KnowTier are documented in this file. The format is based
 - Consolidated multiple active relationships between the same two learner nodes into one straight,
   selectable line; the line detail now expands into readable directions, evidence, confidence and
   history without adding labels to the default canvas.
+- Added explicit learner-graph ontology metadata for entity nodes and node-pair relationship lines;
+  each line now carries its ontology category and relation facts, uses a clean undirected visual,
+  and remains deduplicated even if duplicate raw edges reach the canvas.
 - Simplified the learning workspace to the active focus, tutoring conversation and editor. Empty
   session, tool, graph-update, preference, evidence and source sections no longer occupy the main
   workspace; generated progress is available on demand.

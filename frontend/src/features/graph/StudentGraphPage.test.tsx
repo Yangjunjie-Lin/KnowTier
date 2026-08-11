@@ -175,20 +175,26 @@ describe("StudentGraphPage learner-facing presentation", () => {
 
     const disclosure = await screen.findByText("技术详情（高级）");
     expect(disclosure.closest("details")).not.toHaveAttribute("open");
-    expect(screen.getByText("内容类型")).toBeInTheDocument();
+    expect(screen.getByText("实体本体")).toBeInTheDocument();
+    expect(screen.getByText("知识状态")).toBeInTheDocument();
   });
 
   it("opens one readable line with all relationships between the two nodes", async () => {
     renderPage();
 
     fireEvent.click(
-      await screen.findByRole("button", { name: "关系 2 条学习关系" }),
+      await screen.findByRole("button", {
+        name: "关系 待纠正理解 · 需要复习",
+      }),
     );
 
-    expect(await screen.findByText("这条线包含的关系")).toBeInTheDocument();
-    expect(screen.getByText("2 条")).toBeInTheDocument();
+    expect(await screen.findByText("关系本体")).toBeInTheDocument();
+    expect(screen.getAllByText("学习进展关系").length).toBeGreaterThan(0);
+    expect(screen.getByText("这条线包含的关系事实")).toBeInTheDocument();
+    expect(screen.getByText("2 项")).toBeInTheDocument();
     expect(screen.getAllByText("待纠正理解").length).toBeGreaterThan(0);
     expect(screen.getAllByText("需要复习").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("待关注").length).toBeGreaterThan(0);
     expect(screen.getByText("75%")).toBeInTheDocument();
     expect(screen.queryByText("HAS_MISCONCEPTION")).not.toBeInTheDocument();
   });

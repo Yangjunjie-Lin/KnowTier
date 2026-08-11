@@ -2,6 +2,7 @@ import {
   ArrowRight,
   GitBranch,
   List,
+  Link2,
   Maximize2,
   Minimize2,
   Minus,
@@ -19,6 +20,7 @@ import {
 import { graphNodeLabel, graphNodeType } from "@/lib/graph";
 import { domainNodeTypeLabel, relationTypeLabel } from "@/lib/domainDetails";
 import {
+  consolidateLearnerGraphRelationships,
   learnerGraphEdgeRelationTypes,
   learnerGraphNodeTypeLabel,
   learnerGraphRelationLabel,
@@ -102,6 +104,7 @@ export function filterGraphElements(
   nodeTypes?: string[],
   relationTypes?: string[],
   includeInternalIds = true,
+  locale: UiLocale = "zh-CN",
 ): VisibleGraphElements {
   const query = search.trim().toLowerCase();
   const nodes = graph.elements.nodes.filter((node) => {
@@ -113,7 +116,7 @@ export function filterGraphElements(
     return typeOk && textOk;
   });
   const nodeIds = new Set(nodes.map((node) => node.data.id));
-  const edges = graph.elements.edges.filter((edge) => {
+  const filteredEdges = graph.elements.edges.filter((edge) => {
     const relations = includeInternalIds
       ? [edge.data.relation_type ?? edge.data.predicate ?? ""]
       : learnerGraphEdgeRelationTypes(edge.data);
@@ -124,7 +127,24 @@ export function filterGraphElements(
         relationTypes.some((relation) => relations.includes(relation)))
     );
   });
-  return { nodes, edges };
+  const labels = new Map(
+    nodes.map(({ data }) => [
+      data.id,
+      typeof data.label === "string" ? data.label : data.id,
+    ]),
+  );
+  return {
+    nodes,
+    edges:
+      includeInternalIds || filteredEdges.length < 2
+        ? filteredEdges
+        : consolidateLearnerGraphRelationships(
+            filteredEdges,
+            nodes,
+            labels,
+            locale,
+          ),
+  };
 }
 
 function edgeDisplayLabel(
@@ -147,6 +167,10 @@ function edgeDisplayLabel(
 }
 
 function learnerNodeColor(node: GraphNodeData): string {
+  const ontologyRole = node.ontology_role;
+  if (ontologyRole === "identity") return "#3157D5";
+  if (ontologyRole === "evidence") return "#7C3AED";
+  if (ontologyRole === "context") return "#64748B";
   const type = graphNodeType(node);
   if (type === "Learner") return "#3157D5";
   if (type.includes("Resource") || type === "MasteryEvidence") return "#7C3AED";
@@ -224,16 +248,14 @@ export function GraphCanvas({
         nodeTypes,
         relationTypes,
         presentation !== "learner",
+        locale,
       ),
-    [graph, nodeTypes, presentation, relationTypes, search],
+    [graph, locale, nodeTypes, presentation, relationTypes, search],
   );
 
   useEffect(() => {
     if (!hostRef.current || view !== "graph") return undefined;
-    const showLearnerEdgeLabels =
-      presentation === "learner" &&
-      labelDensity === "detailed" &&
-      visible.edges.length <= 12;
+    const showLearnerEdgeLabels = false;
     const elements: ElementDefinition[] = [
       ...visible.nodes.map((node) => ({
         data: {
@@ -267,7 +289,10 @@ export function GraphCanvas({
             shape: (element) => {
               const data = element.data() as GraphNodeData;
               if (presentation === "learner") {
-                return graphNodeType(data) === "Learner" ? "round-rectangle" : "ellipse";
+                if (data.ontology_role === "identity") return "round-rectangle";
+                if (data.ontology_role === "evidence") return "diamond";
+                if (data.ontology_role === "context") return "round-rectangle";
+                return "ellipse";
               }
               return graphNodeShape(graphNodeType(data));
             },
@@ -288,16 +313,16 @@ export function GraphCanvas({
             width:
               presentation === "learner"
                 ? density === "dense"
-                  ? 26
-                  : 34
+                  ? 30
+                  : 42
                 : density === "dense"
                   ? 22
                   : 28,
             height:
               presentation === "learner"
                 ? density === "dense"
-                  ? 26
-                  : 34
+                  ? 30
+                  : 42
                 : density === "dense"
                   ? 22
                   : 28,
@@ -321,13 +346,12 @@ export function GraphCanvas({
         {
           selector: "edge",
           style: {
-            width: presentation === "learner" ? 1.6 : 1.2,
-            "line-color": "#A9B7D9",
-            "target-arrow-color": "#A9B7D9",
-            "target-arrow-shape": (element) =>
-              presentation === "learner" && element.data("mixed_direction")
-                ? "none"
-                : "triangle",
+            width: presentation === "learner" ? 2 : 1.2,
+            "line-color": presentation === "learner" ? "#94A3B8" : "#A9B7D9",
+            "target-arrow-color":
+              presentation === "learner" ? "#94A3B8" : "#A9B7D9",
+            "target-arrow-shape":
+              presentation === "learner" ? "none" : "triangle",
             "source-arrow-shape": "none",
             "curve-style": presentation === "learner" ? "straight" : "bezier",
             "line-cap": "round",
@@ -341,7 +365,7 @@ export function GraphCanvas({
             "text-background-color": "#FFFFFF",
             "text-background-opacity": 0.9,
             "text-background-padding": "2px",
-            opacity: 0.65,
+            opacity: presentation === "learner" ? 0.82 : 0.65,
           },
         },
         {
@@ -394,17 +418,40 @@ export function GraphCanvas({
               spacingFactor: 1,
             }
           : {
-              name: visible.nodes.length > 80 ? "grid" : "cose",
+              name:
+                presentation === "learner" && visible.nodes.length <= 60
+                  ? "concentric"
+                  : visible.nodes.length > 80
+                    ? "grid"
+                    : "cose",
               animate: false,
               fit: true,
               padding: presentation === "learner" ? 52 : 36,
               ...(presentation === "learner"
                 ? {
-                    nodeRepulsion: density === "dense" ? 3000 : 6000,
-                    idealEdgeLength: density === "dense" ? 90 : 140,
-                    edgeElasticity: 100,
-                    componentSpacing: 80,
-                    nodeOverlap: 24,
+                    ...(visible.nodes.length <= 60
+                      ? {
+                          concentric: (node: cytoscape.NodeSingular) => {
+                            const data = node.data() as GraphNodeData;
+                            if (data.ontology_role === "identity") return 3;
+                            if (data.ontology_role === "knowledge") return 2;
+                            return 1;
+                          },
+                          levelWidth: () => 1,
+                          minNodeSpacing: density === "dense" ? 54 : 76,
+                          spacingFactor: density === "dense" ? 1.05 : 1.25,
+                          avoidOverlap: true,
+                          equidistant: false,
+                          startAngle: -Math.PI / 2,
+                          sweep: Math.PI * 2,
+                        }
+                      : {
+                          nodeRepulsion: density === "dense" ? 3000 : 6000,
+                          idealEdgeLength: density === "dense" ? 90 : 140,
+                          edgeElasticity: 100,
+                          componentSpacing: 80,
+                          nodeOverlap: 24,
+                        }),
                   }
                 : {}),
             },
@@ -414,6 +461,10 @@ export function GraphCanvas({
     setZoom(cy.zoom());
 
     const updateEdgeLabels = () => {
+      if (presentation === "learner") {
+        cy.edges().removeClass("show-label");
+        return;
+      }
       const threshold =
         showLearnerEdgeLabels
           ? 0
@@ -541,8 +592,12 @@ export function GraphCanvas({
           role="application"
           aria-label={localized(
             locale,
-            `知识图谱，${visible.nodes.length} 个节点、${visible.edges.length} 条有向关系。可切换列表视图进行键盘浏览。`,
-            `Knowledge graph with ${visible.nodes.length} nodes and ${visible.edges.length} directed links. Switch to list view for keyboard navigation.`,
+            presentation === "learner"
+              ? `学生知识图谱，${visible.nodes.length} 个实体、${visible.edges.length} 条节点对关系。每对实体只显示一条线，可切换列表视图进行键盘浏览。`
+              : `知识图谱，${visible.nodes.length} 个节点、${visible.edges.length} 条有向关系。可切换列表视图进行键盘浏览。`,
+            presentation === "learner"
+              ? `Learner graph with ${visible.nodes.length} entities and ${visible.edges.length} node-pair relationships. Each entity pair has one line. Switch to list view for keyboard navigation.`
+              : `Knowledge graph with ${visible.nodes.length} nodes and ${visible.edges.length} directed links. Switch to list view for keyboard navigation.`,
           )}
         />
       ) : (
@@ -584,7 +639,19 @@ export function GraphCanvas({
               )
             : localized(locale, `${visible.nodes.length} 个节点`, `${visible.nodes.length} nodes`)}
         </span>
-        <span>{localized(locale, `${visible.edges.length} 条关系`, `${visible.edges.length} links`)}</span>
+        <span>
+          {presentation === "learner"
+            ? localized(
+                locale,
+                `${visible.edges.length} 条节点对关系`,
+                `${visible.edges.length} node-pair links`,
+              )
+            : localized(
+                locale,
+                `${visible.edges.length} 条关系`,
+                `${visible.edges.length} links`,
+              )}
+        </span>
         <span>{filtered ? localized(locale, "筛选已启用", "Filtered") : localized(locale, "显示全部", "Showing all")}</span>
         {view === "graph" && <span>{localized(locale, `${Math.round(zoom * 100)}% 缩放`, `${Math.round(zoom * 100)}% zoom`)}</span>}
         {view === "graph" && (
@@ -685,7 +752,16 @@ export function GraphListView({
                   onClick={() => onNodeSelect?.(node)}
                   className={cn("flex w-full items-center gap-3 rounded-lg border bg-white p-3 text-left text-sm shadow-sm transition-colors focus:outline-none focus:ring-2 focus:ring-[#3157D5] dark:bg-slate-950", selectedId === node.id ? "border-amber-500" : "border-slate-200 hover:border-indigo-300 dark:border-slate-700")}
                 >
-                  <span className="h-4 w-4 shrink-0 rounded-sm border-2 border-white shadow" style={{ backgroundColor: nodeColors[graphNodeType(node)] ?? "#5577E8" }} aria-hidden="true" />
+                  <span
+                    className="h-4 w-4 shrink-0 rounded-sm border-2 border-white shadow"
+                    style={{
+                      backgroundColor:
+                        presentation === "learner"
+                          ? learnerNodeColor(node)
+                          : nodeColors[graphNodeType(node)] ?? "#5577E8",
+                    }}
+                    aria-hidden="true"
+                  />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate font-medium">{graphNodeLabel(node)}</span>
                     <span className="block text-[11px] text-slate-500">
@@ -710,7 +786,7 @@ export function GraphListView({
       <section className="mt-6" aria-labelledby="graph-edge-list-heading">
         <h2 id="graph-edge-list-heading" className="mb-2 text-xs font-semibold tracking-wide text-slate-500">
           {presentation === "learner"
-            ? localized(locale, "学习关系", "Learning links")
+            ? localized(locale, "节点对关系", "Node-pair relationships")
             : localized(locale, "有向关系", "Directed links")}
           {localized(locale, `（${edges.length}）`, ` (${edges.length})`)}
         </h2>
@@ -747,7 +823,11 @@ export function GraphListView({
                       >
                         {edgeDisplayLabel(edge, presentation, locale)}
                       </span>
-                      <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+                      {presentation === "learner" ? (
+                        <Link2 className="h-3.5 w-3.5" aria-hidden="true" />
+                      ) : (
+                        <ArrowRight className="h-3.5 w-3.5" aria-hidden="true" />
+                      )}
                     </span>
                     <span className="truncate">
                       {nodeLabels.get(edge.target) ??

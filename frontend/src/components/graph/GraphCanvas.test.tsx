@@ -89,6 +89,52 @@ describe("GraphCanvas helpers", () => {
       filterGraphElements(graph, "", undefined, ["REQUIRES_REVIEW"], false).edges,
     ).toHaveLength(1);
   });
+
+  it("enforces one line per learner node pair when raw duplicate edges reach the canvas", () => {
+    const graph: CytoscapeGraph = {
+      elements: {
+        nodes: nodes.map((data) => ({
+          data: {
+            ...data,
+            ontology_entity_type:
+              data.id === "domain" ? "learner" : "knowledge_state",
+            ontology_role: data.id === "domain" ? "identity" : "knowledge",
+          },
+        })),
+        edges: [
+          {
+            data: {
+              ...edges[0]!,
+              relation_type: "LEARNING_GOAL",
+            },
+          },
+          {
+            data: {
+              ...edges[0]!,
+              id: "edge-2",
+              assertion_id: "edge-2",
+              relation_type: "RECENTLY_PRACTICED",
+            },
+          },
+        ],
+      },
+      meta: {},
+    };
+
+    const visible = filterGraphElements(
+      graph,
+      "",
+      undefined,
+      undefined,
+      false,
+    );
+    expect(visible.edges).toHaveLength(1);
+    expect(visible.edges[0]?.data.relationship_count).toBe(2);
+    expect(visible.edges[0]?.data.relation_types).toEqual([
+      "LEARNING_GOAL",
+      "RECENTLY_PRACTICED",
+    ]);
+  });
 });
 
 describe("GraphListView", () => {

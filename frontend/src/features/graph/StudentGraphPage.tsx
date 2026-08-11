@@ -1,10 +1,10 @@
 import { useQuery } from "@tanstack/react-query";
 import {
   AlertCircle,
-  ArrowRight,
   BookOpenCheck,
   Download,
   Filter,
+  Link2,
   Network,
   Search,
 } from "lucide-react";
@@ -191,12 +191,14 @@ export function StudentGraphPage() {
       } as JsonObject);
   const selectedTitle = selectedNode
     ? graphNodeLabel(selectedNode)
-    : typeof selectedEdge?.display_label === "string"
-      ? selectedEdge.display_label
-      : learnerGraphRelationLabel(
-          selectedEdge?.relation_type ?? selectedEdge?.predicate ?? "",
-          locale,
-        );
+    : typeof selectedEdge?.ontology_relation_label === "string"
+      ? selectedEdge.ontology_relation_label
+      : typeof selectedEdge?.display_label === "string"
+        ? selectedEdge.display_label
+        : learnerGraphRelationLabel(
+            selectedEdge?.relation_type ?? selectedEdge?.predicate ?? "",
+            locale,
+          );
 
   return (
     <div>
@@ -204,8 +206,8 @@ export function StudentGraphPage() {
         eyebrow={pick("学习进展", "Learning progress")}
         title={pick("学生知识图谱", "Learner knowledge graph")}
         description={pick(
-          "把知识点、掌握程度和学习证据连成一张容易理解的关系图。",
-          "See knowledge points, mastery and evidence as a clear network of learning links.",
+          "学习者、知识状态和证据按本体组织；每对实体只显示一条线，点击查看其中的关系事实。",
+          "Learners, knowledge states and evidence follow a clear ontology. Each entity pair has one line containing its relationship facts.",
         )}
         actions={
           <div className="flex flex-wrap gap-2">
@@ -481,18 +483,31 @@ function NodeSummary({
   const mastery = typeof data.mastery_score === "number" ? data.mastery_score : null;
   const confidence = typeof data.confidence === "number" ? data.confidence : null;
   const type = typeof data.type === "string" ? data.type : "";
+  const ontologyLabel =
+    typeof data.ontology_entity_label === "string"
+      ? data.ontology_entity_label
+      : learnerGraphNodeTypeLabel(type, locale);
+  const ontologyDescription =
+    typeof data.ontology_entity_description === "string"
+      ? data.ontology_entity_description
+      : null;
   const assertions = jsonObjectArray(data.assertions);
   const evidence = jsonObject(data.evidence);
   return (
     <div className="space-y-4">
       <div className="flex items-start justify-between gap-3 rounded-xl bg-slate-50 p-3 dark:bg-slate-900">
-        <div>
+        <div className="min-w-0">
           <p className="text-xs text-slate-500">
-            {pick("内容类型", "Content type")}
+            {pick("实体本体", "Entity ontology")}
           </p>
           <p className="mt-1 text-sm font-semibold">
-            {learnerGraphNodeTypeLabel(type, locale)}
+            {ontologyLabel}
           </p>
+          {ontologyDescription && (
+            <p className="mt-1 text-xs leading-5 text-slate-500">
+              {ontologyDescription}
+            </p>
+          )}
         </div>
         {typeof data.learner_status === "string" && (
           <span className="rounded-full bg-white px-2.5 py-1 text-xs font-medium text-slate-600 shadow-sm dark:bg-slate-950 dark:text-slate-300">
@@ -561,6 +576,11 @@ function EdgeSummary({
   const evidence = jsonObject(data.evidence);
   const sources = jsonObjectArray(data.sources);
   const relationshipSummaries = jsonObjectArray(data.relationship_summaries);
+  const relationFacetLabels = Array.isArray(data.relation_facet_labels)
+    ? data.relation_facet_labels.filter(
+        (item): item is string => typeof item === "string" && Boolean(item),
+      )
+    : [];
   const misconceptions = Array.isArray(data.misconceptions)
     ? data.misconceptions.filter(
         (item): item is string => typeof item === "string" && Boolean(item.trim()),
@@ -583,42 +603,74 @@ function EdgeSummary({
       ? data.target_label
       : pick("学习内容", "Learning content");
   const confidence =
-    typeof data.confidence === "number" && Number.isFinite(data.confidence)
-      ? data.confidence
+    typeof data.average_confidence === "number" &&
+    Number.isFinite(data.average_confidence)
+      ? data.average_confidence
       : null;
   const relationLabel =
     typeof data.display_label === "string"
       ? data.display_label
       : learnerGraphRelationLabel(relation, locale);
+  const ontologyLabel =
+    typeof data.ontology_relation_label === "string"
+      ? data.ontology_relation_label
+      : pick("学习关联", "Learning association");
+  const ontologyDescription =
+    typeof data.ontology_relation_description === "string"
+      ? data.ontology_relation_description
+      : description;
   return (
     <div className="space-y-5 text-sm">
       <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 p-4 dark:border-indigo-900 dark:bg-indigo-950/40">
         <div className="flex items-start justify-between gap-3">
-          <p className="text-xs font-medium text-[#3157D5] dark:text-indigo-300">
-            {relationLabel}
-          </p>
+          <div className="min-w-0">
+            <p className="text-[11px] font-medium text-slate-500">
+              {pick("关系本体", "Relationship ontology")}
+            </p>
+            <p className="mt-1 text-sm font-semibold text-[#3157D5] dark:text-indigo-300">
+              {ontologyLabel}
+            </p>
+          </div>
           {confidence !== null && (
             <span className="shrink-0 text-xs text-slate-500">
-              {pick("可信度", "Confidence")} {displayPercent(confidence)}
+              {pick("平均可信度", "Average confidence")} {displayPercent(confidence)}
             </span>
           )}
         </div>
+        {ontologyDescription && (
+          <p className="mt-2 text-xs leading-5 text-slate-600 dark:text-slate-300">
+            {ontologyDescription}
+          </p>
+        )}
         <div
           className="mt-3 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 rounded-lg bg-white px-3 py-3 dark:bg-slate-950"
           aria-label={pick(
-            `${sourceLabel} 到 ${targetLabel}`,
-            `${sourceLabel} to ${targetLabel}`,
+            `${sourceLabel} 与 ${targetLabel} 的聚合关系`,
+            `Aggregated relationship between ${sourceLabel} and ${targetLabel}`,
           )}
         >
           <span className="min-w-0 break-words text-right text-xs font-semibold text-slate-700 dark:text-slate-200">
             {sourceLabel}
           </span>
-          <ArrowRight className="h-4 w-4 shrink-0 text-[#3157D5]" aria-hidden="true" />
+          <Link2 className="h-4 w-4 shrink-0 text-[#3157D5]" aria-hidden="true" />
           <span className="min-w-0 break-words text-xs font-semibold text-slate-700 dark:text-slate-200">
             {targetLabel}
           </span>
         </div>
-        {description && (
+        <div className="mt-3 flex flex-wrap items-center gap-1.5">
+          <span className="rounded-md bg-white px-2 py-1 text-xs font-medium text-[#3157D5] shadow-sm dark:bg-slate-950">
+            {relationLabel}
+          </span>
+          {relationFacetLabels.map((label) => (
+            <span
+              key={label}
+              className="rounded-md border border-indigo-100 bg-white/70 px-2 py-1 text-[11px] text-slate-600 dark:border-indigo-900 dark:bg-slate-950/70 dark:text-slate-300"
+            >
+              {label}
+            </span>
+          ))}
+        </div>
+        {description && description !== ontologyDescription && (
           <p className="mt-2 leading-6 text-slate-700 dark:text-slate-200">
             {description}
           </p>
@@ -630,14 +682,17 @@ function EdgeSummary({
         )}
       </div>
 
-      {relationshipSummaries.length > 1 && (
+      {relationshipSummaries.length > 0 && (
         <section aria-labelledby="grouped-relationships-heading">
           <div className="flex items-center justify-between gap-3">
             <h3 id="grouped-relationships-heading" className="text-xs font-semibold text-slate-700 dark:text-slate-200">
-              {pick("这条线包含的关系", "Links on this line")}
+              {pick("这条线包含的关系事实", "Relationship facts on this line")}
             </h3>
             <span className="text-xs text-slate-500">
-              {pick(`${relationshipSummaries.length} 条`, `${relationshipSummaries.length} links`)}
+              {pick(
+                `${relationshipSummaries.length} 项`,
+                `${relationshipSummaries.length} facts`,
+              )}
             </span>
           </div>
           <ul className="mt-2 divide-y divide-slate-100 rounded-lg border border-slate-200 dark:divide-slate-800 dark:border-slate-800">
@@ -653,6 +708,10 @@ function EdgeSummary({
                   : null;
               const summaryConfidence =
                 typeof summary.confidence === "number" ? summary.confidence : null;
+              const summaryFacetLabel =
+                typeof summary.relation_facet_label === "string"
+                  ? summary.relation_facet_label
+                  : null;
               const summaryValidFrom =
                 typeof summary.valid_from === "string" ? summary.valid_from : null;
               return (
@@ -662,6 +721,11 @@ function EdgeSummary({
                       <p className="text-xs font-semibold text-[#3157D5] dark:text-indigo-300">
                         {learnerGraphRelationLabel(summaryRelation, locale)}
                       </p>
+                      {summaryFacetLabel && (
+                        <span className="mt-1 inline-flex rounded bg-slate-100 px-1.5 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-slate-800 dark:text-slate-300">
+                          {summaryFacetLabel}
+                        </span>
+                      )}
                       <p className="mt-1 break-words text-[11px] text-slate-500">
                         {summarySource} → {summaryTarget}
                       </p>

@@ -88,11 +88,22 @@ describe("learner graph presentation", () => {
     );
     expect(resource?.data.label).toBe("掌握证据");
     expect(resource?.data.label).not.toContain(evidenceId);
+    expect(resource?.data.ontology_entity_type).toBe("mastery_evidence");
+    expect(resource?.data.ontology_entity_label).toBe("掌握证据");
+    expect(
+      result.elements.nodes.find(({ data }) => data.id === knowledgeId)?.data
+        .ontology_entity_type,
+    ).toBe("knowledge_state");
     expect(result.elements.edges).toHaveLength(2);
     const misconception = result.elements.edges.find(
       ({ data }) => data.relation_type === "HAS_MISCONCEPTION",
     );
-    expect(misconception?.data.display_label).toBe("2 条学习关系");
+    expect(misconception?.data.display_label).toBe("待纠正理解 · 需要复习");
+    expect(misconception?.data.ontology_relation_type).toBe(
+      "learner_knowledge_profile",
+    );
+    expect(misconception?.data.ontology_relation_label).toBe("学习进展关系");
+    expect(misconception?.data.aggregate_relationship).toBe(true);
     expect(misconception?.data.relationship_count).toBe(2);
     expect(misconception?.data.relation_types).toEqual([
       "HAS_MISCONCEPTION",
@@ -103,11 +114,47 @@ describe("learner graph presentation", () => {
         expect.objectContaining({
           display_label: "待纠正理解",
           display_description: "待纠正：把终止条件写反了",
+          relation_facet: "risk",
+          relation_facet_label: "待关注",
         }),
         expect.objectContaining({ display_label: "需要复习", confidence: 0.75 }),
       ]),
     );
     expect(JSON.stringify(result.meta)).toContain("revision-id");
+  });
+
+  it("uses one stable ontology line for every unordered node pair", () => {
+    const result = buildLearnerGraphPresentation({
+      ...graph,
+      elements: {
+        ...graph.elements,
+        edges: [
+          ...graph.elements.edges,
+          {
+            data: {
+              id: "edge-reversed",
+              assertion_id: "edge-reversed",
+              source: knowledgeId,
+              target: learnerId,
+              relation_type: "READY_FOR_PROMOTION",
+              valid_to: null,
+            },
+          },
+        ],
+      },
+    });
+
+    const learnerKnowledgeLines = result.elements.edges.filter(
+      ({ data }) =>
+        new Set([data.source, data.target]).has(learnerId) &&
+        new Set([data.source, data.target]).has(knowledgeId),
+    );
+    expect(learnerKnowledgeLines).toHaveLength(1);
+    expect(learnerKnowledgeLines[0]?.data.id).toBe(
+      `learner-link:${learnerId}:${knowledgeId}`,
+    );
+    expect(learnerKnowledgeLines[0]?.data.relationship_count).toBe(3);
+    expect(learnerKnowledgeLines[0]?.data.mixed_direction).toBe(true);
   });
 
   it("keeps superseded relationships available only when history is requested", () => {

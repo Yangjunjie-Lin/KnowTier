@@ -84,6 +84,10 @@ general-availability `v1.0.0` can be considered.
 24. Parent-relative Tauri resource paths produced duplicate `_up_/_up_` documentation in the first
     RC.4 Portable build. Resources now use explicit bundle targets, and CI rejects duplicates or any
     parent-relative resource directory.
+25. The learner graph could still render multiple parallel arrows for different facts between the
+    same two entities. The presentation now models entity nodes and node-pair relationship lines
+    explicitly, consolidates every pair into one undirected line, and keeps the directional facts
+    in the line detail.
 
 The fixes preserve the existing graph, evidence, learner, revision and audit boundaries. Compact
 model output is schema-validated and deterministically expanded; model-only facts remain
@@ -100,7 +104,7 @@ non-confirmed. No API or model output is accepted as arbitrary Cypher.
 | Desktop pytest selection | Pass, 20 tests |
 | Live PostgreSQL/Neo4j integration selection | Pass, 3 tests |
 | `npm ci` | Pass, lock unchanged, 0 vulnerabilities reported |
-| `npm run typecheck`, `npm run lint`, `npm run test`, `npm run build` | Pass; Vitest 31 files / 126 tests |
+| `npm run typecheck`, `npm run lint`, `npm run test`, `npm run build` | Pass; Vitest 31 files / 130 tests |
 | `npx playwright test --config=playwright.config.ts` | Pass, 12/12 across desktop/tablet/mobile, including axe, keyboard, visual snapshots, provider security and network/HTTP recovery |
 | `npx playwright test --config=playwright.full-stack.config.ts` | Pass, 1/1 in 36.6 s: React, FastAPI, PostgreSQL, Neo4j, Mock LLM and API-restart recovery |
 | Rust `fmt --check`, `clippy -D warnings`, `test` | Pass; 3 Rust tests |
