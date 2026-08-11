@@ -147,6 +147,57 @@ export function filterGraphElements(
   };
 }
 
+/**
+ * Builds the element list handed to Cytoscape.
+ *
+ * Learner graph data can pass through filtering, history toggles and cached
+ * responses before it reaches the canvas. Keep the invariant at this final
+ * boundary too: an unordered pair of learner entities has exactly one visual
+ * line, whose data contains every relationship fact for that pair.
+ */
+export function buildGraphCanvasElements(
+  visible: VisibleGraphElements,
+  presentation: GraphPresentation,
+  locale: UiLocale,
+): ElementDefinition[] {
+  const labels = new Map(
+    visible.nodes.map(({ data }) => [
+      data.id,
+      typeof data.label === "string" ? data.label : data.id,
+    ]),
+  );
+  const edges =
+    presentation === "learner"
+      ? consolidateLearnerGraphRelationships(
+          visible.edges,
+          visible.nodes,
+          labels,
+          locale,
+        )
+      : visible.edges;
+
+  return [
+    ...visible.nodes.map((node) => ({
+      data: {
+        ...node.data,
+        is_inactive: node.data.active === false ? 1 : 0,
+      },
+    })),
+    ...edges.map((edge) => ({
+      data: {
+        ...edge.data,
+        is_inactive:
+          edge.data.active === false ||
+          edge.data.is_active === false ||
+          Boolean(edge.data.valid_to)
+            ? 1
+            : 0,
+        display_label: edgeDisplayLabel(edge.data, presentation, locale),
+      },
+    })),
+  ];
+}
+
 function edgeDisplayLabel(
   edge: GraphEdgeData,
   presentation: GraphPresentation,
@@ -256,26 +307,11 @@ export function GraphCanvas({
   useEffect(() => {
     if (!hostRef.current || view !== "graph") return undefined;
     const showLearnerEdgeLabels = false;
-    const elements: ElementDefinition[] = [
-      ...visible.nodes.map((node) => ({
-        data: {
-          ...node.data,
-          is_inactive: node.data.active === false ? 1 : 0,
-        },
-      })),
-      ...visible.edges.map((edge) => ({
-        data: {
-          ...edge.data,
-          is_inactive:
-            edge.data.active === false ||
-            edge.data.is_active === false ||
-            Boolean(edge.data.valid_to)
-              ? 1
-              : 0,
-          display_label: edgeDisplayLabel(edge.data, presentation, locale),
-        },
-      })),
-    ];
+    const elements = buildGraphCanvasElements(
+      { nodes: visible.nodes, edges: visible.edges },
+      presentation,
+      locale,
+    );
     const cy = cytoscape({
       container: hostRef.current,
       elements,

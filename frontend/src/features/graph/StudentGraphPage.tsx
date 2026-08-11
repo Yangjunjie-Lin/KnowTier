@@ -88,6 +88,8 @@ export function StudentGraphPage() {
     () => learnerGraphRelationTypes(presentationGraph, locale),
     [locale, presentationGraph],
   );
+  const selectedAggregateRelationship =
+    selectedEdge?.aggregate_relationship === true;
   const nodeDetail = useQuery({
     queryKey: ["learner-node-detail", currentLearner?.id, selectedNode?.id],
     queryFn: ({ signal }) =>
@@ -106,7 +108,16 @@ export function StudentGraphPage() {
         selectedEdge!.assertion_id ?? selectedEdge!.id,
         signal,
       ),
-    enabled: Boolean(currentLearner && selectedEdge && detailOpen),
+    // An aggregated learner line is a presentation entity rather than a
+    // server-side assertion. Its relationship facts are already carried by
+    // the line, so querying an assertion endpoint would return a misleading
+    // 404 and hide the useful details.
+    enabled: Boolean(
+      currentLearner &&
+        selectedEdge &&
+        detailOpen &&
+        !selectedAggregateRelationship,
+    ),
   });
 
   if (!currentLearner)

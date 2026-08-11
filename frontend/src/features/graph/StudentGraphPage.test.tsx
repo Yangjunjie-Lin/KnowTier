@@ -197,6 +197,7 @@ describe("StudentGraphPage learner-facing presentation", () => {
     expect(screen.getAllByText("待关注").length).toBeGreaterThan(0);
     expect(screen.getByText("75%")).toBeInTheDocument();
     expect(screen.queryByText("HAS_MISCONCEPTION")).not.toBeInTheDocument();
+    expect(api.getLearnerAssertionDetail).not.toHaveBeenCalled();
   });
 
   it("switches learner-facing graph copy to English", async () => {

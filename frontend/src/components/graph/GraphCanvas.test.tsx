@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
+  buildGraphCanvasElements,
   filterGraphElements,
   GraphListView,
   graphNodeShape,
@@ -134,6 +135,52 @@ describe("GraphCanvas helpers", () => {
       "LEARNING_GOAL",
       "RECENTLY_PRACTICED",
     ]);
+  });
+
+  it("enforces one visual Cytoscape edge even when duplicate learner data bypasses filtering", () => {
+    const learnerNodes = nodes.map((data) => ({
+      data: {
+        ...data,
+        ontology_entity_type:
+          data.id === "domain" ? "learner" : "knowledge_state",
+        ontology_role: data.id === "domain" ? "identity" : "knowledge",
+      },
+    }));
+    const rawDuplicateEdges = [
+      { data: { ...edges[0]!, relation_type: "LEARNING_GOAL" } },
+      {
+        data: {
+          ...edges[0]!,
+          id: "edge-2",
+          assertion_id: "edge-2",
+          relation_type: "RECENTLY_PRACTICED",
+        },
+      },
+      {
+        data: {
+          ...edges[0]!,
+          id: "edge-3",
+          assertion_id: "edge-3",
+          source: "knowledge",
+          target: "domain",
+          relation_type: "REQUIRES_REVIEW",
+        },
+      },
+    ];
+
+    const elements = buildGraphCanvasElements(
+      { nodes: learnerNodes, edges: rawDuplicateEdges },
+      "learner",
+      "zh-CN",
+    );
+    const renderedEdges = elements.slice(learnerNodes.length) as Array<{
+      data: GraphEdgeData;
+    }>;
+
+    expect(renderedEdges).toHaveLength(1);
+    expect(renderedEdges[0]?.data.id).toBe("learner-link:domain:knowledge");
+    expect(renderedEdges[0]?.data.relationship_count).toBe(3);
+    expect(renderedEdges[0]?.data.relationship_summaries).toHaveLength(3);
   });
 });
 

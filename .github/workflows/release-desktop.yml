@@ -9,7 +9,7 @@ on:
       release_tag:
         description: Tag for a manually created draft release (must match v<package version>)
         required: true
-        default: "v1.0.0-rc.4"
+        default: "v1.0.0-rc.5"
         type: string
       create_draft_release:
         description: Create or refresh a GitHub draft release after assembling the artifacts
@@ -37,7 +37,7 @@ permissions:
 env:
   NODE_VERSION: "22"
   PYTHON_VERSION: "3.12"
-  RELEASE_VERSION: "1.0.0-rc.4"
+  RELEASE_VERSION: "1.0.0-rc.5"
   TAURI_CLI_VERSION: "2.11.4"
   UV_VERSION: "0.12.1"
 

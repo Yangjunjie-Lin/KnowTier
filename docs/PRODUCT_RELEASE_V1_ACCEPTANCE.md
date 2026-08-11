@@ -2,8 +2,8 @@
 
 This record covers the product-release candidate built from remote `main` baseline
 `5ea7d59525db69a5b9d386c8eb3f0fc004596d75`. It records only checks that were actually executed.
-The previously packaged candidate was `v1.0.0-rc.3`. The source candidate is now
-`v1.0.0-rc.4` because existing release-candidate tags are immutable. RC.4
+The previously packaged candidate was `v1.0.0-rc.4`. The source candidate is now
+`v1.0.0-rc.5` because existing release-candidate tags are immutable. RC.5
 must complete a fresh GitHub Actions three-platform build and draft-release assembly before
 general-availability `v1.0.0` can be considered.
 
@@ -155,12 +155,12 @@ Locally verified unsigned Windows RC assets:
 
 | Artifact | SHA-256 |
 | --- | --- |
-| `KnowTier-Setup-1.0.0-rc.4-windows-x64.exe` | `21F1122409D949812AC62A7D52650F02496BBD0D1E3467646AFBB61BB8DD61BC` |
-| `KnowTier-Portable-1.0.0-rc.4-windows-x64.zip` | `544E565D73CD40E720D509FD826B591E3975D65402F148F839E2489016F9D07A` |
+| `KnowTier-Setup-1.0.0-rc.5-windows-x64.exe` | `92F4C2CA17A95CBF54B56E8DB1D6FCCD883C5CDE6258C8472A5932E16566973E` |
+| `KnowTier-Portable-1.0.0-rc.5-windows-x64.zip` | `E7B5585C7BFA8DDAEF057189BE255D9EE8784189918F91E2EFFBAACD5B1E54FD` |
 
 These local assets and their evidence logs are under
-`build/desktop-rc4-postfix-20260810/`; build outputs are intentionally not committed.
-The local three-entry `SHA256SUMS.txt` (installer, Portable ZIP and unsigned-status record) was
+`desktop-release-local-rc5/`; build outputs are intentionally not committed.
+The local `SHA256SUMS.txt` for the installer and Portable ZIP was
 verified immediately after packaging. GitHub Actions will
 generate the cross-platform checksum manifest and locked Node/Python/Rust CycloneDX SBOMs for the
 Draft Release; those files are not claimed as locally complete. Windows Authenticode status is

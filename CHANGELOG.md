@@ -5,6 +5,17 @@ All notable changes to KnowTier are documented in this file. The format is based
 
 ## [Unreleased]
 
+## [1.0.0-rc.5] - 2026-08-12
+
+### Fixed
+
+- Enforced the learner-graph one-line-per-unordered-node-pair invariant at the
+  final Cytoscape element boundary, including reversed and duplicate cached edges.
+- Kept aggregated relationship facts available locally when a line is selected;
+  the UI no longer sends the aggregate presentation ID to a single-assertion API.
+- Added unit and three-viewport browser regressions covering duplicate relationship
+  facts, one visible node-pair line, and the expanded relationship-detail panel.
+
 ## [1.0.0-rc.4] - 2026-08-10
 
 ### Added
@@ -172,7 +183,8 @@ All notable changes to KnowTier are documented in this file. The format is based
 - Mutable desktop data is kept outside the installed application, in the operating system's
   per-user application-data directory.
 
-[Unreleased]: https://github.com/Yangjunjie-Lin/KnowTier/compare/v1.0.0-rc.4...HEAD
+[Unreleased]: https://github.com/Yangjunjie-Lin/KnowTier/compare/v1.0.0-rc.5...HEAD
+[1.0.0-rc.5]: https://github.com/Yangjunjie-Lin/KnowTier/releases/tag/v1.0.0-rc.5
 [1.0.0-rc.4]: https://github.com/Yangjunjie-Lin/KnowTier/releases/tag/v1.0.0-rc.4
 [1.0.0-rc.3]: https://github.com/Yangjunjie-Lin/KnowTier/releases/tag/v1.0.0-rc.3
 [1.0.0-rc.2]: https://github.com/Yangjunjie-Lin/KnowTier/releases/tag/v1.0.0-rc.2

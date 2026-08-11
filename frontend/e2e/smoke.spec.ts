@@ -738,6 +738,32 @@ async function installApiContract(page: Page) {
             },
             {
               data: {
+                id: switched ? "review-2" : "review-1",
+                assertion_id: switched ? "review-2" : "review-1",
+                source: learnerId,
+                target: activeTarget,
+                predicate: "REQUIRES_REVIEW",
+                relation_type: "REQUIRES_REVIEW",
+                confidence: 0.75,
+                valid_from: now,
+                valid_to: null,
+              },
+            },
+            {
+              data: {
+                id: switched ? "practice-2" : "practice-1",
+                assertion_id: switched ? "practice-2" : "practice-1",
+                source: activeTarget,
+                target: learnerId,
+                predicate: "RECENTLY_PRACTICED",
+                relation_type: "RECENTLY_PRACTICED",
+                confidence: 0.91,
+                valid_from: now,
+                valid_to: null,
+              },
+            },
+            {
+              data: {
                 id: switched ? "mastery-evidence-2" : "mastery-evidence-1",
                 assertion_id: switched ? "mastery-evidence-2" : "mastery-evidence-1",
                 source: learnerId,
@@ -973,7 +999,24 @@ test("initialization, ingestion, tutoring, model and both graph views", async ({
     page.getByRole("heading", { name: "学生知识图谱" }),
   ).toBeVisible();
   if ((page.viewportSize()?.width ?? 0) < 640) {
+    const learnerLinkOptions = page
+      .getByRole("listbox")
+      .nth(1)
+      .getByRole("option");
+    await expect(
+      learnerLinkOptions,
+    ).toHaveCount(2);
     await expect(page.getByRole("listbox", { name: "图谱节点" })).toBeVisible();
+    await learnerLinkOptions.first().click();
+    await expect(page.getByText("这条线包含的关系事实")).toBeVisible();
+    await expect(page.getByText("3 项")).toBeVisible();
+    expect(
+      scopedRequests.some((request) =>
+        request.includes(
+          `/v1/learners/${learnerId}/graph/assertions/learner-link`,
+        ),
+      ),
+    ).toBe(false);
   } else {
     await expect(
       page
