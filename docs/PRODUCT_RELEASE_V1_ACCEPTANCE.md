@@ -155,11 +155,11 @@ Locally verified unsigned Windows RC assets:
 
 | Artifact | SHA-256 |
 | --- | --- |
-| `KnowTier-Setup-1.0.0-rc.5-windows-x64.exe` | `92F4C2CA17A95CBF54B56E8DB1D6FCCD883C5CDE6258C8472A5932E16566973E` |
-| `KnowTier-Portable-1.0.0-rc.5-windows-x64.zip` | `E7B5585C7BFA8DDAEF057189BE255D9EE8784189918F91E2EFFBAACD5B1E54FD` |
+| `KnowTier-Setup-1.0.0-rc.5-windows-x64.exe` | `787F4B17CA81DF64B99061A709200D4367E0B96347CD665F1C33C061EBF867F1` |
+| `KnowTier-Portable-1.0.0-rc.5-windows-x64.zip` | `D10EA85F4177D52325F014BF0BF2AD638DA752DC31CCA15D76AABFF2C98A03BD` |
 
 These local assets and their evidence logs are under
-`desktop-release-local-rc5/`; build outputs are intentionally not committed.
+`desktop-release-local-rc5-layoutfix/`; build outputs are intentionally not committed.
 The local `SHA256SUMS.txt` for the installer and Portable ZIP was
 verified immediately after packaging. GitHub Actions will
 generate the cross-platform checksum manifest and locked Node/Python/Rust CycloneDX SBOMs for the

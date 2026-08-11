@@ -717,6 +717,13 @@ async function installApiContract(page: Page) {
           nodes: [
             { data: { id: learnerId, type: "Learner", label: "Smoke Learner" } },
             { data: { id: activeTarget, type: "LearnerKnowledgeState" } },
+            {
+              data: {
+                id: secondKnowledgePointId,
+                type: "LearnerKnowledgeState",
+                label: "联合分布基础",
+              },
+            },
             { data: { id: activeEvidence, type: "LearnerGraphResource" } },
           ],
           edges: [
@@ -774,6 +781,19 @@ async function installApiContract(page: Page) {
                 valid_from: now,
                 valid_to: null,
                 evidence_id: activeEvidence,
+              },
+            },
+            {
+              data: {
+                id: "second-knowledge-state",
+                assertion_id: "second-knowledge-state",
+                source: learnerId,
+                target: secondKnowledgePointId,
+                predicate: "HAS_KNOWLEDGE_STATE",
+                relation_type: "HAS_KNOWLEDGE_STATE",
+                confidence: 0.84,
+                valid_from: now,
+                valid_to: null,
               },
             },
           ],
@@ -1005,7 +1025,7 @@ test("initialization, ingestion, tutoring, model and both graph views", async ({
       .getByRole("option");
     await expect(
       learnerLinkOptions,
-    ).toHaveCount(2);
+    ).toHaveCount(3);
     await expect(page.getByRole("listbox", { name: "图谱节点" })).toBeVisible();
     await learnerLinkOptions.first().click();
     await expect(page.getByText("这条线包含的关系事实")).toBeVisible();
@@ -1024,6 +1044,7 @@ test("initialization, ingestion, tutoring, model and both graph views", async ({
         .locator("canvas")
         .first(),
     ).toBeVisible();
+    await expect(page.getByText("15% 缩放", { exact: true })).toHaveCount(0);
   }
   expect(scopedRequests).toContain(`POST /v1/learners`);
   expect(scopedRequests).toContain(`POST /v1/documents/${documentId}/ingest`);

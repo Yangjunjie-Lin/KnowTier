@@ -15,6 +15,8 @@ All notable changes to KnowTier are documented in this file. The format is based
   the UI no longer sends the aggregate presentation ID to a single-assertion API.
 - Added unit and three-viewport browser regressions covering duplicate relationship
   facts, one visible node-pair line, and the expanded relationship-detail panel.
+- Prevented blank learner canvases when two or more knowledge nodes share a
+  concentric ring, and resynchronised Cytoscape after desktop WebView/container resizes.
 
 ## [1.0.0-rc.4] - 2026-08-10
 

@@ -9,7 +9,11 @@ import {
   Plus,
   Scan,
 } from "lucide-react";
-import cytoscape, { type Core, type ElementDefinition } from "cytoscape";
+import cytoscape, {
+  type Core,
+  type ElementDefinition,
+  type LayoutOptions,
+} from "cytoscape";
 import {
   type KeyboardEvent,
   useEffect,
@@ -264,6 +268,62 @@ function fitGraphAtReadableScale(cy: Core, nodeCount: number): void {
   cy.center();
 }
 
+export function buildGraphLayoutOptions(
+  nodeCount: number,
+  edgeCount: number,
+  presentation: GraphPresentation,
+  density: "comfortable" | "compact" | "dense",
+): LayoutOptions {
+  if (edgeCount === 0) {
+    return {
+      name: "grid",
+      animate: false,
+      fit: true,
+      padding: 72,
+      avoidOverlap: true,
+      spacingFactor: 1,
+    };
+  }
+
+  return {
+    name:
+      presentation === "learner" && nodeCount <= 60
+        ? "concentric"
+        : nodeCount > 80
+          ? "grid"
+          : "cose",
+    animate: false,
+    fit: true,
+    padding: presentation === "learner" ? 52 : 36,
+    ...(presentation === "learner"
+      ? {
+          ...(nodeCount <= 60
+            ? {
+                concentric: (node: cytoscape.NodeSingular) => {
+                  const data = node.data() as GraphNodeData;
+                  if (data.ontology_role === "identity") return 3;
+                  if (data.ontology_role === "knowledge") return 2;
+                  return 1;
+                },
+                levelWidth: () => 1,
+                minNodeSpacing: density === "dense" ? 54 : 76,
+                spacingFactor: density === "dense" ? 1.05 : 1.25,
+                avoidOverlap: true,
+                equidistant: false,
+                startAngle: -Math.PI / 2,
+              }
+            : {
+                nodeRepulsion: density === "dense" ? 3000 : 6000,
+                idealEdgeLength: density === "dense" ? 90 : 140,
+                edgeElasticity: 100,
+                componentSpacing: 80,
+                nodeOverlap: 24,
+              }),
+        }
+      : {}),
+  };
+}
+
 export function GraphCanvas({
   graph,
   selectedId,
@@ -306,14 +366,21 @@ export function GraphCanvas({
 
   useEffect(() => {
     if (!hostRef.current || view !== "graph") return undefined;
+    const host = hostRef.current;
     const showLearnerEdgeLabels = false;
     const elements = buildGraphCanvasElements(
       { nodes: visible.nodes, edges: visible.edges },
       presentation,
       locale,
     );
+    const layoutOptions = buildGraphLayoutOptions(
+      visible.nodes.length,
+      visible.edges.length,
+      presentation,
+      density,
+    );
     const cy = cytoscape({
-      container: hostRef.current,
+      container: host,
       elements,
       minZoom: 0.15,
       maxZoom: 4,
@@ -443,58 +510,40 @@ export function GraphCanvas({
           style: { "border-color": "#F59E0B", "border-width": 4 },
         },
       ],
-      layout:
-        visible.edges.length === 0
-          ? {
-              name: "grid",
-              animate: false,
-              fit: true,
-              padding: 72,
-              avoidOverlap: true,
-              spacingFactor: 1,
-            }
-          : {
-              name:
-                presentation === "learner" && visible.nodes.length <= 60
-                  ? "concentric"
-                  : visible.nodes.length > 80
-                    ? "grid"
-                    : "cose",
-              animate: false,
-              fit: true,
-              padding: presentation === "learner" ? 52 : 36,
-              ...(presentation === "learner"
-                ? {
-                    ...(visible.nodes.length <= 60
-                      ? {
-                          concentric: (node: cytoscape.NodeSingular) => {
-                            const data = node.data() as GraphNodeData;
-                            if (data.ontology_role === "identity") return 3;
-                            if (data.ontology_role === "knowledge") return 2;
-                            return 1;
-                          },
-                          levelWidth: () => 1,
-                          minNodeSpacing: density === "dense" ? 54 : 76,
-                          spacingFactor: density === "dense" ? 1.05 : 1.25,
-                          avoidOverlap: true,
-                          equidistant: false,
-                          startAngle: -Math.PI / 2,
-                          sweep: Math.PI * 2,
-                        }
-                      : {
-                          nodeRepulsion: density === "dense" ? 3000 : 6000,
-                          idealEdgeLength: density === "dense" ? 90 : 140,
-                          edgeElasticity: 100,
-                          componentSpacing: 80,
-                          nodeOverlap: 24,
-                        }),
-                  }
-                : {}),
-            },
+      layout: layoutOptions,
     });
     cyRef.current = cy;
-    fitGraphAtReadableScale(cy, visible.nodes.length);
-    setZoom(cy.zoom());
+
+    let disposed = false;
+    let resizeFrame: number | null = null;
+    let laidOutAtVisibleSize = false;
+    const synchronizeViewport = () => {
+      resizeFrame = null;
+      if (
+        disposed ||
+        cy.destroyed() ||
+        host.clientWidth <= 1 ||
+        host.clientHeight <= 1
+      )
+        return;
+      cy.resize();
+      if (!laidOutAtVisibleSize) {
+        cy.layout(layoutOptions).run();
+        laidOutAtVisibleSize = true;
+      }
+      fitGraphAtReadableScale(cy, visible.nodes.length);
+      setZoom(cy.zoom());
+    };
+    const scheduleViewportSync = () => {
+      if (resizeFrame !== null) window.cancelAnimationFrame(resizeFrame);
+      resizeFrame = window.requestAnimationFrame(synchronizeViewport);
+    };
+    const resizeObserver =
+      typeof ResizeObserver === "undefined"
+        ? null
+        : new ResizeObserver(scheduleViewportSync);
+    resizeObserver?.observe(host);
+    scheduleViewportSync();
 
     const updateEdgeLabels = () => {
       if (presentation === "learner") {
@@ -541,6 +590,9 @@ export function GraphCanvas({
       selected.closedNeighborhood().addClass("context");
     }
     return () => {
+      disposed = true;
+      resizeObserver?.disconnect();
+      if (resizeFrame !== null) window.cancelAnimationFrame(resizeFrame);
       cy.destroy();
       cyRef.current = null;
     };
@@ -584,6 +636,7 @@ export function GraphCanvas({
   const fit = () => {
     const cy = cyRef.current;
     if (!cy) return;
+    cy.resize();
     fitGraphAtReadableScale(cy, visible.nodes.length);
     setZoom(cy.zoom());
   };

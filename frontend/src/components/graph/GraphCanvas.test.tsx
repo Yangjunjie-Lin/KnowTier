@@ -1,7 +1,9 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import cytoscape from "cytoscape";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   buildGraphCanvasElements,
+  buildGraphLayoutOptions,
   filterGraphElements,
   GraphListView,
   graphNodeShape,
@@ -181,6 +183,37 @@ describe("GraphCanvas helpers", () => {
     expect(renderedEdges[0]?.data.id).toBe("learner-link:domain:knowledge");
     expect(renderedEdges[0]?.data.relationship_count).toBe(3);
     expect(renderedEdges[0]?.data.relationship_summaries).toHaveLength(3);
+  });
+
+  it("keeps concentric learner coordinates finite with multiple nodes on one ring", () => {
+    const layout = buildGraphLayoutOptions(3, 2, "learner", "comfortable");
+    const cy = cytoscape({
+      headless: true,
+      styleEnabled: true,
+      elements: [
+        { data: { id: "learner", ontology_role: "identity" } },
+        { data: { id: "knowledge-a", ontology_role: "knowledge" } },
+        { data: { id: "knowledge-b", ontology_role: "knowledge" } },
+        { data: { id: "edge-a", source: "learner", target: "knowledge-a" } },
+        { data: { id: "edge-b", source: "learner", target: "knowledge-b" } },
+      ],
+      style: [
+        {
+          selector: "node",
+          style: { width: 42, height: 42 },
+        },
+      ],
+      layout,
+    });
+
+    const coordinates = cy
+      .nodes()
+      .toArray()
+      .flatMap((node) => [node.position("x"), node.position("y")]);
+    expect(coordinates.every(Number.isFinite)).toBe(true);
+    expect(Math.max(...coordinates.map(Math.abs))).toBeLessThan(10_000);
+    expect(layout).not.toHaveProperty("sweep");
+    cy.destroy();
   });
 });
 
