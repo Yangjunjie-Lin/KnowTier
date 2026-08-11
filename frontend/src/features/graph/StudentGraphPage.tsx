@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import {
   AlertCircle,
+  ArrowRight,
   BookOpenCheck,
   Download,
   Filter,
@@ -190,10 +191,12 @@ export function StudentGraphPage() {
       } as JsonObject);
   const selectedTitle = selectedNode
     ? graphNodeLabel(selectedNode)
-    : learnerGraphRelationLabel(
-        selectedEdge?.relation_type ?? selectedEdge?.predicate ?? "",
-        locale,
-      );
+    : typeof selectedEdge?.display_label === "string"
+      ? selectedEdge.display_label
+      : learnerGraphRelationLabel(
+          selectedEdge?.relation_type ?? selectedEdge?.predicate ?? "",
+          locale,
+        );
 
   return (
     <div>
@@ -557,6 +560,7 @@ function EdgeSummary({
   const sourceTurn = jsonObject(data.source_turn);
   const evidence = jsonObject(data.evidence);
   const sources = jsonObjectArray(data.sources);
+  const relationshipSummaries = jsonObjectArray(data.relationship_summaries);
   const misconceptions = Array.isArray(data.misconceptions)
     ? data.misconceptions.filter(
         (item): item is string => typeof item === "string" && Boolean(item.trim()),
@@ -565,13 +569,55 @@ function EdgeSummary({
   const validFrom = typeof data.valid_from === "string" ? data.valid_from : null;
   const validTo = typeof data.valid_to === "string" ? data.valid_to : null;
   const description =
-    typeof data.display_description === "string" ? data.display_description : null;
+    typeof data.display_description === "string"
+      ? data.display_description
+      : typeof data.natural_language_description === "string"
+        ? data.natural_language_description
+        : null;
+  const sourceLabel =
+    typeof data.source_label === "string"
+      ? data.source_label
+      : pick("学习内容", "Learning content");
+  const targetLabel =
+    typeof data.target_label === "string"
+      ? data.target_label
+      : pick("学习内容", "Learning content");
+  const confidence =
+    typeof data.confidence === "number" && Number.isFinite(data.confidence)
+      ? data.confidence
+      : null;
+  const relationLabel =
+    typeof data.display_label === "string"
+      ? data.display_label
+      : learnerGraphRelationLabel(relation, locale);
   return (
     <div className="space-y-5 text-sm">
       <div className="rounded-xl border border-indigo-100 bg-indigo-50/60 p-4 dark:border-indigo-900 dark:bg-indigo-950/40">
-        <p className="text-xs font-medium text-[#3157D5] dark:text-indigo-300">
-          {learnerGraphRelationLabel(relation, locale)}
-        </p>
+        <div className="flex items-start justify-between gap-3">
+          <p className="text-xs font-medium text-[#3157D5] dark:text-indigo-300">
+            {relationLabel}
+          </p>
+          {confidence !== null && (
+            <span className="shrink-0 text-xs text-slate-500">
+              {pick("可信度", "Confidence")} {displayPercent(confidence)}
+            </span>
+          )}
+        </div>
+        <div
+          className="mt-3 grid grid-cols-[minmax(0,1fr)_auto_minmax(0,1fr)] items-center gap-2 rounded-lg bg-white px-3 py-3 dark:bg-slate-950"
+          aria-label={pick(
+            `${sourceLabel} 到 ${targetLabel}`,
+            `${sourceLabel} to ${targetLabel}`,
+          )}
+        >
+          <span className="min-w-0 break-words text-right text-xs font-semibold text-slate-700 dark:text-slate-200">
+            {sourceLabel}
+          </span>
+          <ArrowRight className="h-4 w-4 shrink-0 text-[#3157D5]" aria-hidden="true" />
+          <span className="min-w-0 break-words text-xs font-semibold text-slate-700 dark:text-slate-200">
+            {targetLabel}
+          </span>
+        </div>
         {description && (
           <p className="mt-2 leading-6 text-slate-700 dark:text-slate-200">
             {description}
@@ -583,6 +629,66 @@ function EdgeSummary({
           </p>
         )}
       </div>
+
+      {relationshipSummaries.length > 1 && (
+        <section aria-labelledby="grouped-relationships-heading">
+          <div className="flex items-center justify-between gap-3">
+            <h3 id="grouped-relationships-heading" className="text-xs font-semibold text-slate-700 dark:text-slate-200">
+              {pick("这条线包含的关系", "Links on this line")}
+            </h3>
+            <span className="text-xs text-slate-500">
+              {pick(`${relationshipSummaries.length} 条`, `${relationshipSummaries.length} links`)}
+            </span>
+          </div>
+          <ul className="mt-2 divide-y divide-slate-100 rounded-lg border border-slate-200 dark:divide-slate-800 dark:border-slate-800">
+            {relationshipSummaries.map((summary, index) => {
+              const summaryRelation = relationValue(summary);
+              const summarySource =
+                typeof summary.source_label === "string" ? summary.source_label : sourceLabel;
+              const summaryTarget =
+                typeof summary.target_label === "string" ? summary.target_label : targetLabel;
+              const summaryDescription =
+                typeof summary.display_description === "string"
+                  ? summary.display_description
+                  : null;
+              const summaryConfidence =
+                typeof summary.confidence === "number" ? summary.confidence : null;
+              const summaryValidFrom =
+                typeof summary.valid_from === "string" ? summary.valid_from : null;
+              return (
+                <li key={`${summaryRelation}-${index}`} className="p-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="text-xs font-semibold text-[#3157D5] dark:text-indigo-300">
+                        {learnerGraphRelationLabel(summaryRelation, locale)}
+                      </p>
+                      <p className="mt-1 break-words text-[11px] text-slate-500">
+                        {summarySource} → {summaryTarget}
+                      </p>
+                    </div>
+                    {summaryConfidence !== null && (
+                      <span className="shrink-0 text-xs font-medium text-slate-600 dark:text-slate-300">
+                        {displayPercent(summaryConfidence)}
+                      </span>
+                    )}
+                  </div>
+                  {summaryDescription && (
+                    <p className="mt-2 text-xs leading-5 text-slate-600 dark:text-slate-300">
+                      {summaryDescription}
+                    </p>
+                  )}
+                  <p className="mt-2 text-[11px] text-slate-400">
+                    {summary.is_active === false
+                      ? pick("历史记录", "Historical record")
+                      : pick("当前有效", "Currently active")}
+                    {summaryValidFrom ? ` · ${formatDate(summaryValidFrom, true, locale)}` : ""}
+                  </p>
+                </li>
+              );
+            })}
+          </ul>
+        </section>
+      )}
 
       {knowledgeState && (
         <div>

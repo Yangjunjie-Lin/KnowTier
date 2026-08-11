@@ -19,6 +19,7 @@ import {
 import { graphNodeLabel, graphNodeType } from "@/lib/graph";
 import { domainNodeTypeLabel, relationTypeLabel } from "@/lib/domainDetails";
 import {
+  learnerGraphEdgeRelationTypes,
   learnerGraphNodeTypeLabel,
   learnerGraphRelationLabel,
 } from "@/lib/learnerGraphPresentation";
@@ -113,11 +114,14 @@ export function filterGraphElements(
   });
   const nodeIds = new Set(nodes.map((node) => node.data.id));
   const edges = graph.elements.edges.filter((edge) => {
-    const relation = edge.data.relation_type ?? edge.data.predicate ?? "";
+    const relations = includeInternalIds
+      ? [edge.data.relation_type ?? edge.data.predicate ?? ""]
+      : learnerGraphEdgeRelationTypes(edge.data);
     return (
       nodeIds.has(edge.data.source) &&
       nodeIds.has(edge.data.target) &&
-      (!relationTypes?.length || relationTypes.includes(relation))
+      (!relationTypes?.length ||
+        relationTypes.some((relation) => relations.includes(relation)))
     );
   });
   return { nodes, edges };
@@ -228,8 +232,8 @@ export function GraphCanvas({
     if (!hostRef.current || view !== "graph") return undefined;
     const showLearnerEdgeLabels =
       presentation === "learner" &&
-      labelDensity !== "minimal" &&
-      (labelDensity === "detailed" || visible.edges.length <= 24);
+      labelDensity === "detailed" &&
+      visible.edges.length <= 12;
     const elements: ElementDefinition[] = [
       ...visible.nodes.map((node) => ({
         data: {
@@ -262,6 +266,9 @@ export function GraphCanvas({
             label: labelDensity === "minimal" ? "" : "data(label)",
             shape: (element) => {
               const data = element.data() as GraphNodeData;
+              if (presentation === "learner") {
+                return graphNodeType(data) === "Learner" ? "round-rectangle" : "ellipse";
+              }
               return graphNodeShape(graphNodeType(data));
             },
             "background-color": (element) => {
@@ -314,18 +321,23 @@ export function GraphCanvas({
         {
           selector: "edge",
           style: {
-            width: 1.2,
+            width: presentation === "learner" ? 1.6 : 1.2,
             "line-color": "#A9B7D9",
             "target-arrow-color": "#A9B7D9",
-            "target-arrow-shape": "triangle",
+            "target-arrow-shape": (element) =>
+              presentation === "learner" && element.data("mixed_direction")
+                ? "none"
+                : "triangle",
             "source-arrow-shape": "none",
-            "curve-style": "bezier",
+            "curve-style": presentation === "learner" ? "straight" : "bezier",
+            "line-cap": "round",
             label:
               showLearnerEdgeLabels
                 ? "data(display_label)"
                 : "",
             color: "#475569",
             "font-size": "8px",
+            "text-rotation": presentation === "learner" ? "autorotate" : "none",
             "text-background-color": "#FFFFFF",
             "text-background-opacity": 0.9,
             "text-background-padding": "2px",
@@ -335,6 +347,10 @@ export function GraphCanvas({
         {
           selector: "edge.show-label, edge:active, edge:selected",
           style: { label: "data(display_label)" },
+        },
+        {
+          selector: "edge:selected",
+          style: { width: 3 },
         },
         {
           selector: "edge[is_inactive = 1]",
@@ -381,7 +397,16 @@ export function GraphCanvas({
               name: visible.nodes.length > 80 ? "grid" : "cose",
               animate: false,
               fit: true,
-              padding: 36,
+              padding: presentation === "learner" ? 52 : 36,
+              ...(presentation === "learner"
+                ? {
+                    nodeRepulsion: density === "dense" ? 3000 : 6000,
+                    idealEdgeLength: density === "dense" ? 90 : 140,
+                    edgeElasticity: 100,
+                    componentSpacing: 80,
+                    nodeOverlap: 24,
+                  }
+                : {}),
             },
     });
     cyRef.current = cy;

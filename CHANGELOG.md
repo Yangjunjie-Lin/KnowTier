@@ -22,6 +22,9 @@ All notable changes to KnowTier are documented in this file. The format is based
 - Rebuilt the learner knowledge graph around mastery, attention and natural-language learning links,
   with a relationship-first canvas/list view and internal identifiers confined to an advanced
   technical disclosure.
+- Consolidated multiple active relationships between the same two learner nodes into one straight,
+  selectable line; the line detail now expands into readable directions, evidence, confidence and
+  history without adding labels to the default canvas.
 - Simplified the learning workspace to the active focus, tutoring conversation and editor. Empty
   session, tool, graph-update, preference, evidence and source sections no longer occupy the main
   workspace; generated progress is available on demand.

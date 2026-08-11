@@ -3,6 +3,7 @@ import type {
   CytoscapeGraph,
   GraphEdgeData,
   GraphNodeData,
+  JsonObject,
 } from "@/types/api";
 import type { UiLocale } from "@/types/app";
 
@@ -28,6 +29,17 @@ const attentionRelations = new Set([
 
 function relationType(edge: GraphEdgeData): string {
   return edge.relation_type ?? edge.predicate ?? "";
+}
+
+export function learnerGraphEdgeRelationTypes(edge: GraphEdgeData): string[] {
+  const groupedTypes = Array.isArray(edge.relation_types)
+    ? edge.relation_types.filter(
+        (value): value is string => typeof value === "string" && Boolean(value),
+      )
+    : [];
+  if (groupedTypes.length > 0) return Array.from(new Set(groupedTypes));
+  const singleType = relationType(edge);
+  return singleType ? [singleType] : [];
 }
 
 function isIdentifier(value: string): boolean {
@@ -128,6 +140,100 @@ function relationExplanation(
   }
 }
 
+function relationshipSummary(
+  edge: GraphEdgeData,
+  labels: Map<string, string>,
+  locale: UiLocale,
+): JsonObject {
+  const type = relationType(edge);
+  return {
+    relation_type: type,
+    display_label: learnerGraphRelationLabel(type, locale),
+    display_description: relationExplanation(edge, labels, locale),
+    source_label: labels.get(edge.source) ?? pick(locale, "学习内容", "Learning content"),
+    target_label: labels.get(edge.target) ?? pick(locale, "学习内容", "Learning content"),
+    confidence:
+      typeof edge.confidence === "number" && Number.isFinite(edge.confidence)
+        ? edge.confidence
+        : null,
+    valid_from: typeof edge.valid_from === "string" ? edge.valid_from : null,
+    valid_to: typeof edge.valid_to === "string" ? edge.valid_to : null,
+    is_active: edge.active !== false && edge.is_active !== false && !edge.valid_to,
+  };
+}
+
+function groupLearnerRelationships(
+  edges: Array<{ data: GraphEdgeData }>,
+  labels: Map<string, string>,
+  locale: UiLocale,
+): Array<{ data: GraphEdgeData }> {
+  const groups = new Map<string, GraphEdgeData[]>();
+  for (const { data } of edges) {
+    const pair = [data.source, data.target].sort();
+    const key = `${pair[0]}\u0000${pair[1]}`;
+    const current = groups.get(key);
+    if (current) current.push(data);
+    else groups.set(key, [data]);
+  }
+
+  return Array.from(groups.values()).map((relationships) => {
+    const primary = relationships[0]!;
+    const types = Array.from(new Set(relationships.map(relationType).filter(Boolean)));
+    const directions = new Set(
+      relationships.map((edge) => `${edge.source}\u0000${edge.target}`),
+    );
+    const attentionTargetIds = Array.from(
+      new Set(
+        relationships
+          .filter((edge) =>
+            learnerGraphEdgeRelationTypes(edge).some((type) =>
+              attentionRelations.has(type),
+            ),
+          )
+          .map((edge) => edge.target),
+      ),
+    );
+    const summaries = relationships.map((edge) =>
+      relationshipSummary(edge, labels, locale),
+    );
+    const sourceLabel =
+      labels.get(primary.source) ?? pick(locale, "学习内容", "Learning content");
+    const targetLabel =
+      labels.get(primary.target) ?? pick(locale, "学习内容", "Learning content");
+    const displayLabel =
+      relationships.length === 1
+        ? learnerGraphRelationLabel(types[0] ?? "", locale)
+        : pick(
+            locale,
+            `${relationships.length} 条学习关系`,
+            `${relationships.length} learning links`,
+          );
+    const displayDescription =
+      relationships.length === 1
+        ? relationExplanation(primary, labels, locale)
+        : pick(
+            locale,
+            `${sourceLabel} 与 ${targetLabel} 之间包含 ${relationships.length} 条学习关系。`,
+            `${sourceLabel} and ${targetLabel} have ${relationships.length} learning links.`,
+          );
+
+    return {
+      data: {
+        ...primary,
+        display_label: displayLabel,
+        display_description: displayDescription,
+        source_label: sourceLabel,
+        target_label: targetLabel,
+        relation_types: types,
+        relationship_count: relationships.length,
+        relationship_summaries: summaries,
+        mixed_direction: directions.size > 1,
+        attention_target_ids: attentionTargetIds,
+      },
+    };
+  });
+}
+
 export function buildLearnerGraphPresentation(
   graph: CytoscapeGraph,
   includeHistory = false,
@@ -179,16 +285,7 @@ export function buildLearnerGraphPresentation(
   return {
     elements: {
       nodes,
-      edges: edges.map(({ data }) => {
-        const type = relationType(data);
-        return {
-          data: {
-            ...data,
-            display_label: learnerGraphRelationLabel(type, locale),
-            display_description: relationExplanation(data, labels, locale),
-          },
-        };
-      }),
+      edges: groupLearnerRelationships(edges, labels, locale),
     },
     meta: { ...graph.meta },
   };
@@ -214,7 +311,15 @@ export function summarizeLearnerGraph(
   );
   const attentionNodeIds = new Set(
     graph.elements.edges.flatMap(({ data }) =>
-      attentionRelations.has(relationType(data)) ? [data.target] : [],
+      Array.isArray(data.attention_target_ids)
+        ? data.attention_target_ids.filter(
+            (value): value is string => typeof value === "string",
+          )
+        : learnerGraphEdgeRelationTypes(data).some((type) =>
+              attentionRelations.has(type),
+          )
+          ? [data.target]
+          : [],
     ),
   );
   return {
@@ -235,7 +340,9 @@ export function learnerGraphRelationTypes(
   locale: UiLocale = "zh-CN",
 ): string[] {
   return Array.from(
-    new Set(graph.elements.edges.map(({ data }) => relationType(data)).filter(Boolean)),
+    new Set(
+      graph.elements.edges.flatMap(({ data }) => learnerGraphEdgeRelationTypes(data)),
+    ),
   ).sort((left, right) =>
     learnerGraphRelationLabel(left, locale).localeCompare(
       learnerGraphRelationLabel(right, locale),

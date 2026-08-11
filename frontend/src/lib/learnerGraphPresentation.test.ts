@@ -56,6 +56,17 @@ const graph: CytoscapeGraph = {
       },
       {
         data: {
+          id: "edge-3",
+          assertion_id: "edge-3",
+          source: learnerId,
+          target: knowledgeId,
+          relation_type: "REQUIRES_REVIEW",
+          confidence: 0.75,
+          valid_to: null,
+        },
+      },
+      {
+        data: {
           id: "edge-old",
           assertion_id: "edge-old",
           source: learnerId,
@@ -81,16 +92,32 @@ describe("learner graph presentation", () => {
     const misconception = result.elements.edges.find(
       ({ data }) => data.relation_type === "HAS_MISCONCEPTION",
     );
-    expect(misconception?.data.display_label).toBe("待纠正理解");
-    expect(misconception?.data.display_description).toBe(
-      "待纠正：把终止条件写反了",
+    expect(misconception?.data.display_label).toBe("2 条学习关系");
+    expect(misconception?.data.relationship_count).toBe(2);
+    expect(misconception?.data.relation_types).toEqual([
+      "HAS_MISCONCEPTION",
+      "REQUIRES_REVIEW",
+    ]);
+    expect(misconception?.data.relationship_summaries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          display_label: "待纠正理解",
+          display_description: "待纠正：把终止条件写反了",
+        }),
+        expect.objectContaining({ display_label: "需要复习", confidence: 0.75 }),
+      ]),
     );
     expect(JSON.stringify(result.meta)).toContain("revision-id");
   });
 
   it("keeps superseded relationships available only when history is requested", () => {
     expect(buildLearnerGraphPresentation(graph).elements.edges).toHaveLength(2);
-    expect(buildLearnerGraphPresentation(graph, true).elements.edges).toHaveLength(3);
+    const withHistory = buildLearnerGraphPresentation(graph, true);
+    expect(withHistory.elements.edges).toHaveLength(2);
+    expect(
+      withHistory.elements.edges.find(({ data }) => data.target === knowledgeId)
+        ?.data.relationship_count,
+    ).toBe(3);
   });
 
   it("summarizes mastery and attention without exposing backend vocabulary", () => {
@@ -102,7 +129,11 @@ describe("learner graph presentation", () => {
       attentionCount: 1,
     });
     expect(new Set(learnerGraphRelationTypes(result))).toEqual(
-      new Set(["HAS_MASTERY_EVIDENCE", "HAS_MISCONCEPTION"]),
+      new Set([
+        "HAS_MASTERY_EVIDENCE",
+        "HAS_MISCONCEPTION",
+        "REQUIRES_REVIEW",
+      ]),
     );
     expect(learnerGraphRelationLabel("UNKNOWN_BACKEND_VALUE")).toBe("学习关联");
   });

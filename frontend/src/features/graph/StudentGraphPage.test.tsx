@@ -57,6 +57,17 @@ const graph: CytoscapeGraph = {
           valid_to: null,
         },
       },
+      {
+        data: {
+          id: "edge-3",
+          assertion_id: "edge-3",
+          source: learnerId,
+          target: knowledgeId,
+          relation_type: "REQUIRES_REVIEW",
+          confidence: 0.75,
+          valid_to: null,
+        },
+      },
     ],
   },
   meta: {},
@@ -92,9 +103,11 @@ vi.mock("@/components/graph/GraphCanvas", () => ({
   GraphCanvas: ({
     graph: presented,
     onNodeSelect,
+    onEdgeSelect,
   }: {
     graph: CytoscapeGraph;
     onNodeSelect: (node: GraphNodeData) => void;
+    onEdgeSelect: (edge: CytoscapeGraph["elements"]["edges"][number]["data"]) => void;
   }) => (
     <div aria-label="学生关系图">
       {presented.elements.nodes.map(({ data }) => (
@@ -103,9 +116,14 @@ vi.mock("@/components/graph/GraphCanvas", () => ({
         </button>
       ))}
       {presented.elements.edges.map(({ data }) => (
-        <span key={data.id}>
+        <button
+          key={data.id}
+          type="button"
+          aria-label={`关系 ${typeof data.display_label === "string" ? data.display_label : "学习关联"}`}
+          onClick={() => onEdgeSelect(data)}
+        >
           {typeof data.display_label === "string" ? data.display_label : "学习关联"}
-        </span>
+        </button>
       ))}
     </div>
   ),
@@ -158,6 +176,21 @@ describe("StudentGraphPage learner-facing presentation", () => {
     const disclosure = await screen.findByText("技术详情（高级）");
     expect(disclosure.closest("details")).not.toHaveAttribute("open");
     expect(screen.getByText("内容类型")).toBeInTheDocument();
+  });
+
+  it("opens one readable line with all relationships between the two nodes", async () => {
+    renderPage();
+
+    fireEvent.click(
+      await screen.findByRole("button", { name: "关系 2 条学习关系" }),
+    );
+
+    expect(await screen.findByText("这条线包含的关系")).toBeInTheDocument();
+    expect(screen.getByText("2 条")).toBeInTheDocument();
+    expect(screen.getAllByText("待纠正理解").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("需要复习").length).toBeGreaterThan(0);
+    expect(screen.getByText("75%")).toBeInTheDocument();
+    expect(screen.queryByText("HAS_MISCONCEPTION")).not.toBeInTheDocument();
   });
 
   it("switches learner-facing graph copy to English", async () => {

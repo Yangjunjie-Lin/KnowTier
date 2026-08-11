@@ -68,6 +68,27 @@ describe("GraphCanvas helpers", () => {
       filterGraphElements(graph, "knowledge", undefined, undefined, false).nodes,
     ).toEqual([]);
   });
+
+  it("keeps an aggregated learner line when any contained relation matches", () => {
+    const graph: CytoscapeGraph = {
+      elements: {
+        nodes: nodes.map((data) => ({ data })),
+        edges: [
+          {
+            data: {
+              ...edges[0]!,
+              relation_types: ["HAS_MISCONCEPTION", "REQUIRES_REVIEW"],
+            },
+          },
+        ],
+      },
+      meta: {},
+    };
+
+    expect(
+      filterGraphElements(graph, "", undefined, ["REQUIRES_REVIEW"], false).edges,
+    ).toHaveLength(1);
+  });
 });
 
 describe("GraphListView", () => {
