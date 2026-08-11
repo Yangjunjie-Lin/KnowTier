@@ -34,11 +34,11 @@ jobs:
           --health-cmd "cypher-shell -a bolt://localhost:7687 -u neo4j -p cognigraph-ci-password 'RETURN 1' >/dev/null 2>&1 || exit 1"
           --health-interval 10s --health-timeout 10s --health-retries 30
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-python@v5
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
         with:
           python-version: "3.12"
-      - uses: astral-sh/setup-uv@v5
+      - uses: astral-sh/setup-uv@v9.0.0
         with:
           version: "latest"
       - run: uv sync --frozen --dev
@@ -63,7 +63,7 @@ jobs:
         run: |
           .venv/bin/uvicorn cognigraph.main:app --host 127.0.0.1 --port 8000 > api.log 2>&1 &
           echo $! > api.pid
-          for attempt in $(seq 1 60); do
+          for _ in $(seq 1 60); do
             if ! kill -0 "$(cat api.pid)" 2>/dev/null; then
               cat api.log
               exit 1
@@ -116,7 +116,7 @@ jobs:
         run: |
           old_pid="$(cat api.pid)"
           kill "$old_pid"
-          for attempt in $(seq 1 60); do
+          for _ in $(seq 1 60); do
             if ! kill -0 "$old_pid" 2>/dev/null; then
               break
             fi
@@ -128,7 +128,7 @@ jobs:
           fi
           .venv/bin/uvicorn cognigraph.main:app --host 127.0.0.1 --port 8000 > api-restart.log 2>&1 &
           echo $! > api.pid
-          for attempt in $(seq 1 60); do
+          for _ in $(seq 1 60); do
             if ! kill -0 "$(cat api.pid)" 2>/dev/null; then
               cat api-restart.log
               exit 1
@@ -151,7 +151,7 @@ jobs:
           -m "e2e and postgres and neo4j"
       - name: Upload API logs on failure
         if: failure()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: production-api-logs
           path: |

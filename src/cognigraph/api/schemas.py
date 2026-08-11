@@ -71,6 +71,7 @@ class ChatRequest(BaseModel):
     workspace_id: UUID
     learner_id: UUID
     session_id: UUID
+    client_request_id: UUID | None = None
     message: str = Field(min_length=1, max_length=20_000)
     attachment_ids: list[UUID] = Field(default_factory=list, max_length=20)
     requested_mode: RequestedMode = RequestedMode.LEARN
@@ -127,6 +128,7 @@ class ChatResponse(BaseModel):
     graph_update: GraphUpdateResponse
     learner_graph_update: LearnerGraphUpdateResponse | None = None
     tool_usage: ToolUsageResponse | None = None
+    model_fallback: bool = False
     sources: list[dict[str, object]] = Field(default_factory=list)
 
 

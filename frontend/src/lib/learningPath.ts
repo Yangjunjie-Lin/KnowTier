@@ -1,4 +1,5 @@
 import type { LearnerModelItem, PrerequisiteState } from "@/types/api";
+import type { UiLocale } from "@/types/app";
 
 export type LearningPathStatus =
   | "mastered"
@@ -18,20 +19,20 @@ export interface LearningPathState {
   recommendedAction: string;
 }
 
-const statusLabels: Record<LearningPathStatus, string> = {
-  mastered: "已掌握",
-  in_progress: "学习中",
-  recommended_next: "推荐下一步",
-  blocked: "被前置知识阻塞",
-  not_started: "尚未开始",
-  needs_review: "需要复习",
+const statusLabels: Record<LearningPathStatus, readonly [string, string]> = {
+  mastered: ["已掌握", "Mastered"],
+  in_progress: ["学习中", "In progress"],
+  recommended_next: ["推荐下一步", "Recommended next"],
+  blocked: ["被前置知识阻塞", "Prerequisites needed"],
+  not_started: ["尚未开始", "Not started"],
+  needs_review: ["需要复习", "Needs review"],
 };
 
-const actionLabels: Record<string, string> = {
-  REMEDIATE: "巩固基础并修正薄弱点",
-  REQUEST_MORE_EVIDENCE: "继续练习以收集掌握证据",
-  ASSESS_FOR_PROMOTION: "进行掌握检测并尝试提升认知层级",
-  REVIEW: "安排复习以保持长期记忆",
+const actionLabels: Record<string, [string, string]> = {
+  REMEDIATE: ["巩固基础并修正薄弱点", "Strengthen foundations and address weak areas"],
+  REQUEST_MORE_EVIDENCE: ["继续练习以收集掌握证据", "Keep practicing to collect mastery evidence"],
+  ASSESS_FOR_PROMOTION: ["进行掌握检测并尝试提升认知层级", "Take a mastery check and move to the next level"],
+  REVIEW: ["安排复习以保持长期记忆", "Schedule a review for long-term retention"],
 };
 
 export function isLearnerItemMastered(item: LearnerModelItem): boolean {
@@ -44,10 +45,10 @@ function isReviewDue(item: LearnerModelItem, now: Date): boolean {
   return Number.isFinite(dueAt) && dueAt <= now.getTime();
 }
 
-function readableAction(value: string): string {
+export function readableAction(value: string, locale: UiLocale = "zh-CN"): string {
   const normalized = value.trim();
-  if (!normalized) return "后端未提供";
-  return actionLabels[normalized] ?? normalized.replaceAll("_", " ").toLowerCase();
+  if (!normalized) return locale === "en" ? "No recommendation yet" : "暂无建议";
+  return actionLabels[normalized]?.[locale === "en" ? 1 : 0] ?? (locale === "en" ? "Continue the current learning plan" : "继续当前学习计划");
 }
 
 function blockingPrerequisites(item: LearnerModelItem): PrerequisiteState[] {
@@ -58,7 +59,9 @@ export function calculateLearningPathStates(
   ids: string[],
   modelMap: ReadonlyMap<string, LearnerModelItem>,
   now = new Date(),
+  locale: UiLocale = "zh-CN",
 ): LearningPathState[] {
+  const en = locale === "en";
   const recommendedId = ids.find((id) => {
     const item = modelMap.get(id);
     return (
@@ -76,10 +79,10 @@ export function calculateLearningPathStates(
         id,
         item,
         status: "not_started",
-        statusLabel: statusLabels.not_started,
+        statusLabel: statusLabels.not_started[en ? 1 : 0],
         blockingPrerequisites: [],
-        reason: "后端尚未提供该知识点的学生状态，使用中性状态展示。",
-        recommendedAction: "后端未提供",
+        reason: en ? "No learner progress is available for this topic yet." : "尚未生成该知识点的个人学习状态。",
+        recommendedAction: en ? "No recommendation yet" : "暂无建议",
       };
     }
 
@@ -88,36 +91,38 @@ export function calculateLearningPathStates(
     let reason: string;
     if (isReviewDue(item, now)) {
       status = "needs_review";
-      reason = `复习时间已到（${item.next_review_at ?? "时间未知"}）。`;
+      reason = en ? "This topic is due for review." : "该知识点已到复习时间。";
     } else if (isLearnerItemMastered(item)) {
       status = "mastered";
-      reason = "掌握度达到 75%，且认知层级至少为理解层。";
+      reason = en ? "Mastery is at least 75% and the cognitive level shows understanding." : "掌握度达到 75%，且认知层级至少为理解层。";
     } else if (blockers.length > 0) {
       status = "blocked";
-      reason = `需先掌握：${blockers.map((prerequisite) => prerequisite.knowledge_point).join("、")}。`;
+      reason = en
+        ? `Complete first: ${blockers.map((prerequisite) => prerequisite.knowledge_point).join(", ")}.`
+        : `需先掌握：${blockers.map((prerequisite) => prerequisite.knowledge_point).join("、")}。`;
     } else if (id === recommendedId) {
       status = "recommended_next";
-      reason = "这是路径中首个未掌握且前置条件已满足的知识点。";
+      reason = en ? "This is the first unmastered topic whose prerequisites are complete." : "这是路径中首个未掌握且前置条件已满足的知识点。";
     } else if (
       item.evidence_count > 0 ||
       item.last_interaction_at !== null ||
       item.mastery_score > 0
     ) {
       status = "in_progress";
-      reason = "已有学习互动或掌握证据，但尚未达到掌握阈值。";
+      reason = en ? "Learning evidence exists, but mastery is not yet at the target level." : "已有学习互动或掌握证据，但尚未达到掌握阈值。";
     } else {
       status = "not_started";
-      reason = "尚无学习互动或掌握证据。";
+      reason = en ? "No learning activity or mastery evidence is available yet." : "尚无学习互动或掌握证据。";
     }
 
     return {
       id,
       item,
       status,
-      statusLabel: statusLabels[status],
+      statusLabel: statusLabels[status][en ? 1 : 0],
       blockingPrerequisites: blockers,
       reason,
-      recommendedAction: readableAction(item.recommended_action),
+      recommendedAction: readableAction(item.recommended_action, locale),
     };
   });
 }

@@ -66,6 +66,10 @@ def test_select_models_rejects_unavailable_preferred_chat_model() -> None:
         )
 
 
+@pytest.mark.skipif(
+    os.getenv("COGNIGRAPH_RUN_SILICONFLOW_LIVE") != "1",
+    reason="set COGNIGRAPH_RUN_SILICONFLOW_LIVE=1 for the bounded live provider smoke",
+)
 @pytest.mark.live_model
 async def test_live_siliconflow_discovery_structured_chat_and_embedding() -> None:
     assert os.getenv("COGNIGRAPH_RUN_SILICONFLOW_LIVE") == "1", (

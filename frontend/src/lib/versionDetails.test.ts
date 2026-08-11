@@ -64,7 +64,7 @@ describe("version detail adapters", () => {
     expect(detail!.nodesAdded).toEqual({
       provided: true,
       count: 2,
-      items: ["Limits", "node-2"],
+      items: ["Limits", "未命名记录"],
     });
     expect(detail!.sourceChanges).toEqual({
       provided: true,
@@ -138,8 +138,10 @@ describe("version detail adapters", () => {
   });
 
   it("has safe labels and rejects incompatible top-level payloads", () => {
-    expect(versionStatusLabel("FUTURE_STATUS")).toBe("Future Status");
-    expect(learnerDecisionLabel("FUTURE_ACTION")).toBe("Future Action");
+    expect(versionStatusLabel("FUTURE_STATUS")).toBe("其他处理状态");
+    expect(learnerDecisionLabel("FUTURE_ACTION")).toBe("其他学习建议");
+    expect(versionStatusLabel("APPLIED", "en")).toBe("Applied");
+    expect(learnerDecisionLabel("FUTURE_ACTION", "en")).toBe("Other learning recommendation");
     expect(adaptDomainVersionDetail([])).toBeNull();
     expect(adaptLearnerVersionDetail("invalid")).toBeNull();
   });

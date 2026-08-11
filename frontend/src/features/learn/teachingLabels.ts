@@ -1,4 +1,5 @@
 import type { RequestedMode } from "@/types/api";
+import type { UiLocale } from "@/types/app";
 
 const teachingActionLabels: Readonly<Record<string, string>> = {
   DIAGNOSE: "诊断当前理解",
@@ -14,6 +15,20 @@ const teachingActionLabels: Readonly<Record<string, string>> = {
   ASSESS: "检查掌握情况",
   SUMMARIZE_PROGRESS: "总结学习进展",
 };
+const teachingActionLabelsEn: Readonly<Record<string, string>> = {
+  DIAGNOSE: "Check current understanding",
+  EXPLAIN_INTUITIVELY: "Explain intuitively",
+  DEMONSTRATE: "Demonstrate the process",
+  EXPLAIN_CAUSALLY: "Explain causes and principles",
+  GUIDE_APPLICATION: "Guide independent application",
+  CHALLENGE_WITH_BOUNDARY: "Explore boundary cases",
+  FORMULATE_RESEARCH_QUESTION: "Form a research question",
+  GIVE_HINT: "Give a hint",
+  REMEDIATE: "Strengthen a weak area",
+  REVIEW_PREREQUISITE: "Review prerequisites",
+  ASSESS: "Check mastery",
+  SUMMARIZE_PROGRESS: "Summarize progress",
+};
 
 const assessmentTypeLabels: Readonly<Record<string, string>> = {
   RECOGNIZE: "概念识别",
@@ -22,6 +37,14 @@ const assessmentTypeLabels: Readonly<Record<string, string>> = {
   APPLY: "独立应用",
   ANALYZE_BOUNDARY: "分析边界",
   DESIGN_RESEARCH: "设计研究",
+};
+const assessmentTypeLabelsEn: Readonly<Record<string, string>> = {
+  RECOGNIZE: "Recognize the concept",
+  REPRODUCE_PROCEDURE: "Reproduce the process",
+  EXPLAIN_REASON: "Explain the reason",
+  APPLY: "Apply independently",
+  ANALYZE_BOUNDARY: "Analyze boundaries",
+  DESIGN_RESEARCH: "Design an investigation",
 };
 
 const learnerDecisionLabels: Readonly<Record<string, string>> = {
@@ -32,54 +55,64 @@ const learnerDecisionLabels: Readonly<Record<string, string>> = {
   CHANGE_EXPLANATION: "更换讲解方式",
   REQUEST_MORE_EVIDENCE: "需要更多掌握证据",
 };
+const learnerDecisionLabelsEn: Readonly<Record<string, string>> = {
+  PROMOTE: "Move to the next level",
+  HOLD: "Keep the current level",
+  REMEDIATE: "Strengthen this area",
+  REVIEW_PREREQUISITE: "Review prerequisites first",
+  CHANGE_EXPLANATION: "Try another explanation",
+  REQUEST_MORE_EVIDENCE: "Collect more mastery evidence",
+};
 
 export const teachingModes: ReadonlyArray<{
   id: RequestedMode;
   label: string;
   description: string;
+  labelEn: string;
+  descriptionEn: string;
 }> = [
-  { id: "learn", label: "学习", description: "循序讲解与诊断" },
-  { id: "review", label: "复习", description: "回顾与间隔复习" },
-  { id: "practice", label: "练习", description: "给出练习并反馈" },
-  { id: "exam", label: "考试", description: "减少提示，检验掌握" },
-  { id: "research", label: "研究", description: "跨来源探索关系" },
+  { id: "learn", label: "学习", description: "循序讲解与诊断", labelEn: "Learn", descriptionEn: "Guided explanation and diagnosis" },
+  { id: "review", label: "复习", description: "回顾与间隔复习", labelEn: "Review", descriptionEn: "Recall and spaced review" },
+  { id: "practice", label: "练习", description: "给出练习并反馈", labelEn: "Practice", descriptionEn: "Exercises with feedback" },
+  { id: "exam", label: "考试", description: "减少提示，检验掌握", labelEn: "Assessment", descriptionEn: "Fewer hints and a mastery check" },
+  { id: "research", label: "研究", description: "跨来源探索关系", labelEn: "Explore", descriptionEn: "Explore relationships across sources" },
 ];
-
-function humanizeIdentifier(value: string): string {
-  const readable = value
-    .trim()
-    .replace(/[_-]+/g, " ")
-    .replace(/\s+/g, " ")
-    .toLocaleLowerCase();
-  if (!readable) return "未说明";
-  return readable.charAt(0).toLocaleUpperCase() + readable.slice(1);
-}
 
 function mappedLabel(
   value: string,
   labels: Readonly<Record<string, string>>,
-  category: string,
+  labelsEn: Readonly<Record<string, string>>,
+  fallback: [string, string],
+  locale: UiLocale,
 ): string {
-  const known = labels[value];
-  return known ?? `其他${category}：${humanizeIdentifier(value)}`;
+  return (locale === "en" ? labelsEn : labels)[value] ?? fallback[locale === "en" ? 1 : 0];
 }
 
-export function teachingActionLabel(value: string): string {
-  return mappedLabel(value, teachingActionLabels, "教学动作");
+export function teachingActionLabel(value: string, locale: UiLocale = "zh-CN"): string {
+  return mappedLabel(value, teachingActionLabels, teachingActionLabelsEn, ["其他教学动作", "Other teaching action"], locale);
 }
 
-export function assessmentTypeLabel(value: string): string {
-  return mappedLabel(value, assessmentTypeLabels, "掌握检测");
+export function assessmentTypeLabel(value: string, locale: UiLocale = "zh-CN"): string {
+  return mappedLabel(value, assessmentTypeLabels, assessmentTypeLabelsEn, ["其他掌握检测", "Other mastery check"], locale);
 }
 
-export function learnerDecisionLabel(value: string): string {
-  return mappedLabel(value, learnerDecisionLabels, "模型决策");
+export function learnerDecisionLabel(value: string, locale: UiLocale = "zh-CN"): string {
+  return mappedLabel(value, learnerDecisionLabels, learnerDecisionLabelsEn, ["其他学习建议", "Other learning recommendation"], locale);
 }
 
-export function teachingModeLabel(value: RequestedMode): string {
-  return teachingModes.find((item) => item.id === value)?.label ?? "学习";
+export function teachingModeLabel(value: RequestedMode, locale: UiLocale = "zh-CN"): string {
+  const mode = teachingModes.find((item) => item.id === value) ?? teachingModes[0]!;
+  return locale === "en" ? mode.labelEn : mode.label;
 }
 
-export function toolNameLabel(value: string): string {
-  return humanizeIdentifier(value);
+const toolLabels: Readonly<Record<string, [string, string]>> = {
+  RETRIEVE_DOCUMENTS: ["查找学习资料", "Find learning materials"],
+  LOOKUP_GRAPH: ["查看知识关系", "Look up knowledge relationships"],
+  UPDATE_LEARNER_MODEL: ["更新学习进展", "Update learning progress"],
+  SAVE_EVIDENCE: ["保存掌握证据", "Save mastery evidence"],
+};
+
+export function toolNameLabel(value: string, locale: UiLocale = "zh-CN"): string {
+  const label = toolLabels[value.trim().toUpperCase()];
+  return label?.[locale === "en" ? 1 : 0] ?? (locale === "en" ? "Learning support tool" : "学习辅助工具");
 }

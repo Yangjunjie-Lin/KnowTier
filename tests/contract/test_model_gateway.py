@@ -16,6 +16,7 @@ from cognigraph.llm.schemas import (
     ModelCallContext,
     ModelRole,
     TeacherOutput,
+    TeacherSeed,
 )
 
 
@@ -47,6 +48,62 @@ async def test_structured_teacher_output() -> None:
     assert not result.repaired
     assert result.context_truncated is True
     assert len(provider.calls) == 1
+
+
+@pytest.mark.contract
+async def test_compact_teacher_seed_normalizes_bounded_provider_aliases() -> None:
+    provider = FakeProvider(
+        [
+            '{"response":"RAG grounds generation in retrieved evidence.",'
+            '"example":"A tutor retrieves a course note before answering.",'
+            '"summary":"Retrieval supplies evidence to generation.",'
+            '"assessment":{"question":"What happens before generation?",'
+            '"model_type":"RECOGNIZE"}}'
+        ]
+    )
+    gateway = ModelGateway(settings(llm_max_retries=0), provider)
+
+    value, _ = await gateway.generate_structured(
+        role=ModelRole.TEACHER,
+        messages=[ChatMessage(role="user", content="什么是 RAG?")],
+        response_model=TeacherSeed,
+        context=ModelCallContext(prompt_name="teacher_system"),
+    )
+
+    assert value.core_explanation.startswith("RAG")
+    assert value.illustration.startswith("A tutor")
+    assert value.key_takeaway.startswith("Retrieval")
+    assert value.assessment_question.endswith("?")
+
+
+@pytest.mark.contract
+def test_compact_teacher_seed_reuses_only_generated_text_for_missing_sections() -> None:
+    value = TeacherSeed.model_validate(
+        {
+            "core_explanation": "RAG retrieves evidence. It then grounds generation.",
+            "assessment_question": "What is retrieved first?",
+        }
+    )
+
+    assert value.illustration == value.core_explanation
+    assert value.key_takeaway == "It then grounds generation"
+
+
+@pytest.mark.contract
+def test_compact_teacher_seed_maps_natural_language_property_labels() -> None:
+    value = TeacherSeed.model_validate(
+        {
+            "A concise answer for the learner": "RAG retrieves evidence before generation.",
+            "An example": "A tutor looks up a course note before answering.",
+            "Key takeaway": "Retrieval supplies evidence to generation.",
+            "Check question": "What happens before the answer is generated?",
+        }
+    )
+
+    assert value.core_explanation.startswith("RAG")
+    assert value.illustration.startswith("A tutor")
+    assert value.key_takeaway.startswith("Retrieval")
+    assert value.assessment_question.endswith("?")
 
 
 @pytest.mark.contract

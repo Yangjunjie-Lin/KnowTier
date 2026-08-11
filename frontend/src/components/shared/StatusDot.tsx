@@ -1,6 +1,8 @@
 import { cn } from "@/lib/utils";
+import { useI18n } from "@/lib/i18n";
 
 export function StatusDot({ active = true }: { active?: boolean }) {
+  const { pick } = useI18n();
   return (
     <span
       className={cn(
@@ -8,7 +10,9 @@ export function StatusDot({ active = true }: { active?: boolean }) {
         active ? "bg-emerald-500" : "bg-slate-300",
       )}
     >
-      <span className="sr-only">{active ? "有效" : "历史"}</span>
+      <span className="sr-only">
+        {active ? pick("当前有效", "Active") : pick("历史记录", "Historical")}
+      </span>
     </span>
   );
 }

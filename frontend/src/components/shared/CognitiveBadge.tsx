@@ -1,5 +1,6 @@
 import { cn } from "@/lib/utils";
 import { cognitiveLevels } from "./cognitiveLevels";
+import { useI18n } from "@/lib/i18n";
 
 export function CognitiveBadge({
   level,
@@ -8,6 +9,7 @@ export function CognitiveBadge({
   level: number;
   size?: "xs" | "sm" | "md";
 }) {
+  const { isEnglish } = useI18n();
   const item =
     cognitiveLevels[
       Math.max(0, Math.min(cognitiveLevels.length - 1, level - 1))
@@ -29,7 +31,7 @@ export function CognitiveBadge({
       }}
     >
       <span className="font-mono">{item.code}</span>
-      {item.name}
+      {isEnglish ? item.nameEn : item.name}
     </span>
   );
 }

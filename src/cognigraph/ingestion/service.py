@@ -240,7 +240,12 @@ class IngestionService:
     async def get_document(self, document_id: UUID) -> Document:
         return await self.registry.get(document_id)
 
-    async def ingest(self, document_id: UUID) -> IngestionReport:
+    async def ingest(
+        self,
+        document_id: UUID,
+        *,
+        compact_chat_topic: bool = False,
+    ) -> IngestionReport:
         lock = self._ingest_locks.setdefault(document_id, asyncio.Lock())
         async with lock:
             if self.document_sink is not None:
@@ -295,6 +300,7 @@ class IngestionService:
                     workspace_id=document.workspace_id,
                     chunks=chunks,
                     spans=spans,
+                    compact_chat_topic=compact_chat_topic,
                 )
                 updated_document = document.model_copy(
                     update={

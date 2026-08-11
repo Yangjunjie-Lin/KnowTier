@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from unittest.mock import Mock
 
 import pytest
@@ -38,8 +39,10 @@ def test_sidecar_readiness_retries_timeouts_and_non_ready_responses(
         *,
         method: str = "GET",
         headers: dict[str, str] | None = None,
+        body: bytes | None = None,
+        timeout: float = 2.0,
     ) -> tuple[int, bytes]:
-        del method, headers
+        del method, headers, body, timeout
         response = responses.pop(0)
         if isinstance(response, TimeoutError):
             raise response
@@ -57,3 +60,45 @@ def test_sidecar_readiness_retries_timeouts_and_non_ready_responses(
         startup_timeout=1,
     )
     assert responses == []
+
+
+def test_json_request_sends_authenticated_utf8_payload(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    captured: dict[str, object] = {}
+
+    def fake_request(
+        url: str,
+        *,
+        method: str = "GET",
+        headers: dict[str, str] | None = None,
+        body: bytes | None = None,
+        timeout: float = 2.0,
+    ) -> tuple[int, bytes]:
+        captured.update(
+            url=url,
+            method=method,
+            headers=headers,
+            body=body,
+            timeout=timeout,
+        )
+        return 200, b'{"id":"response-id"}'
+
+    monkeypatch.setattr(smoke_sidecar, "request", fake_request)
+
+    status, payload = smoke_sidecar.json_request(
+        "http://127.0.0.1:41000/api/v1/chat",
+        {"message": "什么是RAG"},
+        control_token="control-token",
+        timeout=60.0,
+    )
+
+    assert status == 200
+    assert payload == {"id": "response-id"}
+    assert captured["method"] == "POST"
+    assert captured["timeout"] == 60.0
+    assert captured["headers"] == {
+        "Authorization": "Bearer control-token",
+        "Content-Type": "application/json",
+    }
+    assert json.loads(bytes(captured["body"]).decode("utf-8")) == {"message": "什么是RAG"}

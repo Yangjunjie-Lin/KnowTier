@@ -15,12 +15,13 @@ import { queryKeys } from "@/lib/queryKeys";
 import { api } from "@/services/api";
 import { useAppStore } from "@/stores/AppContext";
 import type { GlobalSearchResultKind } from "@/types/api";
+import { useI18n } from "@/lib/i18n";
 
-const resultLabels: Record<GlobalSearchResultKind, string> = {
-  knowledge: "知识图谱",
-  material: "资料",
-  material_content: "资料内容",
-  learner_state: "个人模型",
+const resultLabels: Record<GlobalSearchResultKind, [string, string]> = {
+  knowledge: ["知识点", "Knowledge point"],
+  material: ["资料", "Material"],
+  material_content: ["资料内容", "Material content"],
+  learner_state: ["学习进展", "Learning progress"],
 };
 
 const resultIcons = {
@@ -31,6 +32,7 @@ const resultIcons = {
 } satisfies Record<GlobalSearchResultKind, typeof Search>;
 
 export function GlobalSearchPage() {
+  const { locale, pick, t } = useI18n();
   const { currentWorkspace, currentLearner } = useAppStore();
   const [params, setParams] = useSearchParams();
   const query = (params.get("q") ?? "").trim();
@@ -55,13 +57,37 @@ export function GlobalSearchPage() {
     setParams(next.length >= 2 ? { q: next } : {});
   };
 
+  const pageHeader = (
+    <PageHeader
+      eyebrow={pick("快速查找", "Quick find")}
+      title={t("nav.search")}
+      description={pick(
+        "一次搜索当前学习空间中的知识点、资料内容和个人学习状态。",
+        "Search knowledge points, material content, and your learning progress in the current workspace.",
+      )}
+    />
+  );
+
+  if (!currentWorkspace || !currentLearner) {
+    return (
+      <div>
+        {pageHeader}
+        <EmptyState
+          title={pick("还不能开始搜索", "Search is not ready yet")}
+          description={pick("先选择学习空间和学习者，搜索结果才会限定在正确的数据范围内。", "Select a workspace and learner so results stay in the correct scope.")}
+          action={
+            <Link to="/init" className="primary-button">
+              {pick("前往选择", "Choose workspace")}
+            </Link>
+          }
+        />
+      </div>
+    );
+  }
+
   return (
     <div>
-      <PageHeader
-        eyebrow="Global search"
-        title="全局搜索"
-        description="在当前 Workspace 的知识图谱、资料内容与个人模型中进行有边界的搜索。"
-      />
+      {pageHeader}
       <form
         className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900"
         onSubmit={(event) => {
@@ -71,63 +97,82 @@ export function GlobalSearchPage() {
         role="search"
       >
         <label className="block text-xs font-medium text-slate-600 dark:text-slate-300" htmlFor="global-search-input">
-          搜索知识、资料或学习状态
+          {pick("搜索知识、资料或学习状态", "Search knowledge, materials, or progress")}
         </label>
-        <div className="relative mt-2 flex gap-2">
-          <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-slate-400" />
-          <input
-            id="global-search-input"
-            ref={inputRef}
-            className="form-input pl-9 pr-9"
-            value={draft}
-            onChange={(event) => setDraft(event.target.value)}
-            placeholder="至少输入两个字符"
-          />
-          {draft && (
-            <button
-              type="button"
-              className="absolute right-24 top-2 rounded-md p-1 text-slate-400 hover:text-slate-700"
-              onClick={() => {
-                setDraft("");
-                setParams({});
-                inputRef.current?.focus();
-              }}
-              aria-label="清空搜索"
-            >
-              <X className="h-4 w-4" />
-            </button>
-          )}
+        <div className="mt-2 flex gap-2">
+          <div className="relative min-w-0 flex-1">
+            <Search className="pointer-events-none absolute left-3 top-3 h-4 w-4 text-slate-400" />
+            <input
+              id="global-search-input"
+              ref={inputRef}
+              className="form-input min-w-0 pl-9 pr-9"
+              value={draft}
+              onChange={(event) => setDraft(event.target.value)}
+              placeholder={pick("例如：检索增强生成", "For example: retrieval-augmented generation")}
+              aria-describedby="global-search-help"
+            />
+            {draft && (
+              <button
+                type="button"
+                className="absolute right-2 top-2 rounded-md p-1 text-slate-400 hover:text-slate-700 focus:outline-none focus:ring-2 focus:ring-[#3157D5]/40"
+                onClick={() => {
+                  setDraft("");
+                  setParams({});
+                  inputRef.current?.focus();
+                }}
+                aria-label={pick("清空搜索", "Clear search")}
+              >
+                <X className="h-4 w-4" />
+              </button>
+            )}
+          </div>
           <button type="submit" className="primary-button shrink-0" disabled={draft.trim().length < 2}>
-            搜索
+            {t("common.search")}
           </button>
         </div>
+        <p id="global-search-help" className="mt-2 text-[11px] text-slate-500">
+          {pick("输入至少两个字符，按 Enter 即可搜索。", "Enter at least two characters, then press Enter.")}
+        </p>
       </form>
 
-      <section className="mt-5" aria-live="polite" aria-label="全局搜索结果">
+      <section className="mt-5" aria-live="polite" aria-label={pick("全局搜索结果", "Global search results")}>
         {!query && (
           <EmptyState
-            title="输入搜索词"
-            description="搜索只在当前 Workspace 和学习者范围内执行。"
+            title={pick("输入搜索词", "Enter a search term")}
+            description={pick("可搜索知识点名称、资料正文和个人掌握状态。", "Search knowledge point names, material text, and personal mastery status.")}
           />
         )}
         {query && query.length < 2 && (
-          <EmptyState title="搜索词太短" description="请至少输入两个字符。" />
+          <EmptyState title={pick("搜索词太短", "Search term is too short")} description={pick("请至少输入两个字符。", "Enter at least two characters.")} />
         )}
-        {search.isLoading && <LoadingState label="正在搜索" />}
+        {search.isLoading && <LoadingState label={pick("正在搜索", "Searching")} />}
         {search.isError && (
           <ErrorState error={search.error} onRetry={() => void search.refetch()} />
         )}
         {search.data && search.data.items.length === 0 && (
           <EmptyState
-            title="没有找到结果"
-            description={`当前范围内没有与“${search.data.query}”匹配的内容。`}
+            title={pick("没有找到结果", "No results found")}
+            description={pick(`当前范围内没有与“${search.data.query}”匹配的内容。`, `Nothing in the current scope matches “${search.data.query}”.`)}
+            action={
+              <button
+                type="button"
+                className="secondary-button"
+                onClick={() => {
+                  setDraft("");
+                  setParams({});
+                  inputRef.current?.focus();
+                }}
+              >
+                {pick("清除搜索", "Clear search")}
+              </button>
+            }
           />
         )}
         {search.data && search.data.items.length > 0 && (
           <div className="space-y-3">
             <p className="text-xs text-slate-600 dark:text-slate-400">
-              找到 {search.data.items.length} 项
-              {search.data.truncated ? "，结果已按相关度截断" : ""}
+              {pick(`找到 ${search.data.items.length} 项`, `${search.data.items.length} results`)}
+              {search.data.truncated ? pick("，仅显示最相关结果", "; showing the most relevant results") : ""}
             </p>
             {search.data.items.map((item) => {
               const Icon = resultIcons[item.kind];
@@ -142,12 +187,12 @@ export function GlobalSearchPage() {
                   </span>
                   <span className="min-w-0">
                     <span className="text-[11px] font-medium text-[#3157D5]">
-                      {resultLabels[item.kind]}
+                      {resultLabels[item.kind][locale === "en" ? 1 : 0]}
                     </span>
                     <span className="mt-0.5 block text-sm font-semibold text-slate-800 dark:text-slate-100">
                       {item.title}
                     </span>
-                    <span className="mt-1 block text-xs leading-5 text-slate-500">
+                    <span className="mt-1 block break-words text-xs leading-5 text-slate-500">
                       {item.description}
                     </span>
                   </span>

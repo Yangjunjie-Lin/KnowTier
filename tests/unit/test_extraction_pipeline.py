@@ -7,14 +7,25 @@ from pydantic import ValidationError
 
 from cognigraph.config import Settings
 from cognigraph.domain.documents import DocumentChunk
-from cognigraph.domain.enums import ConflictType, EpistemicStatus, NodeType, RelationTypeKey
+from cognigraph.domain.enums import (
+    CognitiveLevel,
+    ConflictType,
+    EpistemicStatus,
+    NodeType,
+    RelationTypeKey,
+)
 from cognigraph.domain.graph import RelationAssertion
 from cognigraph.extraction.blueprint_builder import BlueprintGraphDeltaBuilder
 from cognigraph.extraction.canonicalizer import canonical_text
 from cognigraph.extraction.conflict_detector import ConflictDetector
 from cognigraph.extraction.deduplicator import EntityDeduplicator
 from cognigraph.extraction.knowledge_extractor import KnowledgeExtractor
-from cognigraph.extraction.schemas import KnowledgeBlueprint, KnowledgePointCandidate
+from cognigraph.extraction.schemas import (
+    ChatTopicCandidate,
+    ChatTopicSeed,
+    KnowledgeBlueprint,
+    KnowledgePointCandidate,
+)
 from cognigraph.graph.applier import GraphNode, GraphSnapshot, InMemoryGraphApplier
 from cognigraph.graph.delta import AssertionCreate
 from cognigraph.graph.validator import GraphDeltaValidator
@@ -49,6 +60,65 @@ def test_blueprint_rejects_unknown_candidate_references() -> None:
     payload["relations"][0]["object_candidate_id"] = "unknown"
     with pytest.raises(ValidationError, match="unknown candidate"):
         KnowledgeBlueprint.model_validate(payload)
+
+
+def test_chat_topic_normalizes_only_bounded_provider_aliases_with_safe_scores() -> None:
+    topic = ChatTopicCandidate.model_validate(
+        {
+            "title": "RAG",
+            "domain": "AI",
+            "canonical_name": "RAG",
+            "plain_definition": "Retrieval-grounded generation.",
+            "formal": "A retriever supplies context to a generator.",
+            "must_cover_cover": ["retrieval", "generation"],
+            "applicability": [{"scenario": "grounded question answering"}],
+        }
+    )
+
+    assert topic.canonical_name == "rag"
+    assert topic.formal_definition.startswith("A retriever")
+    assert topic.must_cover == ["retrieval", "generation"]
+    assert topic.applicability == ["grounded question answering"]
+    assert topic.importance == pytest.approx(0.5)
+    assert topic.difficulty == pytest.approx(0.5)
+    assert topic.confidence == pytest.approx(0.4)
+
+
+def test_chat_topic_still_rejects_unknown_provider_fields() -> None:
+    with pytest.raises(ValidationError, match="unexpected_field"):
+        ChatTopicCandidate.model_validate(
+            {
+                "title": "RAG",
+                "canonical_name": "RAG",
+                "plain_definition": "Retrieval-grounded generation.",
+                "formal_definition": "A retriever supplies context to a generator.",
+                "must_cover": ["retrieval", "generation"],
+                "unexpected_field": "must remain forbidden",
+            }
+        )
+
+
+def test_chat_topic_seed_normalizes_known_provider_aliases() -> None:
+    seed = ChatTopicSeed.model_validate(
+        {
+            "topic": "RAG",
+            "definition": "Retrieval-grounded generation.",
+        }
+    )
+
+    assert seed.canonical_name == "RAG"
+    assert seed.plain_definition == "Retrieval-grounded generation."
+
+
+def test_chat_topic_seed_rejects_unknown_provider_fields() -> None:
+    with pytest.raises(ValidationError, match="unexpected_field"):
+        ChatTopicSeed.model_validate(
+            {
+                "canonical_name": "RAG",
+                "plain_definition": "Retrieval-grounded generation.",
+                "unexpected_field": "must remain forbidden",
+            }
+        )
 
 
 @pytest.mark.asyncio
@@ -99,6 +169,43 @@ async def test_extractor_audit_records_source_document_context() -> None:
     assert len(sink.records) == 1
     assert sink.records[0].context.workspace_id == workspace_id
     assert sink.records[0].context.document_id == document.id
+
+
+@pytest.mark.asyncio
+async def test_compact_chat_topic_expands_to_a_complete_unverified_plan() -> None:
+    workspace_id = uuid4()
+    document, source = source_document(workspace_id)
+    span = source.model_copy(update={"text": "什么是RAG", "normalized_text": "什么是rag"})
+    chunk = DocumentChunk(
+        document_id=document.id,
+        sequence=0,
+        text=span.text,
+        normalized_text=span.normalized_text,
+        page_start=span.page_number,
+        page_end=span.page_number,
+        source_span_ids=[span.id],
+        token_count=4,
+    )
+    sink = InMemoryModelRunSink()
+    extractor = KnowledgeExtractor(
+        ModelGateway(Settings(use_mock_llm=True), FakeProvider(), sink=sink)
+    )
+
+    compact, _call = await extractor.extract(
+        workspace_id=workspace_id,
+        chunks=[chunk],
+        spans=[span],
+        compact_chat_topic=True,
+    )
+
+    assert len(compact.knowledge_points) == 1
+    point = compact.knowledge_points[0]
+    assert point.canonical_name == "retrieval-augmented generation"
+    assert len(point.six_level_plan) == 6
+    assert {stage.cognitive_level for stage in point.six_level_plan} == set(CognitiveLevel)
+    assert point.source_span_ids == [span.id]
+    assert point.confidence <= 0.8
+    assert sink.records[0].context.prompt_name == "chat_topic_extractor"
 
 
 def test_canonicalization_and_deduplication_normalize_unicode() -> None:
