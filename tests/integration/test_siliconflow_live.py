@@ -9,6 +9,14 @@ from cognigraph.llm.configuration import SILICONFLOW_BASE_URL
 from cognigraph.llm.openai_compatible import OpenAICompatibleProvider
 from cognigraph.llm.schemas import ChatMessage
 
+EMBEDDING_MODEL_MARKERS = ("embed", "bge", "gte")
+NON_CHAT_MODEL_MARKERS = (*EMBEDDING_MODEL_MARKERS, "rerank", "image", "speech", "audio")
+
+
+def _has_capability_marker(model_id: str, markers: tuple[str, ...]) -> bool:
+    folded = model_id.casefold()
+    return any(marker in folded for marker in markers)
+
 
 def _select_models(
     model_ids: list[str], *, preferred_chat_model: str | None = None
@@ -17,7 +25,7 @@ def _select_models(
         (
             model_id
             for model_id in model_ids
-            if any(token in model_id.casefold() for token in ("embed", "bge", "gte"))
+            if _has_capability_marker(model_id, EMBEDDING_MODEL_MARKERS)
         ),
         None,
     )
@@ -33,11 +41,7 @@ def _select_models(
             (
                 model_id
                 for model_id in model_ids
-                if model_id != embedding
-                and not any(
-                    token in model_id.casefold()
-                    for token in ("embed", "rerank", "image", "speech", "audio")
-                )
+                if not _has_capability_marker(model_id, NON_CHAT_MODEL_MARKERS)
             ),
             None,
         )
@@ -64,6 +68,19 @@ def test_select_models_rejects_unavailable_preferred_chat_model() -> None:
             ["provider/embed-v1", "provider/chat-default"],
             preferred_chat_model="provider/chat-requested",
         )
+
+
+def test_select_models_excludes_every_embedding_candidate_from_chat() -> None:
+    models = [
+        "BAAI/bge-large-zh-v1.5",
+        "BAAI/bge-m3",
+        "Qwen/Qwen2.5-7B-Instruct",
+    ]
+
+    assert _select_models(models) == (
+        "Qwen/Qwen2.5-7B-Instruct",
+        "BAAI/bge-large-zh-v1.5",
+    )
 
 
 @pytest.mark.skipif(

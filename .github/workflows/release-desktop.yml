@@ -390,10 +390,18 @@ jobs:
         run: uv sync --frozen --dev
 
       - name: Run the bounded discovery, chat, and embedding smoke
-        run: >-
-          timeout 110s uv run pytest
-          tests/integration/test_siliconflow_live.py
-          -m live_model -q
+        shell: bash
+        run: |
+          set -euo pipefail
+          if timeout 110s uv run pytest \
+            tests/integration/test_siliconflow_live.py \
+            -m live_model -q --tb=no > "$RUNNER_TEMP/siliconflow-live.log" 2>&1; then
+            tail -n 12 "$RUNNER_TEMP/siliconflow-live.log"
+          else
+            echo "The bounded SiliconFlow discovery/chat/embedding smoke failed."
+            sed -n '/short test summary info/,$p' "$RUNNER_TEMP/siliconflow-live.log" | tail -n 12
+            exit 1
+          fi
 
   build:
     name: Build ${{ matrix.platform }} desktop artifacts
