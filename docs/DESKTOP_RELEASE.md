@@ -10,16 +10,16 @@ signing evidence before anything is published.
 
 - A pushed tag performs the gate, builds all platforms, and creates or refreshes a draft release.
 - A manual run always performs the gate and builds. Set `create_draft_release` only when the run
-  should create a draft, and provide the intended `v<semver>` tag. The current candidate is
-  `v1.0.0-rc.5`.
+  should create a draft, and provide the intended `v<semver>` tag. The current release is
+  `v1.0.0`.
 - Set `run_live_siliconflow` only for an intentional paid-provider smoke test. It is impossible for
   that job to run from a tag or other automatic event.
 
 The release tag and all Python, npm, Tauri, and Cargo manifests and lockfiles must describe
-`1.0.0-rc.5` (the Python lock uses its normalized PEP 440 spelling). Update the changelog and
+`1.0.0`. Update the changelog and
 privacy notice when their contents change, commit the release state, then create
-`v1.0.0-rc.5` from that reviewed commit. Release tags are immutable: if a candidate tag already
-exists at another commit, increment the RC version instead of moving the tag.
+`v1.0.0` from that reviewed commit. Release tags are immutable: if a tag already exists at another
+commit, create a new semantic version instead of moving the tag.
 
 ## Quality gate and build matrix
 

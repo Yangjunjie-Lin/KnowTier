@@ -9,7 +9,7 @@ on:
       release_tag:
         description: Tag for a manually created draft release (must match v<package version>)
         required: true
-        default: "v1.0.0-rc.5"
+        default: "v1.0.0"
         type: string
       create_draft_release:
         description: Create or refresh a GitHub draft release after assembling the artifacts
@@ -37,7 +37,7 @@ permissions:
 env:
   NODE_VERSION: "22"
   PYTHON_VERSION: "3.12"
-  RELEASE_VERSION: "1.0.0-rc.5"
+  RELEASE_VERSION: "1.0.0"
   TAURI_CLI_VERSION: "2.11.4"
   UV_VERSION: "0.12.1"
 
@@ -144,7 +144,7 @@ jobs:
               raise SystemExit(f"desktop release version is not valid SemVer: {frontend_version}")
           if frontend_version != os.environ["RELEASE_VERSION"]:
               raise SystemExit(
-                  "release manifests must match the workflow candidate "
+                  "release manifests must match the workflow version "
                   f"{os.environ['RELEASE_VERSION']!r}, got {frontend_version!r}"
               )
 
@@ -159,7 +159,7 @@ jobs:
                   )
           if python_lock_version != python_lock_expected:
               raise SystemExit(
-                  "uv.lock project version does not match the release candidate: "
+                  "uv.lock project version does not match the release version: "
                   f"expected {python_lock_expected!r}, got {python_lock_version!r}"
               )
 
@@ -206,7 +206,7 @@ jobs:
               if remote_commit is not None and remote_commit != checked_out_commit:
                   raise SystemExit(
                       f"release tag {tag!r} already points to {remote_commit}, not "
-                      f"the checked-out candidate {checked_out_commit}; choose a new RC "
+                      f"the checked-out release commit {checked_out_commit}; create a new "
                       "version instead of moving an existing tag"
                   )
           print(f"Validated KnowTier desktop version {frontend_version}")
@@ -665,8 +665,17 @@ jobs:
             throw "installed KnowTier executable was not found under $installDir"
           }
           python scripts/desktop/check_windows_gui.py $installedExe
-          $privacy = @(Get-ChildItem -Path $installDir -Filter "PRIVACY.md" -Recurse -File)
-          if ($privacy.Count -ne 1) { throw "installed bundle does not contain exactly one PRIVACY.md" }
+          foreach ($requiredDocument in @(
+            "CHANGELOG.md", "LICENSE", "PRIVACY.md", "THIRD_PARTY_NOTICES.md", "DESKTOP.md", `
+            "USER_GUIDE_ZH.md"
+          )) {
+            $documentMatches = @(
+              Get-ChildItem -Path $installDir -Filter $requiredDocument -Recurse -File
+            )
+            if ($documentMatches.Count -ne 1) {
+              throw "installed bundle must contain exactly one $requiredDocument, found $($documentMatches.Count)"
+            }
+          }
           $installedSidecars = @(Get-ChildItem -Path $installDir `
             -Filter "cognigraph-desktop-sidecar*.exe" -Recurse -File)
           if ($installedSidecars.Count -ne 1) {
@@ -762,7 +771,8 @@ jobs:
           Get-ChildItem -Path $portable -Filter "*uninstall*.exe" -Recurse -File |
             Remove-Item -Force -ErrorAction SilentlyContinue
           Copy-Item `
-            "CHANGELOG.md","LICENSE","PRIVACY.md","THIRD_PARTY_NOTICES.md","docs/DESKTOP.md" `
+            "CHANGELOG.md","LICENSE","PRIVACY.md","THIRD_PARTY_NOTICES.md", `
+            "docs/DESKTOP.md","docs/USER_GUIDE_ZH.md" `
             "$portable/"
           $portableExe = Join-Path $portable "KnowTier.exe"
           if (-not (Test-Path -LiteralPath $portableExe)) {
@@ -782,7 +792,8 @@ jobs:
             --sidecar-name $portableSidecars[0].Name
 
           foreach ($requiredDocument in @(
-            "CHANGELOG.md", "LICENSE", "PRIVACY.md", "THIRD_PARTY_NOTICES.md", "DESKTOP.md"
+            "CHANGELOG.md", "LICENSE", "PRIVACY.md", "THIRD_PARTY_NOTICES.md", "DESKTOP.md", `
+            "USER_GUIDE_ZH.md"
           )) {
             $documentMatches = @(
               Get-ChildItem -Path $portable -Filter $requiredDocument -Recurse -File
@@ -935,7 +946,7 @@ jobs:
           if-no-files-found: ignore
           retention-days: 14
 
-      - name: Upload platform release candidates
+      - name: Upload platform release assets
         uses: actions/upload-artifact@v7
         with:
           name: desktop-${{ matrix.platform }}
@@ -982,9 +993,11 @@ jobs:
       - name: Add release documentation assets
         run: |
           cp CHANGELOG.md release-assets/CHANGELOG.md
+          cp LICENSE release-assets/LICENSE
           cp PRIVACY.md release-assets/PRIVACY.md
           cp THIRD_PARTY_NOTICES.md release-assets/THIRD_PARTY_NOTICES.md
           cp docs/DESKTOP.md release-assets/DESKTOP.md
+          cp docs/USER_GUIDE_ZH.md release-assets/USER_GUIDE_ZH.md
 
       - uses: actions/setup-python@v7
         with:
@@ -1101,6 +1114,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           MANUAL_RELEASE_TAG: ${{ inputs.release_tag || '' }}
+          RELEASE_VERSION: ${{ env.RELEASE_VERSION }}
         run: |
           set -euo pipefail
           if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
@@ -1110,9 +1124,9 @@ jobs:
           fi
 
           {
-            echo "## KnowTier Desktop $tag release candidate"
+            echo "## KnowTier Desktop $tag"
             echo
-            echo "This release is a **draft**. Verify every checksum, SBOM, signing record, and platform smoke before publishing."
+            echo "This build is a **draft** until every checksum, SBOM, signing record, and platform smoke has been reviewed."
             echo
             echo "### Signing records"
             echo '```text'
@@ -1123,6 +1137,15 @@ jobs:
             echo '```'
             echo
             echo "See docs/DESKTOP_RELEASE.md and CHANGELOG.md in commit $GITHUB_SHA."
+            echo
+            echo "### Direct downloads"
+            echo
+            echo "- [Windows x64 installer](https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/KnowTier-Setup-$RELEASE_VERSION-windows-x64.exe)"
+            echo "- [Windows x64 Portable ZIP](https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/KnowTier-Portable-$RELEASE_VERSION-windows-x64.zip)"
+            echo "- [macOS Intel x64 DMG](https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/KnowTier-$RELEASE_VERSION-macOS-x64.dmg)"
+            echo "- [Linux x64 AppImage](https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/KnowTier-$RELEASE_VERSION-linux-x64.AppImage)"
+            echo "- [Debian/Ubuntu x64 package](https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/knowtier_${RELEASE_VERSION}_amd64.deb)"
+            echo "- [SHA-256 checksums](https://github.com/$GITHUB_REPOSITORY/releases/download/$tag/SHA256SUMS.txt)"
           } > release-notes.md
 
           existing=""
@@ -1135,7 +1158,7 @@ jobs:
               tagged_commit="$commit_sha"
             fi
             if [[ -n "$tagged_commit" && "$tagged_commit" != "$GITHUB_SHA" ]]; then
-              echo "Refusing to move existing tag $tag from $tagged_commit to $GITHUB_SHA; use a new RC version." >&2
+              echo "Refusing to move existing tag $tag from $tagged_commit to $GITHUB_SHA; use a new version." >&2
               exit 1
             fi
           fi
@@ -1146,15 +1169,23 @@ jobs:
           if [[ "$existing" == "true" ]]; then
             gh release upload "$tag" release-assets/* \
               --repo "$GITHUB_REPOSITORY" --clobber
+            prerelease_args=()
+            if [[ "${tag#v}" == *-* ]]; then
+              prerelease_args+=(--prerelease)
+            fi
             gh release edit "$tag" --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
-              --draft --prerelease --title "KnowTier Desktop $tag" --notes-file release-notes.md
+              --draft "${prerelease_args[@]}" --title "KnowTier Desktop $tag" --notes-file release-notes.md
           else
+            prerelease_args=()
+            if [[ "${tag#v}" == *-* ]]; then
+              prerelease_args+=(--prerelease)
+            fi
             gh release create "$tag" release-assets/* \
               --repo "$GITHUB_REPOSITORY" \
               --target "$GITHUB_SHA" \
               --draft \
-              --prerelease \
+              "${prerelease_args[@]}" \
               --title "KnowTier Desktop $tag" \
               --notes-file release-notes.md
           fi

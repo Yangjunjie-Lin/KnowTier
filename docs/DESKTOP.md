@@ -6,12 +6,12 @@ and stores mutable data outside the installed application so upgrades do not ove
 workspace. The React UI always runs on Tauri's stable application origin, so browser preferences and
 the selected workspace survive restarts even though the private API port changes.
 
-The current build is `v1.0.0-rc.5`. It is a release candidate and remains a GitHub Draft Release;
-it is not a general-availability `v1.0.0` release.
+The current stable build is `v1.0.0`. Download it from the
+[latest GitHub Release](https://github.com/Yangjunjie-Lin/KnowTier/releases/latest).
 
 ## Choose a download
 
-Draft and published releases contain the following platform artifacts:
+Published releases contain the following platform artifacts:
 
 | Platform | Artifact | Intended use |
 | --- | --- | --- |
@@ -22,8 +22,8 @@ Draft and published releases contain the following platform artifacts:
 | Linux | `knowtier_<version>_amd64.deb` | Debian or Ubuntu installation |
 
 Each release also includes `SHA256SUMS.txt`, CycloneDX JSON SBOMs (`*.cdx.json`) for the Rust,
-Node.js, and Python dependency sets, and one signing-status text file per platform. Treat a draft as
-a release candidate, not a general-availability build.
+Node.js, and Python dependency sets, and one signing-status text file per platform. Draft releases
+are pre-publication build records; ordinary users should use the latest published release.
 
 ## Verify before running
 
@@ -38,12 +38,12 @@ On Windows PowerShell, compare the result of the following command with the matc
 `SHA256SUMS.txt`:
 
 ```powershell
-Get-FileHash .\KnowTier-Setup-1.0.0-rc.5-windows-x64.exe -Algorithm SHA256
+Get-FileHash .\KnowTier-Setup-1.0.0-windows-x64.exe -Algorithm SHA256
 ```
 
 A status file containing `UNSIGNED` means the build lacks a platform code signature. A checksum
 still detects accidental corruption and confirms that a file matches the release manifest, but it
-does not establish publisher identity. For an unsigned release candidate, verify the checksum from
+does not establish publisher identity. For an unsigned release, verify the checksum from
 a trusted project page and apply your organization's software policy before bypassing an operating
 system warning.
 
@@ -55,14 +55,15 @@ Run the NSIS installer for a normal per-user installation. The installer bundle 
 include the repository's MIT `LICENSE`, `PRIVACY.md`, `CHANGELOG.md`, `THIRD_PARTY_NOTICES.md`, and
 desktop runbook as local resources. The portable archive includes the same files for offline review.
 For the portable build, extract the whole ZIP to a user-writable folder and keep `KnowTier.exe` and
-its target-suffixed sidecar together; moving only the main executable breaks startup. Windows
+the bundled `cognigraph-desktop-sidecar.exe` together; some builds name the main executable
+`knowtier-desktop.exe`. Moving only the main executable breaks startup. Windows
 SmartScreen can warn about an unsigned build; do not bypass the warning unless the release explicitly
 reports `UNSIGNED` and its checksum matches. The portable ZIP does not make the learning data
 portable.
 
 ### macOS
 
-Open the DMG and drag KnowTier to `Applications`. An unsigned or unnotarized candidate can be blocked
+Open the DMG and drag KnowTier to `Applications`. An unsigned or unnotarized build can be blocked
 by Gatekeeper. Confirm the signing-status record and checksum before using **Privacy & Security →
 Open Anyway**; managed devices may forbid this completely.
 
@@ -71,11 +72,11 @@ Open Anyway**; managed devices may forbid this completely.
 For an AppImage, make the file executable and run it:
 
 ```bash
-chmod +x KnowTier-1.0.0-rc.5-linux-x64.AppImage
-./KnowTier-1.0.0-rc.5-linux-x64.AppImage
+chmod +x KnowTier-1.0.0-linux-x64.AppImage
+./KnowTier-1.0.0-linux-x64.AppImage
 ```
 
-For Debian or Ubuntu, install the package with `sudo apt install ./knowtier_1.0.0-rc.5_amd64.deb`.
+For Debian or Ubuntu, install the package with `sudo apt install ./knowtier_1.0.0_amd64.deb`.
 Linux packages currently rely on the published checksum rather than a distribution repository
 signature and are explicitly identified as unsigned.
 

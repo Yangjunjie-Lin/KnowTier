@@ -5,6 +5,33 @@ All notable changes to KnowTier are documented in this file. The format is based
 
 ## [Unreleased]
 
+## [1.0.0] - 2026-08-12
+
+### Added
+
+- First general-availability desktop release for Windows x64, macOS x64, and Linux x64, with a
+  Windows Portable archive, SHA-256 manifest, CycloneDX SBOMs, privacy notice, and explicit
+  per-platform signing records.
+- Local-first AI tutoring with source-grounded ingestion, versioned domain and learner graphs,
+  auditable mastery evidence, bilingual UI, and role-based Mock, SiliconFlow, or custom
+  OpenAI-compatible model configuration.
+
+### Changed
+
+- Promoted the fully tested RC series to the stable `1.0.0` version and refreshed installation,
+  security, contribution, support, and release documentation for public use.
+- Raised `pypdf` to `6.15.0` to remediate GHSA-fp3f-mc75-235c and GHSA-fwg2-594c-jp42 before
+  assembling the stable desktop Sidecar.
+- Made the production HTTP smoke independent of workstation proxy settings and verified that an
+  ingestion revision remains auditable when later teaching legitimately creates newer revisions.
+- Ignored reproducible local test evidence and package outputs so normal development starts from a
+  clean Git worktree without hiding tracked source or release metadata.
+
+### Fixed
+
+- Restored learner-graph rendering for the two-node concentric-layout edge case and retained one
+  selectable line per entity pair with all ontology relationship facts in its detail view.
+
 ## [1.0.0-rc.5] - 2026-08-12
 
 ### Fixed
@@ -185,7 +212,8 @@ All notable changes to KnowTier are documented in this file. The format is based
 - Mutable desktop data is kept outside the installed application, in the operating system's
   per-user application-data directory.
 
-[Unreleased]: https://github.com/Yangjunjie-Lin/KnowTier/compare/v1.0.0-rc.5...HEAD
+[Unreleased]: https://github.com/Yangjunjie-Lin/KnowTier/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/Yangjunjie-Lin/KnowTier/releases/tag/v1.0.0
 [1.0.0-rc.5]: https://github.com/Yangjunjie-Lin/KnowTier/releases/tag/v1.0.0-rc.5
 [1.0.0-rc.4]: https://github.com/Yangjunjie-Lin/KnowTier/releases/tag/v1.0.0-rc.4
 [1.0.0-rc.3]: https://github.com/Yangjunjie-Lin/KnowTier/releases/tag/v1.0.0-rc.3

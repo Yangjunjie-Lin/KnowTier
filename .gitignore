@@ -22,5 +22,12 @@ dist/
 build/
 *.egg-info/
 data/
+# Reproducible local acceptance, packaging, and browser evidence.
+artifacts/
+desktop-release*/
+desktop-manual-test-*/
+.installed-smoke*/
+.portable-smoke*/
+.pytest-*/
 .idea/
 .vscode/

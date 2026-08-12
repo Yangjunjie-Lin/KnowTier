@@ -1,5 +1,16 @@
 # KnowTier / Cognigraph Tutor
 
+[![CI](https://github.com/Yangjunjie-Lin/KnowTier/actions/workflows/ci.yml/badge.svg)](https://github.com/Yangjunjie-Lin/KnowTier/actions/workflows/ci.yml)
+[![Frontend CI](https://github.com/Yangjunjie-Lin/KnowTier/actions/workflows/frontend-ci.yml/badge.svg)](https://github.com/Yangjunjie-Lin/KnowTier/actions/workflows/frontend-ci.yml)
+[![Release](https://img.shields.io/github/v/release/Yangjunjie-Lin/KnowTier?display_name=tag)](https://github.com/Yangjunjie-Lin/KnowTier/releases/latest)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+
+> Download the desktop app: **[latest stable release](https://github.com/Yangjunjie-Lin/KnowTier/releases/latest)**
+> · [Windows installer](https://github.com/Yangjunjie-Lin/KnowTier/releases/latest/download/KnowTier-Setup-1.0.0-windows-x64.exe)
+> · [Windows Portable](https://github.com/Yangjunjie-Lin/KnowTier/releases/latest/download/KnowTier-Portable-1.0.0-windows-x64.zip)
+> · [中文使用说明](docs/USER_GUIDE_ZH.md)
+> · [Desktop guide](docs/DESKTOP.md)
+
 KnowTier is a full-stack tutoring workspace. Its Cognigraph backend combines a deterministic six-level
 teaching policy, learner mastery estimation, source-grounded knowledge extraction, and a
 versioned first-class relation graph. FastAPI exposes document, chat, graph, learner, and
@@ -10,7 +21,30 @@ through a transactional Outbox.
 The default mock mode needs no model API key and performs a complete, deterministic teaching
 flow suitable for local development and tests.
 
+## Highlights
+
+- Evidence-linked tutoring, six learning levels, mastery detection, misconceptions, and sources.
+- Versioned domain and learner knowledge graphs with one readable relationship line per entity pair.
+- Local-first desktop storage with SQLite, OS App Data persistence, and no Node/Python/Docker
+  requirement for end users.
+- Mock, SiliconFlow, and custom OpenAI-compatible providers behind a backend-only ModelGateway.
+- Chinese and English UI, responsive desktop/tablet/mobile layouts, keyboard navigation, axe checks,
+  and visual regression coverage.
+- Windows, macOS, and Linux release artifacts with checksums, SBOMs, privacy notice, and explicit
+  signing status.
+
+## Desktop installation
+
+End users do not need the development requirements below. Download the matching artifact from the
+[latest release](https://github.com/Yangjunjie-Lin/KnowTier/releases/latest), verify it against
+`SHA256SUMS.txt`, then follow [docs/DESKTOP.md](docs/DESKTOP.md). The application starts in offline
+Mock mode; provider credentials are optional and can be session-only or stored in the OS credential
+vault. Builds without a configured code-signing certificate are explicitly marked `UNSIGNED`.
+Chinese users can follow the complete [中文使用说明](docs/USER_GUIDE_ZH.md).
+
 ## Requirements
+
+These requirements apply only to source development and server deployment.
 
 - Python 3.12
 - [uv](https://docs.astral.sh/uv/)
@@ -289,6 +323,10 @@ See [ARCHITECTURE.md](ARCHITECTURE.md), [DATA_MODEL.md](DATA_MODEL.md),
 [VISION_PIPELINE.md](VISION_PIPELINE.md), [LEARNER_GRAPH.md](LEARNER_GRAPH.md),
 [MIGRATION_GUIDE.md](MIGRATION_GUIDE.md), and [PRODUCTION_TESTING.md](PRODUCTION_TESTING.md)
 for implementation details.
+
+Community and project policies: [Contributing](CONTRIBUTING.md), [Security](SECURITY.md),
+[Support](SUPPORT.md), [Code of Conduct](CODE_OF_CONDUCT.md), [Privacy](PRIVACY.md), and
+[License](LICENSE).
 
 ## Known limits
 

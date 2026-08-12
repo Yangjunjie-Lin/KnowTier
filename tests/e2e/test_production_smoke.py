@@ -30,7 +30,9 @@ def _sample_pdf() -> bytes:
 async def test_production_api_workflow_survives_graph_and_learner_updates() -> None:
     base_url = os.getenv("COGNIGRAPH_E2E_BASE_URL", "http://127.0.0.1:8000")
     timeout = httpx.Timeout(20.0, connect=5.0)
-    async with httpx.AsyncClient(base_url=base_url, timeout=timeout) as client:
+    # Production smoke targets a loopback service. Ignore workstation proxy
+    # settings so a system HTTP proxy cannot intercept or reject localhost.
+    async with httpx.AsyncClient(base_url=base_url, timeout=timeout, trust_env=False) as client:
         ready = await client.get("/ready")
         assert ready.status_code == 200, ready.text
 
@@ -151,7 +153,11 @@ async def test_production_api_workflow_survives_graph_and_learner_updates() -> N
             params={"workspace_id": workspace_id},
         )
         assert domain_revisions.status_code == 200, domain_revisions.text
-        assert domain_revisions.json()["items"][0]["id"] == graph_revision_id
+        # Chat may create a newer domain revision when the graph-model proposal
+        # is accepted. The ingestion revision must remain present and auditable,
+        # but it is not required to remain the latest revision forever.
+        domain_revision_ids = {item["id"] for item in domain_revisions.json()["items"]}
+        assert graph_revision_id in domain_revision_ids
 
         learner_graph = await client.get(f"/v1/learners/{learner_id}/knowledge-graph")
         assert learner_graph.status_code == 200, learner_graph.text
@@ -192,7 +198,7 @@ async def test_production_api_recovery_after_restart() -> None:
     state_path = Path(os.getenv("COGNIGRAPH_E2E_STATE_PATH", "production-e2e-state.json"))
     state = json.loads(await asyncio.to_thread(state_path.read_text, encoding="utf-8"))
     base_url = os.getenv("COGNIGRAPH_E2E_BASE_URL", "http://127.0.0.1:8000")
-    async with httpx.AsyncClient(base_url=base_url, timeout=20.0) as client:
+    async with httpx.AsyncClient(base_url=base_url, timeout=20.0, trust_env=False) as client:
         ready = await client.get("/ready")
         assert ready.status_code == 200, ready.text
         client.headers["X-Workspace-ID"] = state["workspace_id"]

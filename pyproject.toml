@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "cognigraph-tutor"
-version = "1.0.0-rc.5"
+version = "1.0.0"
 description = "Traceable six-level tutoring agent with learner and knowledge graphs"
 readme = "README.md"
 requires-python = ">=3.12,<3.14"
@@ -30,7 +30,7 @@ dependencies = [
   "python-json-logger>=3.2,<5",
   "python-multipart>=0.0.20,<1",
   "python-pptx>=1.0,<2",
-  "pypdf>=5.1,<7",
+  "pypdf>=6.15.0,<7",
   "rdflib>=7.1,<8",
   "sqlalchemy[asyncio]>=2.0.36,<3",
   "structlog>=24.4,<27",

@@ -1,6 +1,6 @@
 # KnowTier v1 product acceptance matrix
 
-Baseline: `b5f7ee1358105ebede35ed414acbbe61d47106ca` (`origin/main`, 2026-08-06)
+Final-release baseline: `0f808f30de1ca1ba06e91b4f6b0ecc3e7240b2d5` (`origin/main`, 2026-08-12)
 
 This matrix is the release acceptance source of truth. `PASS` means the
 referenced automated acceptance ran against the release candidate. `PARTIAL`
@@ -27,9 +27,9 @@ rows prevent promotion from Draft RC to v1.0.0.
 | Models & providers `/settings` | Mock, SiliconFlow, Custom OpenAI-compatible; masked/session/keyring credential; model discovery/search; connection test; unified/role mapping; timeout/retry/temperature/max tokens; activate/delete | `/v1/model-config/*`; provider `GET /models` through backend only | non-secret profile store; API key in process memory or OS credential vault | provider contract, masked API, frontend component, Playwright settings flow, explicitly dispatched live SiliconFlow discovery/chat/embedding smoke | PASS |
 | Theme and typography | Light/dark/system, reduced motion, font size, contrast and focus visibility | none | device preferences, never credentials | Vitest plus visual snapshots and axe in all viewports | PASS |
 | Responsive shell | Sidebar/top bar, mobile bottom nav, sheets/dialogs, no horizontal overflow or covered composer | all page APIs | current context and query cache | Playwright projects at 1440x900, 1024x768, 390x844 | PASS |
-| Error and recovery | Loading/empty/partial, timeout, 401/403/404/429/500, offline and recovery, local retry without losing successful panels | all APIs | query cache keyed by workspace/learner/session/target | route interception matrix, retry and offline Playwright | PARTIAL |
+| Error and recovery | Loading/empty/partial, timeout, 401/403/404/429/500, offline and recovery, local retry without losing successful panels | all APIs | query cache keyed by workspace/learner/session/target | typed API-client/error-state tests plus retry, offline and HTTP-fault Playwright | PASS |
 | Desktop first run | Sidecar boot, authenticated ready handshake, onboarding, Mock full flow, App Data persistence | local FastAPI on random `127.0.0.1` port | App Data SQLite/uploads/logs; rehydratable semantic projection | packaged sidecar/lifecycle/install smoke on Windows NSIS/portable, macOS DMG, Linux AppImage/Debian | PASS |
-| Desktop upgrade/uninstall | Migration and retained data; no orphan sidecar; uninstall policy is visible | local operational endpoints | App Data retained by default unless user deletes it | installed-upgrade/uninstall/orphan process tests | PARTIAL: lifecycle fixtures pass; installed upgrade/uninstall not yet run |
+| Desktop upgrade/uninstall | Migration and retained data; no orphan sidecar; uninstall policy is visible | local operational endpoints | App Data retained by default unless user deletes it | installed-upgrade/uninstall/orphan process tests | PASS: stable v1.0.0 silent uninstall retained App Data, reinstall preserved it, and both-launch orphan checks passed |
 
 ## Cross-cutting invariants
 
