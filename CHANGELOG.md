@@ -31,6 +31,10 @@ All notable changes to KnowTier are documented in this file. The format is based
 
 - Restored learner-graph rendering for the two-node concentric-layout edge case and retained one
   selectable line per entity pair with all ontology relationship facts in its detail view.
+- Hardened the Windows PyInstaller Sidecar release smoke for clean hosted runners: one explicit
+  five-minute cold-start budget now covers port announcement and authenticated readiness, while
+  failure cleanup terminates and reaps the complete bootloader process tree before temporary App
+  Data is removed.
 
 ## [1.0.0-rc.5] - 2026-08-12
 
