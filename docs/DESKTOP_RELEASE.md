@@ -6,14 +6,16 @@ signing evidence before anything is published.
 
 ## Trigger and version contract
 
-`.github/workflows/release-desktop.yml` runs for `v*` tags and through `workflow_dispatch`.
+`.github/workflows/release-desktop.yml` runs only through an explicit `workflow_dispatch`.
 
-- A pushed tag performs the gate, builds all platforms, and creates or refreshes a draft release.
 - A manual run always performs the gate and builds. Set `create_draft_release` only when the run
   should create a draft, and provide the intended `v<semver>` tag. The current release is
   `v1.0.0`.
 - Set `run_live_siliconflow` only for an intentional paid-provider smoke test. It is impossible for
-  that job to run from a tag or other automatic event.
+  that job to run from a tag, release event, or other automatic event.
+- Publishing the reviewed draft creates the immutable tag without launching a second packaging
+  matrix. This keeps the already-reviewed assets authoritative and avoids an automatic build that
+  would be unable to replace a published release.
 
 The release tag and all Python, npm, Tauri, and Cargo manifests and lockfiles must describe
 `1.0.0`. Update the changelog and

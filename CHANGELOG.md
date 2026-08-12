@@ -5,6 +5,13 @@ All notable changes to KnowTier are documented in this file. The format is based
 
 ## [Unreleased]
 
+### Fixed
+
+- Isolated the post-Compose performance test environment from Docker-owned repository paths, so
+  published-release checks cannot fail with a root-owned `.venv/CACHEDIR.TAG`.
+- Made desktop packaging explicitly dispatch-only. Publishing an already-reviewed Draft Release no
+  longer triggers a redundant platform matrix that cannot replace immutable published assets.
+
 ## [1.0.0] - 2026-08-12
 
 ### Added

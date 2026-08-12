@@ -1,9 +1,6 @@
 name: Desktop release
 
 on:
-  push:
-    tags:
-      - "v*"
   workflow_dispatch:
     inputs:
       release_tag:
@@ -28,7 +25,7 @@ on:
         type: string
 
 concurrency:
-  group: desktop-release-${{ inputs.release_tag || github.ref_name }}
+  group: desktop-release-${{ inputs.release_tag }}
   cancel-in-progress: false
 
 permissions:
@@ -163,14 +160,9 @@ jobs:
                   f"expected {python_lock_expected!r}, got {python_lock_version!r}"
               )
 
-          event_name = os.environ["GITHUB_EVENT_NAME"]
-          should_release = event_name == "push" or os.environ["CREATE_DRAFT_RELEASE"] == "true"
+          should_release = os.environ["CREATE_DRAFT_RELEASE"] == "true"
           if should_release:
-              tag = (
-                  os.environ["GITHUB_REF_NAME"]
-                  if event_name == "push"
-                  else os.environ["MANUAL_RELEASE_TAG"].strip()
-              )
+              tag = os.environ["MANUAL_RELEASE_TAG"].strip()
               expected = f"v{frontend_version}"
               if tag != expected:
                   raise SystemExit(f"release tag {tag!r} must equal {expected!r}")
@@ -1108,7 +1100,7 @@ jobs:
     needs: assemble-release
     if: >-
       ${{ always() && needs.assemble-release.result == 'success' &&
-          (github.event_name == 'push' || inputs.create_draft_release == true) }}
+          inputs.create_draft_release == true }}
     runs-on: ubuntu-latest
     timeout-minutes: 10
     permissions:
@@ -1126,11 +1118,7 @@ jobs:
           RELEASE_VERSION: ${{ env.RELEASE_VERSION }}
         run: |
           set -euo pipefail
-          if [[ "$GITHUB_EVENT_NAME" == "push" ]]; then
-            tag="$GITHUB_REF_NAME"
-          else
-            tag="$MANUAL_RELEASE_TAG"
-          fi
+          tag="$MANUAL_RELEASE_TAG"
 
           {
             echo "## KnowTier Desktop $tag"
@@ -1161,15 +1149,13 @@ jobs:
           if release_state="$(gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json isDraft --jq .isDraft 2>/dev/null)"; then
             existing="$release_state"
           fi
-          if [[ "$GITHUB_EVENT_NAME" == "workflow_dispatch" ]]; then
-            tagged_commit=""
-            if commit_sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/$tag" --jq .sha 2>/dev/null)"; then
-              tagged_commit="$commit_sha"
-            fi
-            if [[ -n "$tagged_commit" && "$tagged_commit" != "$GITHUB_SHA" ]]; then
-              echo "Refusing to move existing tag $tag from $tagged_commit to $GITHUB_SHA; use a new version." >&2
-              exit 1
-            fi
+          tagged_commit=""
+          if commit_sha="$(gh api "repos/$GITHUB_REPOSITORY/commits/$tag" --jq .sha 2>/dev/null)"; then
+            tagged_commit="$commit_sha"
+          fi
+          if [[ -n "$tagged_commit" && "$tagged_commit" != "$GITHUB_SHA" ]]; then
+            echo "Refusing to move existing tag $tag from $tagged_commit to $GITHUB_SHA; use a new version." >&2
+            exit 1
           fi
           if [[ "$existing" == "false" ]]; then
             echo "Refusing to replace assets on the already-published release $tag." >&2

@@ -53,10 +53,16 @@ jobs:
           version: "latest"
       - run: uv lock --check
       - name: Install frozen development environment
+        env:
+          # The Compose API mounts its own /app/.venv over the repository bind
+          # mount. Docker may still create the host mount point as root, so the
+          # host-side performance gate must never reuse repository .venv.
+          UV_PROJECT_ENVIRONMENT: ${{ runner.temp }}/release-check-venv
         run: uv sync --frozen --dev
       - name: Run production-size budget checks
         env:
           COGNIGRAPH_RUN_PERFORMANCE: "1"
+          UV_PROJECT_ENVIRONMENT: ${{ runner.temp }}/release-check-venv
         run: uv run pytest tests/performance -m performance -q
 
   live-model:

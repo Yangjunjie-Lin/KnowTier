@@ -194,3 +194,24 @@ def test_production_workflow_tracks_the_uvicorn_process_for_restarts() -> None:
     assert 'old_pid="$(cat api.pid)"' in workflow
     assert 'if ! kill -0 "$old_pid"' in workflow
     assert 'wait "$(cat api.pid)"' not in workflow
+
+
+def test_release_workflows_isolate_host_tools_and_require_explicit_packaging() -> None:
+    release_checks = (REPOSITORY_ROOT / ".github" / "workflows" / "release-check.yml").read_text(
+        encoding="utf-8"
+    )
+    desktop_release = (REPOSITORY_ROOT / ".github" / "workflows" / "release-desktop.yml").read_text(
+        encoding="utf-8"
+    )
+
+    # Compose can create the bind-mounted .venv directory as root. Both host
+    # uv commands must use the same Runner-owned environment outside the repo.
+    assert (
+        release_checks.count("UV_PROJECT_ENVIRONMENT: ${{ runner.temp }}/release-check-venv") == 2
+    )
+
+    trigger_block = desktop_release.split("permissions:", maxsplit=1)[0]
+    assert "  workflow_dispatch:" in trigger_block
+    assert "  push:" not in trigger_block
+    assert "github.event_name == 'push'" not in desktop_release
+    assert 'GITHUB_EVENT_NAME" == "push"' not in desktop_release
