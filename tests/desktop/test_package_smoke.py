@@ -1,7 +1,8 @@
 from __future__ import annotations
 
 import json
-from unittest.mock import Mock
+import subprocess
+from unittest.mock import Mock, call
 
 import pytest
 
@@ -88,7 +89,7 @@ def test_json_request_sends_authenticated_utf8_payload(
 
     status, payload = smoke_sidecar.json_request(
         "http://127.0.0.1:41000/api/v1/chat",
-        {"message": "什么是RAG"},
+        {"message": "什么是 RAG?"},
         control_token="control-token",
         timeout=60.0,
     )
@@ -101,4 +102,64 @@ def test_json_request_sends_authenticated_utf8_payload(
         "Authorization": "Bearer control-token",
         "Content-Type": "application/json",
     }
-    assert json.loads(bytes(captured["body"]).decode("utf-8")) == {"message": "什么是RAG"}
+    assert json.loads(bytes(captured["body"]).decode("utf-8")) == {"message": "什么是 RAG?"}
+
+
+def test_remaining_startup_time_uses_one_end_to_end_budget(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(smoke_sidecar.time, "monotonic", lambda: 145.0)
+
+    assert smoke_sidecar._remaining_startup_time(100.0, 120.0) == 75.0
+    assert smoke_sidecar._remaining_startup_time(100.0, 40.0) == 0.0
+
+
+def test_stop_process_tree_terminates_and_reaps_posix_process(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    process: Mock = Mock()
+    process.poll.return_value = None
+    monkeypatch.setattr(smoke_sidecar.os, "name", "posix")
+
+    smoke_sidecar._stop_process_tree(process)
+
+    assert process.method_calls == [call.poll(), call.terminate(), call.wait(timeout=30)]
+
+
+def test_stop_process_tree_forcibly_ends_windows_bootloader_children(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    process: Mock = Mock(pid=4242)
+    process.poll.return_value = None
+    run = Mock()
+    monkeypatch.setattr(smoke_sidecar.os, "name", "nt")
+    monkeypatch.setattr(smoke_sidecar.subprocess, "run", run)
+
+    smoke_sidecar._stop_process_tree(process)
+
+    run.assert_called_once_with(
+        ["taskkill", "/PID", "4242", "/T", "/F"],
+        check=False,
+        capture_output=True,
+        timeout=30,
+    )
+    process.wait.assert_called_once_with(timeout=30)
+
+
+def test_stop_process_tree_kills_a_process_that_does_not_terminate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    process: Mock = Mock()
+    process.poll.return_value = None
+    process.wait.side_effect = [subprocess.TimeoutExpired("sidecar", 30), 0]
+    monkeypatch.setattr(smoke_sidecar.os, "name", "posix")
+
+    smoke_sidecar._stop_process_tree(process)
+
+    assert process.method_calls == [
+        call.poll(),
+        call.terminate(),
+        call.wait(timeout=30),
+        call.kill(),
+        call.wait(timeout=30),
+    ]

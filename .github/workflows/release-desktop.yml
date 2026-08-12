@@ -482,6 +482,7 @@ jobs:
         run: >-
           uv run --frozen python scripts/desktop/smoke_sidecar.py
           frontend/src-tauri/binaries/cognigraph-desktop-sidecar-${{ matrix.target }}${{ runner.os == 'Windows' && '.exe' || '' }}
+          --startup-timeout ${{ runner.os == 'Windows' && '300' || '120' }}
 
       - name: Verify macOS sidecar architecture
         if: runner.os == 'macOS'

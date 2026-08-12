@@ -31,6 +31,35 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
+def _remaining_startup_time(started_at: float, startup_timeout: float) -> float:
+    return max(0.0, startup_timeout - (time.monotonic() - started_at))
+
+
+def _stop_process_tree(process: subprocess.Popen[bytes]) -> None:
+    """Stop a frozen sidecar and all of its PyInstaller bootloader children."""
+
+    if process.poll() is not None:
+        process.wait()
+        return
+    if os.name == "nt":
+        # A one-file PyInstaller executable has a bootloader parent and an
+        # application child. Terminating only the Popen handle can leave the
+        # child holding the SQLite/log files open on Windows.
+        subprocess.run(
+            ["taskkill", "/PID", str(process.pid), "/T", "/F"],
+            check=False,
+            capture_output=True,
+            timeout=30,
+        )
+    else:
+        process.terminate()
+    try:
+        process.wait(timeout=30)
+    except subprocess.TimeoutExpired:
+        process.kill()
+        process.wait(timeout=30)
+
+
 def request(
     url: str,
     *,
@@ -102,6 +131,8 @@ def _wait_until_ready(
 
 
 def run_smoke(binary: Path, *, startup_timeout: float) -> dict[str, int | bool]:
+    if startup_timeout <= 0:
+        raise ValueError("startup_timeout must be positive")
     executable = binary.resolve(strict=True)
     bootstrap_token = secrets.token_hex(32)
     control_token = secrets.token_hex(32)
@@ -125,6 +156,7 @@ def run_smoke(binary: Path, *, startup_timeout: float) -> dict[str, int | bool]:
             stderr=subprocess.DEVNULL,
             creationflags=creation_flags,
         )
+        started_at = time.monotonic()
         try:
             if process.stdout is None:
                 raise RuntimeError("sidecar control output pipe was not created")
@@ -136,7 +168,11 @@ def run_smoke(binary: Path, *, startup_timeout: float) -> dict[str, int | bool]:
 
             threading.Thread(target=read_announcement, daemon=True).start()
             try:
-                announcement = output.get(timeout=startup_timeout).decode("utf-8").strip()
+                announcement = (
+                    output.get(timeout=_remaining_startup_time(started_at, startup_timeout))
+                    .decode("utf-8")
+                    .strip()
+                )
             except queue.Empty as error:
                 raise RuntimeError("sidecar did not announce its loopback port") from error
             if not announcement.startswith(PORT_ANNOUNCEMENT_PREFIX):
@@ -152,7 +188,7 @@ def run_smoke(binary: Path, *, startup_timeout: float) -> dict[str, int | bool]:
                 base_url,
                 bootstrap_token,
                 process,
-                startup_timeout=startup_timeout,
+                startup_timeout=_remaining_startup_time(started_at, startup_timeout),
             )
             if not ready:
                 raise RuntimeError("sidecar did not complete its authenticated readiness handshake")
@@ -201,7 +237,7 @@ def run_smoke(binary: Path, *, startup_timeout: float) -> dict[str, int | bool]:
                     "workspace_id": workspace_id,
                     "learner_id": learner_id,
                     "session_id": str(uuid4()),
-                    "message": "什么是RAG",
+                    "message": "什么是 RAG?",
                     "requested_mode": "learn",
                 },
                 control_token=control_token,
@@ -239,15 +275,10 @@ def run_smoke(binary: Path, *, startup_timeout: float) -> dict[str, int | bool]:
                 "exit_code": exit_code,
             }
         finally:
+            if process.poll() is None:
+                _stop_process_tree(process)
             if process.stdout is not None:
                 process.stdout.close()
-            if process.poll() is None:
-                process.terminate()
-                try:
-                    process.wait(timeout=5)
-                except subprocess.TimeoutExpired:
-                    process.kill()
-                    process.wait(timeout=5)
 
 
 def main() -> int:
