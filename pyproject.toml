@@ -46,7 +46,7 @@ ocr = ["paddleocr>=3.7,<4", "paddlepaddle>=3.3.1,<4", "pymupdf>=1.24,<2"]
 
 [dependency-groups]
 dev = [
-  "mypy>=1.14,<2",
+  "mypy>=1.14,<3",
   "pytest>=8.3,<10",
   "pytest-asyncio>=0.25,<2",
   "reportlab>=4.2,<5",
