@@ -229,3 +229,8 @@ def test_release_workflows_isolate_host_tools_and_require_explicit_packaging() -
     assert "  push:" not in trigger_block
     assert "github.event_name == 'push'" not in desktop_release
     assert 'GITHUB_EVENT_NAME" == "push"' not in desktop_release
+    assert "$maxAttempts = 3" in desktop_release
+    assert "Start-Sleep -Seconds $delaySeconds" in desktop_release
+    assert "NSIS bundle failed after 3 complete attempts" in desktop_release
+    assert "exit $exitCode" in desktop_release
+    assert "Smoke installed Windows bundle" in desktop_release

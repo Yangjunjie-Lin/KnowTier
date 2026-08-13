@@ -637,9 +637,28 @@ jobs:
           if (-not [string]::IsNullOrWhiteSpace($env:TAURI_WINDOWS_SIGNING_CONFIG)) {
             $arguments += @("--config", $env:TAURI_WINDOWS_SIGNING_CONFIG)
           }
-          & npx --yes "@tauri-apps/cli@$env:TAURI_CLI_VERSION" @arguments 2>&1 |
-            Tee-Object -FilePath "$env:RUNNER_TEMP/tauri-build.log"
-          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+          $logPath = Join-Path $env:RUNNER_TEMP "tauri-build.log"
+          $maxAttempts = 3
+          $exitCode = 1
+          for ($attempt = 1; $attempt -le $maxAttempts; $attempt++) {
+            "NSIS bundle attempt $attempt of $maxAttempts" |
+              Tee-Object -FilePath $logPath -Append
+            & npx --yes "@tauri-apps/cli@$env:TAURI_CLI_VERSION" @arguments 2>&1 |
+              Tee-Object -FilePath $logPath -Append
+            $exitCode = $LASTEXITCODE
+            if ($exitCode -eq 0) { break }
+            if ($attempt -lt $maxAttempts) {
+              $delaySeconds = 15 * $attempt
+              "NSIS bundle attempt $attempt failed with exit code $exitCode; " +
+                "retrying in $delaySeconds seconds." |
+                Tee-Object -FilePath $logPath -Append
+              Start-Sleep -Seconds $delaySeconds
+            }
+          }
+          if ($exitCode -ne 0) {
+            Write-Error "NSIS bundle failed after 3 complete attempts (exit code $exitCode)"
+            exit $exitCode
+          }
 
       - name: Smoke installed Windows bundle
         if: runner.os == 'Windows'
