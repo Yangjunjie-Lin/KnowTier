@@ -656,7 +656,9 @@ jobs:
             }
           }
           if ($exitCode -ne 0) {
-            Write-Error "NSIS bundle failed after 3 complete attempts (exit code $exitCode)"
+            [Console]::Error.WriteLine(
+              "NSIS bundle failed after 3 complete attempts (exit code $exitCode)"
+            )
             exit $exitCode
           }
 
