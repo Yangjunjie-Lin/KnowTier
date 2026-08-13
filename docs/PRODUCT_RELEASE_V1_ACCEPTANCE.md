@@ -1,7 +1,7 @@
 # KnowTier v1.0.0 product acceptance record
 
 This record is the release gate for the first general-availability build. The remote `main` baseline
-at the start of final acceptance was `0f808f30de1ca1ba06e91b4f6b0ecc3e7240b2d5`. The immutable
+at the start of final acceptance was `0f808f30de1ca1ba06e91b4f6b0ecc3e7240b2d5`. The published
 `v1.0.0` tag and the successful Desktop release workflow are the authoritative source identity;
 the public release is <https://github.com/Yangjunjie-Lin/KnowTier/releases/tag/v1.0.0>. Only checks
 that actually ran are marked as passing.
@@ -134,7 +134,9 @@ artifacts have independent hashes and are the authoritative public downloads.
 ## Final release identity
 
 - Baseline remote `main`: `0f808f30de1ca1ba06e91b4f6b0ecc3e7240b2d5`
-- Final source identity: immutable annotated by the `v1.0.0` Git tag and release target
+- Final published source identity: lightweight Git tag `v1.0.0` and matching release target at
+  `8dd40d35365b189ef5c27b88b9325c7801d5b0a7`. The repository does not technically protect or make
+  the tag immutable; release policy forbids moving it and requires a new semantic version instead.
 - GitHub Actions evidence: <https://github.com/Yangjunjie-Lin/KnowTier/actions/workflows/release-desktop.yml>
 - GitHub Release: <https://github.com/Yangjunjie-Lin/KnowTier/releases/tag/v1.0.0>
 - Signing status: `UNSIGNED` for Windows, macOS, and Linux

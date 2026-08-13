@@ -23,6 +23,8 @@ All notable changes to KnowTier are documented in this file. The format is based
 
 ### Fixed
 
+- Corrected the v1 acceptance record to describe the published lightweight tag and the project
+  policy against moving it without implying GitHub-side tag protection or technical immutability.
 - Pointed README downloads at immutable v1.0.0 assets and corrected the signing-status filenames
   to the three platform-specific `UNSIGNED-*` records shipped in the published release.
 - Kept model-provider forms hidden until the exact selected profile has finished hydrating,
