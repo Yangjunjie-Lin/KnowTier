@@ -197,9 +197,16 @@ describe("SettingsPage learning preferences", () => {
   it("preserves a custom profile name when the provider changes", async () => {
     renderPage();
     const name = await screen.findByLabelText("配置名称");
+    const provider = screen.getByLabelText("供应商");
+
+    // The selected profile and its editable form must be hydrated atomically.
+    // Exposing the default new-profile form here lets a fast edit be overwritten
+    // by the selected profile's hydration effect.
+    expect(name).toHaveValue("Mock Provider");
+    expect(provider).toHaveValue("mock");
     fireEvent.change(name, { target: { value: "课程专用模型" } });
 
-    fireEvent.change(screen.getByLabelText("供应商"), {
+    fireEvent.change(provider, {
       target: { value: "custom_openai_compatible" },
     });
 

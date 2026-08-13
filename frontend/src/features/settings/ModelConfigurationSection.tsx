@@ -178,6 +178,9 @@ export function ModelConfigurationSection() {
   const [configurationToken, setConfigurationToken] = useState("");
   const [actionFeedback, setActionFeedback] = useState<string | null>(null);
   const [actionError, setActionError] = useState<Error | null>(null);
+  const [hydratedSelection, setHydratedSelection] = useState<
+    ModelProfile | typeof NEW_PROFILE | null
+  >(null);
   const profiles = useMemo(
     () => configuration.data?.profiles ?? [],
     [configuration.data?.profiles],
@@ -201,6 +204,7 @@ export function ModelConfigurationSection() {
       setAvailableModels([]);
       setAdvanced(false);
       setUnifiedModel("");
+      setHydratedSelection(NEW_PROFILE);
       return;
     }
     const profile = profiles.find((item) => item.id === selectedId);
@@ -215,6 +219,7 @@ export function ModelConfigurationSection() {
       (values.length === GENERATION_ROLE_KEYS.length && new Set(values).size === 1);
     setAdvanced(!unified);
     setUnifiedModel(unified && values.length > 0 ? (values[0] ?? "") : "");
+    setHydratedSelection(profile);
   }, [profiles, selectedId]);
 
   const refreshConfiguration = async () => {
@@ -442,10 +447,16 @@ export function ModelConfigurationSection() {
       </section>
     );
   }
-  // Do not expose the transient new-profile form while an existing profile is
-  // being selected from the freshly loaded configuration. Otherwise a quick
-  // edit can be overwritten by the profile hydration effect a moment later.
-  if (selectedId === null && profiles.length > 0) {
+  // Do not expose a form until it has been hydrated for the exact profile
+  // object selected from the latest query result. This covers both initial
+  // selection and a refreshed profile with the same id; otherwise a quick edit
+  // can be overwritten by the hydration effect a moment later.
+  const selectionIsHydrating =
+    (selectedId === null && profiles.length > 0) ||
+    (selectedId === NEW_PROFILE
+      ? hydratedSelection !== NEW_PROFILE
+      : selectedProfile !== undefined && hydratedSelection !== selectedProfile);
+  if (selectionIsHydrating) {
     return (
       <section className="mb-5 rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
         <p

@@ -21,6 +21,8 @@ All notable changes to KnowTier are documented in this file. The format is based
 
 ### Fixed
 
+- Kept model-provider forms hidden until the exact selected profile has finished hydrating,
+  preventing fast edits from being overwritten by a stale/default provider form.
 - Made multilingual CLI output recover to UTF-8 when a redirected Windows terminal exposes a
   legacy encoding, preventing successful Chinese teaching turns from failing during display.
 - Added three bounded Windows NSIS bundle attempts so a transient official Tauri tool download
