@@ -21,6 +21,22 @@ through a transactional Outbox.
 The default mock mode needs no model API key and performs a complete, deterministic teaching
 flow suitable for local development and tests.
 
+## Product tour
+
+### Learning overview
+
+![KnowTier learning overview](docs/images/knowtier-overview.png)
+
+### AI learning workspace
+
+![KnowTier AI learning workspace](docs/images/knowtier-learning-workbench.png)
+
+### Knowledge graph and model providers
+
+| Source-grounded knowledge graph | Backend-only model configuration |
+| --- | --- |
+| ![KnowTier domain knowledge graph](docs/images/knowtier-domain-graph.png) | ![KnowTier model and provider settings](docs/images/knowtier-model-providers.png) |
+
 ## Highlights
 
 - Evidence-linked tutoring, six learning levels, mastery detection, misconceptions, and sources.
@@ -42,6 +58,11 @@ Mock mode; provider credentials are optional and can be session-only or stored i
 vault. Builds without a configured code-signing certificate are explicitly marked `UNSIGNED`.
 Chinese users can follow the complete [中文使用说明](docs/USER_GUIDE_ZH.md).
 
+The packaged desktop application is the one-click path for normal users: install it (or extract the
+Portable ZIP on Windows), then double-click **KnowTier**. Node.js, Python, uv, Docker, PostgreSQL,
+and Neo4j are not required. The published `v1.0.0` artifacts are unsigned and are never described
+as signed; see the release's `SIGNING-STATUS.txt` for each platform.
+
 ## Requirements
 
 These requirements apply only to source development and server deployment.
@@ -51,13 +72,35 @@ These requirements apply only to source development and server deployment.
 - Node.js 22 and npm 10 for frontend development
 - Docker Compose for the production-shaped PostgreSQL/Neo4j stack
 
-## Local setup
+## One-command source launch
 
-For a lightweight local process with SQLite, install the project and edit the copied `.env`
-before initialization:
+Developers can start the complete React → FastAPI → SQLite → Mock LLM path from a clean checkout
+with one command. The scripts install the committed lockfiles, migrate the local database, wait for
+`/ready`, open the UI, and clean up the API process on exit:
+
+```powershell
+# Windows PowerShell
+.\start.ps1
+```
 
 ```bash
-uv sync --dev --extra documents
+# macOS or Linux
+./start.sh
+```
+
+Then open `http://127.0.0.1:5173`. Local data is stored under
+`data/local/`. This launch mode intentionally uses the credential-free Mock Provider and an isolated
+temporary model profile; it does not read provider keys from the shell or `.env`. Configure a real
+provider from **Settings → Models & providers** in the packaged desktop app or use the server setup
+below.
+
+## Manual local setup
+
+For a manually controlled SQLite development process, install the project and edit the copied
+`.env` before initialization:
+
+```bash
+uv sync --frozen --dev --extra documents
 cp .env.example .env
 # Set COGNIGRAPH_DATABASE_URL=sqlite+aiosqlite:///./data/cognigraph.db
 # Set COGNIGRAPH_NEO4J_REQUIRED=false and COGNIGRAPH_USE_MOCK_LLM=true
@@ -88,7 +131,7 @@ In a second terminal, start the frontend development server:
 
 ```powershell
 cd frontend
-npm install
+npm ci
 npm run dev
 ```
 

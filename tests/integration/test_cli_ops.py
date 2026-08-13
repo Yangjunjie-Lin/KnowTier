@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import json
 import os
 import sqlite3
@@ -13,13 +14,26 @@ import pytest
 from click import unstyle
 from typer.testing import CliRunner
 
-from cognigraph.cli import app
+from cognigraph.cli import _echo, app
 from cognigraph.config import get_settings
 from scripts import demo_flow, export_graph, seed_demo
 
 pytestmark = pytest.mark.integration
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[2]
+
+
+def test_cli_output_recovers_from_legacy_windows_encoding(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    output = io.BytesIO()
+    stream = io.TextIOWrapper(output, encoding="cp1252")
+    with monkeypatch.context() as context:
+        context.setattr(sys, "stdout", stream)
+        _echo("中文教学结果")
+        stream.flush()
+    assert output.getvalue().decode("utf-8").splitlines() == ["中文教学结果"]
+    stream.detach()
 
 
 def _sqlite_environment(tmp_path: Path) -> tuple[dict[str, str], Path, Path]:

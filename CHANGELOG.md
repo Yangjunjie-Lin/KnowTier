@@ -7,6 +7,10 @@ All notable changes to KnowTier are documented in this file. The format is based
 
 ### Changed
 
+- Added credential-free one-command source launchers for Windows, macOS, and Linux. They provision
+  locked dependencies, SQLite, Mock LLM, readiness checks, frontend startup, and process cleanup.
+- Added a product tour to the README using verified desktop screenshots for the overview, learning
+  workspace, graph, and model-provider configuration.
 - Consolidated compatible automated dependency updates across the React, Tauri, and Python
   toolchains. The resolver upgrade is paired with its required Zod release, and regenerated lock
   files keep frozen installs reproducible.
@@ -16,6 +20,8 @@ All notable changes to KnowTier are documented in this file. The format is based
 
 ### Fixed
 
+- Made multilingual CLI output recover to UTF-8 when a redirected Windows terminal exposes a
+  legacy encoding, preventing successful Chinese teaching turns from failing during display.
 - Isolated the post-Compose performance test environment from Docker-owned repository paths, so
   published-release checks cannot fail with a root-owned `.venv/CACHEDIR.TAG`.
 - Made desktop packaging explicitly dispatch-only. Publishing an already-reviewed Draft Release no

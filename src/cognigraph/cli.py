@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import io
 import json
+import sys
 import tempfile
 from pathlib import Path
 from typing import Any, Literal, cast
@@ -27,6 +29,27 @@ app.add_typer(db_app, name="db")
 app.add_typer(workspace_app, name="workspace")
 app.add_typer(learner_app, name="learner")
 app.add_typer(graph_app, name="graph")
+
+
+def _echo(value: object) -> None:
+    """Write Unicode results even when a redirected Windows stream is legacy encoded."""
+
+    text = str(value)
+    stream = sys.stdout
+    encoding = stream.encoding or "utf-8"
+    try:
+        text.encode(encoding)
+    except UnicodeEncodeError:
+        if isinstance(stream, io.TextIOWrapper):
+            stream.reconfigure(encoding="utf-8")
+        else:
+            buffer = getattr(stream, "buffer", None)
+            if buffer is None:
+                raise
+            buffer.write(f"{text}\n".encode())
+            buffer.flush()
+            return
+    typer.echo(text)
 
 
 def _run(coroutine: Any) -> Any:
@@ -91,7 +114,7 @@ def initialize() -> None:
         return None
 
     _run(_with_runtime(operation, settings))
-    typer.echo("Cognigraph Tutor initialized.")
+    _echo("Cognigraph Tutor initialized.")
 
 
 @db_app.command("migrate")
@@ -99,7 +122,7 @@ def migrate() -> None:
     settings = Settings()
     _prepare_local_paths(settings)
     _run_migrations(settings)
-    typer.echo("Database migration complete.")
+    _echo("Database migration complete.")
 
 
 @workspace_app.command("create")
@@ -113,7 +136,7 @@ def create_workspace(
             await unit.commit()
         return str(workspace.id)
 
-    typer.echo(_run(_with_runtime(operation)))
+    _echo(_run(_with_runtime(operation)))
 
 
 @learner_app.command("create")
@@ -130,7 +153,7 @@ def create_learner(
             await unit.commit()
         return str(learner.id)
 
-    typer.echo(_run(_with_runtime(operation)))
+    _echo(_run(_with_runtime(operation)))
 
 
 @app.command("ingest")
@@ -152,7 +175,7 @@ def ingest(
         report = await runtime.ingestion.ingest(upload.document_id)
         return report.model_dump_json(indent=2)
 
-    typer.echo(_run(_with_runtime(operation)))
+    _echo(_run(_with_runtime(operation)))
 
 
 @app.command("ask")
@@ -176,7 +199,7 @@ def ask(
         )
         return response.model_dump_json(indent=2)
 
-    typer.echo(_run(_with_runtime(operation)))
+    _echo(_run(_with_runtime(operation)))
 
 
 @learner_app.command("show")
@@ -207,7 +230,7 @@ def show_learner(learner_id: UUID = typer.Argument(...)) -> None:
             indent=2,
         )
 
-    typer.echo(_run(_with_runtime(operation)))
+    _echo(_run(_with_runtime(operation)))
 
 
 @graph_app.command("manifest")
@@ -219,7 +242,7 @@ def graph_manifest(workspace_id: UUID = typer.Option(..., "--workspace")) -> Non
         )
         return result.model_dump_json(indent=2)
 
-    typer.echo(_run(_with_runtime(operation)))
+    _echo(_run(_with_runtime(operation)))
 
 
 @graph_app.command("export")
@@ -238,7 +261,7 @@ def graph_export(
             result if isinstance(result, str) else json.dumps(result, ensure_ascii=False, indent=2)
         )
 
-    typer.echo(_run(_with_runtime(operation)))
+    _echo(_run(_with_runtime(operation)))
 
 
 @app.command("seed-demo")
@@ -279,7 +302,7 @@ def seed_demo(
             indent=2,
         )
 
-    typer.echo(_run(_with_runtime(operation)))
+    _echo(_run(_with_runtime(operation)))
 
 
 @app.command("demo")
@@ -335,7 +358,7 @@ def demo() -> None:
             finally:
                 await runtime.shutdown()
 
-    typer.echo(_run(operation()))
+    _echo(_run(operation()))
 
 
 if __name__ == "__main__":
