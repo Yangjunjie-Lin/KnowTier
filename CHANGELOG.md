@@ -8,7 +8,8 @@ All notable changes to KnowTier are documented in this file. The format is based
 ### Changed
 
 - Added credential-free one-command source launchers for Windows, macOS, and Linux. They provision
-  locked dependencies, SQLite, Mock LLM, readiness checks, frontend startup, and process cleanup.
+  locked dependencies, SQLite, Mock LLM, readiness checks, automatic UI opening, port collision
+  protection, isolated runtime environments, and process cleanup.
 - Added a product tour to the README using verified desktop screenshots for the overview, learning
   workspace, graph, and model-provider configuration.
 - Consolidated compatible automated dependency updates across the React, Tauri, and Python

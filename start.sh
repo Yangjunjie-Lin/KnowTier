@@ -87,6 +87,7 @@ trap 'exit 130' INT TERM
 
 require_command uv
 require_command npm
+require_command node
 validate_port "$API_PORT" API_PORT
 validate_port "$FRONTEND_PORT" FRONTEND_PORT
 if [[ "$API_PORT" == "$FRONTEND_PORT" ]]; then
@@ -94,10 +95,36 @@ if [[ "$API_PORT" == "$FRONTEND_PORT" ]]; then
   exit 1
 fi
 
+port_in_use() {
+  node - "$1" <<'NODE'
+const net = require("node:net");
+const socket = net.createConnection({ host: "127.0.0.1", port: Number(process.argv[2]) });
+let settled = false;
+const finish = (code) => {
+  if (settled) return;
+  settled = true;
+  socket.destroy();
+  process.exit(code);
+};
+socket.setTimeout(250, () => finish(1));
+socket.once("connect", () => finish(0));
+socket.once("error", () => finish(1));
+NODE
+}
+
+if port_in_use "$API_PORT"; then
+  printf 'Port %s is already in use. Choose another API_PORT.\n' "$API_PORT" >&2
+  exit 1
+fi
+if port_in_use "$FRONTEND_PORT"; then
+  printf 'Port %s is already in use. Choose another FRONTEND_PORT.\n' "$FRONTEND_PORT" >&2
+  exit 1
+fi
+
 mkdir -p -- "$DATA_ROOT" "$UPLOAD_PATH"
 
 # These exported values override .env without exposing or using provider credentials.
-export UV_PROJECT_ENVIRONMENT="$REPOSITORY_ROOT/.venv"
+export UV_PROJECT_ENVIRONMENT="$DATA_ROOT/runtime-venv-unix"
 export COGNIGRAPH_ENVIRONMENT="development"
 export COGNIGRAPH_DESKTOP_MODE="false"
 export COGNIGRAPH_WORKSPACE_SCOPE_REQUIRED="false"
@@ -139,8 +166,13 @@ printf 'Starting KnowTier API on http://127.0.0.1:%s...\n' "$API_PORT"
 BACKEND_PID=$!
 
 wait_for_ready
+if ! kill -0 "$BACKEND_PID" 2>/dev/null; then
+  printf 'KnowTier API stopped immediately after its readiness check.\n' >&2
+  exit 1
+fi
 printf 'KnowTier is ready at %s (press Ctrl+C to stop).\n' "$FRONTEND_URL"
 npm --prefix "$FRONTEND_ROOT" run dev -- \
   --host 127.0.0.1 \
   --port "$FRONTEND_PORT" \
-  --strictPort
+  --strictPort \
+  --open

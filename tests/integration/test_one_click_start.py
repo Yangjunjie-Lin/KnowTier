@@ -29,6 +29,10 @@ def test_one_click_start_uses_locked_local_dependencies_and_loopback_services() 
         assert "COGNIGRAPH_USE_MOCK_LLM" in script
         assert "VITE_DEV_API_PROXY_TARGET" in script
         assert "--reload" not in script
+        assert "runtime-venv" in script
+        assert "--open" in script
+        assert 'repositoryRoot ".venv"' not in script
+        assert "REPOSITORY_ROOT/.venv" not in script
 
     assert "Start-Process @backendOptions" in powershell
     assert "Stop-Process -Id $backendProcess.Id" in powershell
@@ -36,6 +40,9 @@ def test_one_click_start_uses_locked_local_dependencies_and_loopback_services() 
     assert "[Environment]::SetEnvironmentVariable" in powershell
     assert '"$UV_PROJECT_ENVIRONMENT/bin/uvicorn"' in shell
     assert 'kill -TERM "$BACKEND_PID"' in shell
+    assert 'port_in_use "$API_PORT"' in shell
+    assert 'port_in_use "$FRONTEND_PORT"' in shell
+    assert 'kill -0 "$BACKEND_PID"' in shell
     assert "trap cleanup EXIT" in shell
 
 

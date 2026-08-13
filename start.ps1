@@ -128,7 +128,7 @@ New-Item -ItemType Directory -Force -Path $dataRoot, $uploadPath | Out-Null
 
 try {
     # These process-scoped values make local startup deterministic and credential-free.
-    $env:UV_PROJECT_ENVIRONMENT = Join-Path $repositoryRoot ".venv"
+    $env:UV_PROJECT_ENVIRONMENT = Join-Path $dataRoot "runtime-venv-windows"
     $env:COGNIGRAPH_ENVIRONMENT = "development"
     $env:COGNIGRAPH_DESKTOP_MODE = "false"
     $env:COGNIGRAPH_WORKSPACE_SCOPE_REQUIRED = "false"
@@ -194,7 +194,7 @@ try {
     Wait-ForReady -Url $readyUrl -Process $backendProcess
     Write-Host "KnowTier is ready at $frontendUrl (press Ctrl+C to stop)."
 
-    & npm --prefix $frontendRoot run dev -- --host 127.0.0.1 --port $FrontendPort --strictPort
+    & npm --prefix $frontendRoot run dev -- --host 127.0.0.1 --port $FrontendPort --strictPort --open
     if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne 130) {
         throw "Frontend stopped with exit code $LASTEXITCODE."
     }

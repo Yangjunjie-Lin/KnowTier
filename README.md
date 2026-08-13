@@ -88,11 +88,12 @@ with one command. The scripts install the committed lockfiles, migrate the local
 ./start.sh
 ```
 
-Then open `http://127.0.0.1:5173`. Local data is stored under
-`data/local/`. This launch mode intentionally uses the credential-free Mock Provider and an isolated
-temporary model profile; it does not read provider keys from the shell or `.env`. Configure a real
-provider from **Settings → Models & providers** in the packaged desktop app or use the server setup
-below.
+The UI opens automatically at `http://127.0.0.1:5173`; open that address manually if your operating
+system blocks automatic browser launch. Local data and the source-launch runtime environment are
+stored under `data/local/`, separate from Docker's `.venv` mount. This launch mode intentionally
+uses the credential-free Mock Provider and an isolated temporary model profile; it does not read
+provider keys from the shell or `.env`. Configure a real provider from **Settings → Models &
+providers** in the packaged desktop app or use the server setup below.
 
 ## Manual local setup
 
