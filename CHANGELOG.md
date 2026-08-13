@@ -23,6 +23,8 @@ All notable changes to KnowTier are documented in this file. The format is based
 
 ### Fixed
 
+- Pointed README downloads at immutable v1.0.0 assets and corrected the signing-status filenames
+  to the three platform-specific `UNSIGNED-*` records shipped in the published release.
 - Kept model-provider forms hidden until the exact selected profile has finished hydrating,
   preventing fast edits from being overwritten by a stale/default provider form.
 - Made multilingual CLI output recover to UTF-8 when a redirected Windows terminal exposes a
