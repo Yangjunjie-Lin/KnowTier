@@ -5,6 +5,14 @@ All notable changes to KnowTier are documented in this file. The format is based
 
 ## [Unreleased]
 
+### Changed
+
+- Consolidated compatible automated dependency updates across the React, Tauri, and Python
+  toolchains. The resolver upgrade is paired with its required Zod release, and regenerated lock
+  files keep frozen installs reproducible.
+- Expanded the supported upper bounds for mypy 2.x and ReportLab 5.x without changing the currently
+  resolved production packages.
+
 ### Fixed
 
 - Isolated the post-Compose performance test environment from Docker-owned repository paths, so
