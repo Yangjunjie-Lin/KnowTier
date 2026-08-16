@@ -34,6 +34,7 @@ def test_sidecar_readiness_retries_timeouts_and_non_ready_responses(
         (503, b"starting"),
         (204, b""),
     ]
+    timeouts: list[float] = []
 
     def fake_request(
         _url: str,
@@ -43,7 +44,8 @@ def test_sidecar_readiness_retries_timeouts_and_non_ready_responses(
         body: bytes | None = None,
         timeout: float = 2.0,
     ) -> tuple[int, bytes]:
-        del method, headers, body, timeout
+        del method, headers, body
+        timeouts.append(timeout)
         response = responses.pop(0)
         if isinstance(response, TimeoutError):
             raise response
@@ -58,9 +60,43 @@ def test_sidecar_readiness_retries_timeouts_and_non_ready_responses(
         "http://127.0.0.1:41000",
         "bootstrap-token",
         process,
-        startup_timeout=1,
+        startup_timeout=10,
     )
     assert responses == []
+    assert timeouts[0] > 2.0
+
+
+def test_sidecar_readiness_fails_fast_when_bootstrap_token_is_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls = 0
+
+    def fake_request(
+        _url: str,
+        *,
+        method: str = "GET",
+        headers: dict[str, str] | None = None,
+        body: bytes | None = None,
+        timeout: float = 2.0,
+    ) -> tuple[int, bytes]:
+        nonlocal calls
+        del method, headers, body, timeout
+        calls += 1
+        return 401, b"invalid handshake"
+
+    process: Mock = Mock()
+    process.poll.return_value = None
+    monkeypatch.setattr(smoke_sidecar, "request", fake_request)
+
+    with pytest.raises(RuntimeError, match="bootstrap readiness token"):
+        smoke_sidecar._wait_until_ready(
+            "http://127.0.0.1:41000",
+            "bootstrap-token",
+            process,
+            startup_timeout=120,
+        )
+
+    assert calls == 1
 
 
 def test_json_request_sends_authenticated_utf8_payload(
