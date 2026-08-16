@@ -116,16 +116,22 @@ def _wait_until_ready(
 ) -> bool:
     deadline = time.monotonic() + startup_timeout
     while time.monotonic() < deadline and process.poll() is None:
+        remaining = max(0.0, deadline - time.monotonic())
+        if remaining <= 0.0:
+            break
         try:
             ready_status, _body = request(
                 f"{base_url}/desktop/ready",
                 headers={"Authorization": f"Bearer {bootstrap_token}"},
+                timeout=remaining,
             )
         except (TimeoutError, urllib.error.URLError):
             time.sleep(0.2)
             continue
         if ready_status == 204:
             return True
+        if ready_status == 401:
+            raise RuntimeError("sidecar rejected the bootstrap readiness token")
         time.sleep(0.2)
     return False
 

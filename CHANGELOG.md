@@ -52,6 +52,9 @@ All notable changes to KnowTier are documented in this file. The format is based
   legacy encoding, preventing successful Chinese teaching turns from failing during display.
 - Added three bounded Windows NSIS bundle attempts so a transient official Tauri tool download
   disconnect does not discard a successful Sidecar build; installer Smoke remains mandatory.
+- Made packaged Sidecar readiness Smoke wait across the full cold-start budget and fail immediately
+  on a rejected bootstrap token, preventing a slow Windows runner from becoming a false five-minute
+  hang.
 - Isolated the post-Compose performance test environment from Docker-owned repository paths, so
   published-release checks cannot fail with a root-owned `.venv/CACHEDIR.TAG`.
 - Made desktop packaging explicitly dispatch-only. Publishing an already-reviewed Draft Release no
