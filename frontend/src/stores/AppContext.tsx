@@ -246,19 +246,22 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const setWorkspace = useCallback(
     (workspace: Workspace | null) => {
       apiClient.setWorkspaceId(workspace?.id ?? null);
-      setState((current) => ({
-        ...current,
-        currentWorkspace: workspace,
-        currentLearner:
-          workspace?.id === current.currentLearner?.workspace_id
-            ? current.currentLearner
-            : null,
-        currentDocumentId: null,
-        sessionId: crypto.randomUUID(),
-        recentWorkspaces: workspace
-          ? prependUnique(current.recentWorkspaces, workspace, 8)
-          : current.recentWorkspaces,
-      }));
+      setState((current) => {
+        const sameWorkspace = workspace?.id === current.currentWorkspace?.id;
+        return {
+          ...current,
+          currentWorkspace: workspace,
+          currentLearner:
+            workspace?.id === current.currentLearner?.workspace_id
+              ? current.currentLearner
+              : null,
+          currentDocumentId: sameWorkspace ? current.currentDocumentId : null,
+          sessionId: sameWorkspace ? current.sessionId : crypto.randomUUID(),
+          recentWorkspaces: workspace
+            ? prependUnique(current.recentWorkspaces, workspace, 8)
+            : current.recentWorkspaces,
+        };
+      });
     },
     [],
   );
@@ -315,6 +318,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       })),
     [],
   );
+  const setApiBaseUrl = useCallback(
+    (candidate: string) => {
+      const apiBaseUrl =
+        sanitizeApiBaseUrl(candidate) ?? defaultPreferences.apiBaseUrl;
+      // Update the transport before consumers clear and rebuild query caches.
+      // Otherwise mounted queries can briefly refetch against the previous
+      // service while React is committing the preference update.
+      apiClient.setBaseUrl(apiBaseUrl);
+      updatePreferences({ apiBaseUrl });
+    },
+    [updatePreferences],
+  );
   const clearLocalHistory = useCallback(
     () =>
       setState((current) => ({
@@ -333,11 +348,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       selectDocument,
       newSession,
       setSessionId,
-      setApiBaseUrl: (apiBaseUrl) =>
-        updatePreferences({
-          apiBaseUrl:
-            sanitizeApiBaseUrl(apiBaseUrl) ?? defaultPreferences.apiBaseUrl,
-        }),
+      setApiBaseUrl,
       setUiLocale: (uiLocale) => updatePreferences({ uiLocale }),
       setTheme: (theme) => updatePreferences({ theme }),
       setReducedMotion: (reducedMotion) => updatePreferences({ reducedMotion }),
@@ -361,6 +372,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       newSession,
       rememberDocument,
       selectDocument,
+      setApiBaseUrl,
       setLearner,
       setSessionId,
       setWorkspace,

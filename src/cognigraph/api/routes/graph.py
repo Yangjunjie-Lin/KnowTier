@@ -1,22 +1,27 @@
 from __future__ import annotations
 
-from typing import Literal
+from collections.abc import Mapping
+from typing import Any, Literal
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, Response
 from fastapi.responses import JSONResponse
+from sqlalchemy import select
 
 from cognigraph.api.dependencies import (
     RuntimeDependency,
     WorkspaceScopeDependency,
     enforce_workspace_scope,
 )
+from cognigraph.domain.enums import DocumentOrigin
 from cognigraph.graph.query_tools import (
     AssertionDetailParams,
     FocusSubgraphParams,
     NodeDetailParams,
     WorkspaceParams,
 )
+from cognigraph.persistence.postgres.models import Document as DocumentRecord
+from cognigraph.persistence.postgres.models import SourceSpan as SourceSpanRecord
 
 router = APIRouter(tags=["graph"])
 
@@ -32,7 +37,7 @@ async def get_manifest(
     result = await runtime.semantic_queries.get_graph_manifest(
         WorkspaceParams(workspace_id=workspace_id)
     )
-    return result.model_dump(mode="json")
+    return await _user_visible_graph_result(runtime, workspace_id, result.model_dump(mode="json"))
 
 
 @router.get("/graph/subgraph")
@@ -57,7 +62,7 @@ async def get_subgraph(
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="node not found") from exc
-    return result.model_dump(mode="json")
+    return await _user_visible_graph_result(runtime, workspace_id, result.model_dump(mode="json"))
 
 
 @router.get("/graph/nodes/{node_id}")
@@ -75,7 +80,7 @@ async def get_node_detail(
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="node not found") from exc
-    return result.model_dump(mode="json")
+    return await _user_visible_graph_result(runtime, workspace_id, result.model_dump(mode="json"))
 
 
 @router.get("/graph/assertions/{assertion_id}")
@@ -96,7 +101,7 @@ async def get_assertion_detail(
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="assertion not found") from exc
-    return result.model_dump(mode="json")
+    return await _user_visible_graph_result(runtime, workspace_id, result.model_dump(mode="json"))
 
 
 @router.get("/graph/revisions")
@@ -169,3 +174,82 @@ def _revision_data(revision: object) -> dict[str, object]:
         "created_at": revision.created_at.isoformat(),
         "projected_at": revision.projected_at.isoformat() if revision.projected_at else None,
     }
+
+
+async def _user_visible_graph_result(
+    runtime: RuntimeDependency,
+    workspace_id: UUID,
+    payload: dict[str, Any],
+) -> dict[str, Any]:
+    """Redact legacy internal-chat graph evidence from semantic read results."""
+
+    async with runtime.database.session() as session:
+        document_ids = set(
+            (
+                await session.scalars(
+                    select(DocumentRecord.id).where(
+                        DocumentRecord.workspace_id == workspace_id,
+                        DocumentRecord.origin == DocumentOrigin.INTERNAL_CHAT.value,
+                    )
+                )
+            ).all()
+        )
+        span_ids = set(
+            (
+                await session.scalars(
+                    select(SourceSpanRecord.id)
+                    .join(DocumentRecord, DocumentRecord.id == SourceSpanRecord.document_id)
+                    .where(
+                        SourceSpanRecord.workspace_id == workspace_id,
+                        DocumentRecord.origin == DocumentOrigin.INTERNAL_CHAT.value,
+                    )
+                )
+            ).all()
+        )
+    blocked_ids = {str(item) for item in document_ids | span_ids}
+    blocked_document_ids = {str(item) for item in document_ids}
+    redacted = _redact_graph_value(payload, blocked_ids, blocked_document_ids)
+    return redacted if isinstance(redacted, dict) else payload
+
+
+def _redact_graph_value(
+    value: Any,
+    blocked_ids: set[str],
+    blocked_document_ids: set[str],
+) -> Any:
+    if isinstance(value, list):
+        return [
+            _redact_graph_value(item, blocked_ids, blocked_document_ids)
+            for item in value
+            if not _is_blocked_graph_record(item, blocked_ids, blocked_document_ids)
+        ]
+    if isinstance(value, Mapping):
+        if _is_blocked_graph_record(value, blocked_ids, blocked_document_ids):
+            return None
+        result: dict[str, Any] = {}
+        for key, item in value.items():
+            if key == "source_span_ids" and isinstance(item, list):
+                result[str(key)] = [
+                    source_id for source_id in item if str(source_id) not in blocked_ids
+                ]
+            else:
+                result[str(key)] = _redact_graph_value(
+                    item,
+                    blocked_ids,
+                    blocked_document_ids,
+                )
+        return result
+    return value
+
+
+def _is_blocked_graph_record(
+    value: object,
+    blocked_ids: set[str],
+    blocked_document_ids: set[str],
+) -> bool:
+    if not isinstance(value, Mapping):
+        return False
+    return (
+        str(value.get("id", "")) in blocked_ids
+        or str(value.get("document_id", "")) in blocked_document_ids
+    )

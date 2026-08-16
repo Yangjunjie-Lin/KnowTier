@@ -1,5 +1,6 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import {
+  act,
   cleanup,
   fireEvent,
   render,
@@ -10,8 +11,11 @@ import { MemoryRouter } from "react-router-dom";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { AppProvider, useAppStore } from "@/stores/AppContext";
 import { api } from "@/services/api";
+import { queryKeys } from "@/lib/queryKeys";
 import type {
   ChatResponse,
+  ConversationHistoryResponse,
+  DocumentListResponse,
   DocumentRecord,
   IngestionReport,
 } from "@/types/api";
@@ -25,6 +29,8 @@ import {
 vi.mock("@/services/api", () => ({
   api: {
     chat: vi.fn(),
+    getConversationHistory: vi.fn(),
+    listDocuments: vi.fn(),
     uploadDocument: vi.fn(),
     ingestDocument: vi.fn(),
     getLearnerModel: vi.fn(),
@@ -108,6 +114,15 @@ const chatResponse: ChatResponse = {
   sources: [],
 };
 
+const emptyHistory: ConversationHistoryResponse = {
+  workspace_id: workspace.id,
+  learner_id: learner.id,
+  session_id: "77777777-7777-4777-8777-777777777777",
+  turn_limit: 200,
+  truncated: false,
+  items: [],
+};
+
 function persistedState() {
   return {
     version: 1,
@@ -144,7 +159,11 @@ function TestLocaleSwitch() {
   );
 }
 
-function renderPage(state?: unknown, includeLocaleSwitch = false) {
+function renderPage(
+  state?: unknown,
+  includeLocaleSwitch = false,
+  seedEmptyHistory = true,
+) {
   localStorage.setItem(
     "knowtier.app-state.v1",
     JSON.stringify(persistedState()),
@@ -152,6 +171,16 @@ function renderPage(state?: unknown, includeLocaleSwitch = false) {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
+  if (seedEmptyHistory) {
+    client.setQueryData(
+      queryKeys.conversationHistory(
+        workspace.id,
+        learner.id,
+        emptyHistory.session_id,
+      ),
+      emptyHistory,
+    );
+  }
   return render(
     <QueryClientProvider client={client}>
       <AppProvider>
@@ -165,12 +194,24 @@ function renderPage(state?: unknown, includeLocaleSwitch = false) {
 }
 
 describe("LearnPage", () => {
-  afterEach(cleanup);
+  afterEach(() => {
+    cleanup();
+    vi.unstubAllGlobals();
+    vi.restoreAllMocks();
+  });
 
   beforeEach(() => {
     localStorage.clear();
     vi.clearAllMocks();
     vi.spyOn(window, "confirm").mockReturnValue(true);
+    vi.mocked(api.getConversationHistory).mockResolvedValue(emptyHistory);
+    vi.mocked(api.listDocuments).mockResolvedValue({
+      workspace_id: workspace.id,
+      items: [],
+      limit: 100,
+      offset: 0,
+      next_offset: null,
+    });
     vi.mocked(api.getLearnerModel).mockResolvedValue({
       learner_id: learner.id,
       workspace_id: workspace.id,
@@ -232,6 +273,257 @@ describe("LearnPage", () => {
     expect(api.chat).not.toHaveBeenCalled();
   });
 
+  it("restores the persisted conversation for the current session", async () => {
+    const history: ConversationHistoryResponse = {
+      ...emptyHistory,
+      truncated: true,
+      items: [
+        {
+          id: "88888888-8888-4888-8888-888888888888",
+          role: "user",
+          content: "刷新前的问题",
+          attachment_ids: [uploadedDocument.id],
+          created_at: "2026-08-16T08:00:00Z",
+        },
+        {
+          id: chatResponse.turn_id,
+          role: "assistant",
+          response: chatResponse,
+          created_at: "2026-08-16T08:00:01Z",
+        },
+      ],
+    };
+    vi.mocked(api.getConversationHistory).mockResolvedValue(history);
+
+    renderPage(undefined, false, false);
+
+    expect(screen.getByText("正在恢复这段学习对话…")).toBeVisible();
+    expect(await screen.findByText("刷新前的问题")).toBeVisible();
+    expect(screen.getByText("这是教师讲解。")).toBeVisible();
+    expect(screen.getByText(/附件：.*历史资料/)).toBeVisible();
+    expect(screen.getByText(/仅恢复最近 200 条对话消息/)).toBeVisible();
+    expect(api.getConversationHistory).toHaveBeenCalledWith(
+      workspace.id,
+      learner.id,
+      emptyHistory.session_id,
+      expect.any(AbortSignal),
+    );
+    expect(
+      screen.queryByRole("heading", { name: "从一个知识点或问题开始" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("uses server-listed uploads for restored attachment names and source trust", async () => {
+    let resolveDocuments:
+      | ((value: DocumentListResponse) => void)
+      | undefined;
+    vi.mocked(api.listDocuments).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveDocuments = resolve;
+        }),
+    );
+    const documentPage: DocumentListResponse = {
+      workspace_id: workspace.id,
+      items: [{ ...uploadedDocument, status: "INGESTED" }],
+      limit: 100,
+      offset: 0,
+      next_offset: null,
+    };
+    vi.mocked(api.getConversationHistory).mockResolvedValue({
+      ...emptyHistory,
+      items: [
+        {
+          id: "88888888-8888-4888-8888-888888888888",
+          role: "user",
+          content: "换设备后恢复",
+          attachment_ids: [uploadedDocument.id],
+          created_at: "2026-08-16T08:00:00Z",
+        },
+        {
+          id: chatResponse.turn_id,
+          role: "assistant",
+          response: {
+            ...chatResponse,
+            sources: [
+              { document_id: uploadedDocument.id, excerpt: "可追溯资料内容" },
+            ],
+          },
+          created_at: "2026-08-16T08:00:01Z",
+        },
+      ],
+    });
+
+    renderPage(undefined, false, false);
+
+    expect(await screen.findByText(/附件：.*历史资料/)).toBeVisible();
+    expect(screen.getByText(/本轮未关联你添加的外部资料/)).toBeVisible();
+    act(() => resolveDocuments?.(documentPage));
+    expect(await screen.findByText(/附件：.*lesson\.txt/)).toBeVisible();
+    expect(screen.getByText("查看参考来源")).toBeVisible();
+    expect(screen.queryByText(/本轮未关联你添加的外部资料/)).not.toBeInTheDocument();
+  });
+
+  it("shows a recoverable error when conversation history cannot load", async () => {
+    vi.mocked(api.getConversationHistory)
+      .mockRejectedValueOnce(new Error("history unavailable"))
+      .mockResolvedValueOnce({
+        ...emptyHistory,
+        items: [
+          {
+            id: "88888888-8888-4888-8888-888888888888",
+            role: "user",
+            content: "重试后恢复的问题",
+            attachment_ids: [],
+            created_at: "2026-08-16T08:00:00Z",
+          },
+        ],
+      });
+
+    renderPage(undefined, false, false);
+
+    expect(
+      await screen.findByRole("heading", { name: "暂时无法恢复对话" }),
+    ).toBeVisible();
+    expect(
+      screen.queryByLabelText("学习消息编辑器"),
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "重试加载对话" }));
+    expect(await screen.findByText("重试后恢复的问题")).toBeVisible();
+    expect(api.getConversationHistory).toHaveBeenCalledTimes(2);
+  });
+
+  it("starts observing composer height after history finishes loading", async () => {
+    let resolveHistory:
+      | ((value: ConversationHistoryResponse) => void)
+      | undefined;
+    vi.mocked(api.getConversationHistory).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          resolveHistory = resolve;
+        }),
+    );
+    let measuredHeight = 340;
+    let triggerResize: (() => void) | undefined;
+    class TestResizeObserver {
+      constructor(callback: ResizeObserverCallback) {
+        triggerResize = () =>
+          callback([], this as unknown as ResizeObserver);
+      }
+      observe() {}
+      unobserve() {}
+      disconnect() {}
+    }
+    vi.stubGlobal("ResizeObserver", TestResizeObserver);
+    vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(
+      () =>
+        ({
+          x: 0,
+          y: 0,
+          top: 0,
+          right: 0,
+          bottom: measuredHeight,
+          left: 0,
+          width: 0,
+          height: measuredHeight,
+          toJSON: () => ({}),
+        }) as DOMRect,
+    );
+    renderPage(undefined, false, false);
+    expect(screen.queryByLabelText("学习消息编辑器")).not.toBeInTheDocument();
+
+    act(() => resolveHistory?.(emptyHistory));
+
+    const editor = await screen.findByLabelText("学习消息编辑器");
+    const layout = editor.closest<HTMLElement>("[style]");
+    expect(layout).not.toBeNull();
+    await waitFor(() =>
+      expect(layout?.style.getPropertyValue("--learn-composer-height")).toBe(
+        "340px",
+      ),
+    );
+    measuredHeight = 412;
+    act(() => triggerResize?.());
+    await waitFor(() =>
+      expect(layout?.style.getPropertyValue("--learn-composer-height")).toBe(
+        "412px",
+      ),
+    );
+  });
+
+  it("skips a failed restore only by creating a clean new session", async () => {
+    vi.mocked(api.getConversationHistory).mockRejectedValue(
+      new Error("history unavailable"),
+    );
+    vi.mocked(api.chat).mockResolvedValue(chatResponse);
+    renderPage(undefined, false, false);
+    expect(
+      await screen.findByRole("heading", { name: "暂时无法恢复对话" }),
+    ).toBeVisible();
+    expect(screen.queryByLabelText("学习消息编辑器")).not.toBeInTheDocument();
+
+    fireEvent.click(
+      screen.getByRole("button", { name: "跳过历史并新建空白会话" }),
+    );
+
+    expect(screen.getByLabelText("学习消息")).toHaveValue("");
+    expect(
+      await screen.findByRole("heading", { name: "从一个知识点或问题开始" }),
+    ).toBeVisible();
+    fireEvent.change(screen.getByLabelText("学习消息"), {
+      target: { value: "从空白会话开始" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "发送学习消息" }));
+    expect(await screen.findByText("这是教师讲解。")).toBeVisible();
+    expect(api.chat).toHaveBeenCalledWith(
+      expect.objectContaining({
+        session_id: expect.not.stringMatching(
+          new RegExp(`^${emptyHistory.session_id}$`),
+        ),
+        message: "从空白会话开始",
+        attachment_ids: [],
+      }),
+      expect.any(AbortSignal),
+    );
+    expect(api.getConversationHistory).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps a newly generated session empty after restoring an old one", async () => {
+    vi.mocked(api.getConversationHistory).mockImplementation(
+      (_workspaceId, _learnerId, requestedSessionId) =>
+        Promise.resolve(
+          requestedSessionId === emptyHistory.session_id
+            ? {
+                ...emptyHistory,
+                items: [
+                  {
+                    id: "88888888-8888-4888-8888-888888888888",
+                    role: "user" as const,
+                    content: "旧会话内容",
+                    attachment_ids: [],
+                    created_at: "2026-08-16T08:00:00Z",
+                  },
+                ],
+              }
+            : {
+                ...emptyHistory,
+                session_id: requestedSessionId,
+                items: [],
+              },
+        ),
+    );
+    renderPage(undefined, false, false);
+    expect(await screen.findByText("旧会话内容")).toBeVisible();
+
+    fireEvent.click(screen.getByRole("button", { name: "新建会话" }));
+
+    expect(
+      await screen.findByRole("heading", { name: "从一个知识点或问题开始" }),
+    ).toBeVisible();
+    expect(screen.queryByText("旧会话内容")).not.toBeInTheDocument();
+    expect(api.getConversationHistory).toHaveBeenCalledTimes(1);
+  });
+
   it("uploads, ingests and attaches a material without inventing an API", async () => {
     vi.mocked(api.uploadDocument).mockResolvedValue(uploadedDocument);
     vi.mocked(api.ingestDocument).mockResolvedValue(ingestionReport);
@@ -267,6 +559,61 @@ describe("LearnPage", () => {
     );
     expect(await screen.findByText("这是教师讲解。")).toBeInTheDocument();
     expect(screen.getByText(/唯一掌握检测.*复现步骤/)).toBeInTheDocument();
+  });
+
+  it("rejects an empty attachment and asks for a different file", async () => {
+    renderPage();
+
+    fireEvent.change(screen.getByLabelText("上传学习资料"), {
+      target: { files: [new File([], "empty.txt", { type: "text/plain" })] },
+    });
+
+    expect(await screen.findByText(/这个文件是空的/)).toBeVisible();
+    expect(screen.getByRole("button", { name: "重新选择" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "重试" })).not.toBeInTheDocument();
+    expect(api.uploadDocument).not.toHaveBeenCalled();
+  });
+
+  it("offers first-turn starters before context-dependent help actions", () => {
+    renderPage();
+
+    expect(screen.getByRole("button", { name: "从零开始讲" })).toBeVisible();
+    expect(screen.queryByRole("button", { name: "我没理解" })).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "从零开始讲" }));
+    expect(screen.getByLabelText("学习消息")).toHaveValue("我想从零开始学习：");
+  });
+
+  it("moves focus through the material menu and returns it on escape", async () => {
+    const secondDocument: DocumentRecord = {
+      ...uploadedDocument,
+      id: "99999999-9999-4999-8999-999999999999",
+      filename: "examples.md",
+    };
+    vi.mocked(api.listDocuments).mockResolvedValue({
+      workspace_id: workspace.id,
+      items: [uploadedDocument, secondDocument],
+      limit: 100,
+      offset: 0,
+      next_offset: null,
+    });
+    renderPage();
+
+    const trigger = screen.getByRole("button", { name: /选择已有资料/ });
+    fireEvent.click(trigger);
+    const first = await screen.findByRole("menuitemcheckbox", {
+      name: /lesson\.txt/,
+    });
+    const second = screen.getByRole("menuitemcheckbox", {
+      name: /examples\.md/,
+    });
+    await waitFor(() => expect(first).toHaveFocus());
+
+    fireEvent.keyDown(first, { key: "ArrowDown" });
+    expect(second).toHaveFocus();
+    fireEvent.keyDown(second, { key: "Escape" });
+
+    await waitFor(() => expect(trigger).toHaveFocus());
+    expect(screen.queryByRole("menu")).not.toBeInTheDocument();
   });
 
   it("keeps the learner draft when ingestion fails", async () => {
@@ -559,7 +906,7 @@ describe("LearnPage", () => {
     });
     renderPage(undefined, true);
 
-    expect(screen.getByRole("heading", { name: "学习空间" })).toBeVisible();
+    expect(screen.getByRole("heading", { name: "开始学习" })).toBeVisible();
     fireEvent.click(
       screen.getByRole("button", { name: "test-switch-language" }),
     );
@@ -567,9 +914,7 @@ describe("LearnPage", () => {
     expect(
       await screen.findByRole("heading", { name: "Learning" }),
     ).toBeVisible();
-    expect(
-      screen.getByRole("button", { name: "Give me a hint" }),
-    ).toBeVisible();
+    expect(screen.getByRole("button", { name: "Start from zero" })).toBeVisible();
     expect(screen.getByLabelText("Learning message")).toBeVisible();
     fireEvent.change(screen.getByLabelText("Learning message"), {
       target: { value: "Explain RAG" },
@@ -580,6 +925,11 @@ describe("LearnPage", () => {
 
     expect(await screen.findByText("Other teaching action")).toBeVisible();
     expect(screen.getByText(/Other mastery check/)).toBeVisible();
+    expect(screen.getByText("这是教师讲解。").closest("[lang]")).toHaveAttribute(
+      "lang",
+      "zh-CN",
+    );
+    expect(screen.getByText("A future check?")).toHaveAttribute("lang", "zh-CN");
     expect(
       screen.queryByText(/FUTURE_SCAFFOLD|FUTURE_CHECK/),
     ).not.toBeInTheDocument();
@@ -605,10 +955,35 @@ describe("LearnPage", () => {
       </AppProvider>,
     );
 
-    fireEvent.click(screen.getByText("查看参考来源"));
+    fireEvent.click(screen.getByText("查看本轮依据（未外部确认）"));
     expect(screen.getByText("检索增强生成结合了检索与生成。")).toBeVisible();
     expect(screen.getByText("第 3 页")).toBeVisible();
     expect(screen.queryByText(/aaaaaaaa/)).not.toBeInTheDocument();
     expect(screen.queryByText(/bbbbbbbb/)).not.toBeInTheDocument();
+  });
+
+  it("marks prompt-derived sources as not externally confirmed", () => {
+    render(
+      <AppProvider>
+        <TeachingTurn
+          result={{
+            ...chatResponse,
+            sources: [
+              {
+                document_id: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+                excerpt: "我想学习线性回归",
+              },
+            ],
+          }}
+        />
+      </AppProvider>,
+    );
+
+    expect(
+      screen.getByText(/本轮未关联你添加的外部资料/),
+    ).toBeVisible();
+    expect(
+      screen.getByText("查看本轮依据（未外部确认）"),
+    ).toBeVisible();
   });
 });

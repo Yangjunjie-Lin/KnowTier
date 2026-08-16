@@ -22,7 +22,9 @@ def test_initial_alembic_migration_creates_operational_schema(
 
     engine = create_engine(f"sqlite:///{database_path.as_posix()}")
     try:
-        tables = set(inspect(engine).get_table_names())
+        inspector = inspect(engine)
+        tables = set(inspector.get_table_names())
+        document_columns = {column["name"] for column in inspector.get_columns("documents")}
     finally:
         engine.dispose()
     assert {
@@ -39,6 +41,7 @@ def test_initial_alembic_migration_creates_operational_schema(
         "relation_assertions",
         "outbox_messages",
     }.issubset(tables)
+    assert "origin" in document_columns
 
 
 @pytest.mark.integration
@@ -182,7 +185,7 @@ def test_postgres_downgrade_chain_renders_without_current_metadata_constraints(
 @pytest.mark.integration
 def test_post_baseline_migrations_do_not_use_live_orm_metadata() -> None:
     versions = Path("migrations/versions")
-    for revision in ("0002", "0003", "0004", "0005"):
+    for revision in ("0002", "0003", "0004", "0005", "0006"):
         path = next(versions.glob(f"{revision}_*.py"))
         source = path.read_text(encoding="utf-8")
         assert "metadata.create_all" not in source

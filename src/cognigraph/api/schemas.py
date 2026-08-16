@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Annotated, Literal
 from uuid import UUID
 
 from pydantic import BaseModel, Field
@@ -22,6 +23,13 @@ class WorkspaceResponse(BaseModel):
     created_at: datetime
 
 
+class WorkspaceListResponse(BaseModel):
+    items: list[WorkspaceResponse]
+    limit: int = Field(ge=1, le=100)
+    offset: int = Field(ge=0)
+    next_offset: int | None = Field(default=None, ge=0)
+
+
 class LearnerCreateRequest(BaseModel):
     workspace_id: UUID
     display_name: str = Field(min_length=1, max_length=200)
@@ -38,6 +46,14 @@ class LearnerResponse(BaseModel):
     created_at: datetime
 
 
+class LearnerListResponse(BaseModel):
+    workspace_id: UUID
+    items: list[LearnerResponse]
+    limit: int = Field(ge=1, le=100)
+    offset: int = Field(ge=0)
+    next_offset: int | None = Field(default=None, ge=0)
+
+
 class DocumentResponse(BaseModel):
     id: UUID
     workspace_id: UUID
@@ -49,6 +65,14 @@ class DocumentResponse(BaseModel):
     page_count: int | None = None
     warnings: list[str] = Field(default_factory=list)
     created_at: datetime
+
+
+class DocumentListResponse(BaseModel):
+    workspace_id: UUID
+    items: list[DocumentResponse]
+    limit: int = Field(ge=1, le=100)
+    offset: int = Field(ge=0)
+    next_offset: int | None = Field(default=None, ge=0)
 
 
 class IngestionResponse(BaseModel):
@@ -130,6 +154,36 @@ class ChatResponse(BaseModel):
     tool_usage: ToolUsageResponse | None = None
     model_fallback: bool = False
     sources: list[dict[str, object]] = Field(default_factory=list)
+
+
+class ConversationUserTurnResponse(BaseModel):
+    id: UUID
+    role: Literal["user"] = "user"
+    content: str
+    attachment_ids: list[UUID] = Field(default_factory=list)
+    created_at: datetime
+
+
+class ConversationAssistantTurnResponse(BaseModel):
+    id: UUID
+    role: Literal["assistant"] = "assistant"
+    response: ChatResponse
+    created_at: datetime
+
+
+ConversationHistoryItemResponse = Annotated[
+    ConversationUserTurnResponse | ConversationAssistantTurnResponse,
+    Field(discriminator="role"),
+]
+
+
+class ConversationHistoryResponse(BaseModel):
+    workspace_id: UUID
+    learner_id: UUID
+    session_id: UUID
+    turn_limit: int = Field(ge=1, le=200)
+    truncated: bool = False
+    items: list[ConversationHistoryItemResponse] = Field(default_factory=list)
 
 
 class GraphExportResponse(BaseModel):

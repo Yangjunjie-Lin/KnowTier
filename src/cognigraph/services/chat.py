@@ -26,9 +26,10 @@ from cognigraph.api.schemas import (
     ToolUsageResponse,
 )
 from cognigraph.domain.base import JsonObject
-from cognigraph.domain.documents import IngestionReport
+from cognigraph.domain.documents import IngestionReport, SourceSpan
 from cognigraph.domain.enums import (
     CognitiveLevel,
+    DocumentOrigin,
     EvidenceType,
     HintLevel,
     LearnerRelationType,
@@ -100,6 +101,11 @@ _CJK_ASCII_BOUNDARY_PATTERN = re.compile(
     r"(?<=[\u3400-\u9fff])(?=[a-z0-9])|(?<=[a-z0-9])(?=[\u3400-\u9fff])",
     re.IGNORECASE,
 )
+_LANGUAGE_TAG_PATTERN = re.compile(
+    r"^[a-z]{2,3}(?:-[a-z0-9]{2,8}){0,2}$",
+    re.IGNORECASE,
+)
+_DEFAULT_RESPONSE_LANGUAGE = "zh-CN"
 logger = logging.getLogger(__name__)
 _SEARCH_STOP_WORDS = frozenset(
     {
@@ -235,6 +241,7 @@ def _session_locks_for(runtime: ApplicationRuntime) -> _SessionLockRegistry:
 @dataclass(slots=True)
 class ChatTurnContext:
     request: ChatRequest
+    response_language: str = _DEFAULT_RESPONSE_LANGUAGE
     user_turn: ConversationTurn | None = None
     prior_assistant: ConversationTurn | None = None
     recent_turns: list[ConversationTurn] = field(default_factory=list)
@@ -261,6 +268,8 @@ class ChatTurnContext:
     tool_usage: ToolUsageResponse | None = None
     model_fallback: bool = False
     semantic_projection_fallback: bool = False
+    source_document_origins: dict[UUID, DocumentOrigin] = field(default_factory=dict)
+    resolved_source_document_ids: set[UUID] = field(default_factory=set)
     sources: list[dict[str, object]] = field(default_factory=list)
     response: ChatResponse | None = None
 
@@ -348,13 +357,13 @@ class ChatService:
 
     @staticmethod
     def _client_request_metadata(request: ChatRequest) -> dict[str, object]:
-        if request.client_request_id is None:
-            return {}
-        return {
-            "client_request_id": str(request.client_request_id),
+        metadata: dict[str, object] = {
             "attachment_ids": [str(item) for item in request.attachment_ids],
             "requested_mode": request.requested_mode.value,
         }
+        if request.client_request_id is not None:
+            metadata["client_request_id"] = str(request.client_request_id)
+        return metadata
 
     async def _node_understand(self, state: WorkflowState) -> WorkflowState:
         context = self._context(state)
@@ -365,6 +374,10 @@ class ChatService:
             learner = await unit.learners.get(request.learner_id, workspace_id=request.workspace_id)
             if workspace is None or learner is None:
                 raise LookupError("workspace or learner does not exist")
+            context.response_language = self._preferred_response_language(
+                learner.language,
+                workspace.default_language,
+            )
             session = await unit.sessions.get(request.session_id)
             if session is None:
                 session = await unit.sessions.get_or_create(
@@ -402,6 +415,8 @@ class ChatService:
             document = await self.runtime.document_registry.get(attachment_id)
             if document.workspace_id != request.workspace_id:
                 raise ValueError("attachment does not belong to the workspace")
+            if document.origin is not DocumentOrigin.USER_UPLOAD:
+                raise LookupError("attachment was not found")
             if attachment_id not in self.runtime.document_registry.reports:
                 await self.runtime.ingestion.ingest(attachment_id)
 
@@ -426,6 +441,7 @@ class ChatService:
                     filename="chat-input.txt",
                     mime_type="text/plain",
                     content=request.message.encode("utf-8"),
+                    origin=DocumentOrigin.INTERNAL_CHAT,
                 )
                 context.graph_report = await self.runtime.ingestion.ingest(
                     upload.document_id,
@@ -493,7 +509,7 @@ class ChatService:
         )
         snapshot = self.runtime.graph_applier.store.get_snapshot(context.request.workspace_id)
         stage = self._teaching_stage(snapshot, context.target_node.id, assessed_level)
-        source_context = self._source_context(snapshot, context.target_node)
+        source_context = await self._source_context(context, snapshot, context.target_node)
         evidence = await self.evaluator.evaluate(
             workspace_id=context.request.workspace_id,
             learner_id=context.request.learner_id,
@@ -505,7 +521,9 @@ class ChatService:
             rubric=[str(item) for item in assessment.get("success_criteria", [])],
             raw_answer=context.request.message,
             evidence_type=evidence_type,
-            source_supported_definition=self._node_definition(context.target_node),
+            source_supported_definition=(
+                self._node_definition(context.target_node) if source_context else ""
+            ),
             must_cover=self._stage_list(stage, "must_cover", "must_cover_items")
             or self._node_string_list(context.target_node, "must_cover"),
             learning_objective=str(stage.get("learning_objective", "")),
@@ -680,7 +698,17 @@ class ChatService:
             and item.predicate_key.value in {"EXAMPLE_OF", "COUNTEREXAMPLE_OF"}
             and item.subject_id in nodes
         ]
-        source_spans = {item.id: item for item in snapshot.source_spans}
+        requested_source_ids = set(context.target_node.source_span_ids)
+        requested_source_ids.update(
+            source_id for assertion in focus_assertions for source_id in assertion.source_span_ids
+        )
+        eligible_source_spans = await self._user_upload_source_spans_for_ids(
+            context,
+            snapshot,
+            requested_source_ids,
+        )
+        source_spans = {item.id: item for item in eligible_source_spans}
+        eligible_source_ids = set(source_spans)
         sources = [
             SourceEvidence(
                 source_span_id=source_id,
@@ -740,7 +768,11 @@ class ChatService:
                     object_id=item.object_id,
                     description=item.natural_language_description,
                     confidence=item.confidence,
-                    source_span_ids=item.source_span_ids,
+                    source_span_ids=[
+                        source_id
+                        for source_id in item.source_span_ids
+                        if source_id in eligible_source_ids
+                    ],
                 )
                 for item in focus_assertions
             ],
@@ -777,6 +809,9 @@ class ChatService:
         generation_payload = {
             "context_bundle": context.bundle.model_dump(mode="json"),
             "directive": context.directive.model_dump(mode="json"),
+            # Normalized application state: the prompt limits this value to
+            # selecting the response locale, never a free-form instruction.
+            "response_language": context.response_language,
             "untrusted_learner_message": context.request.message,
         }
         try:
@@ -807,11 +842,11 @@ class ChatService:
                     prompt_version=prompt.version,
                 ),
                 tools=graph_tool_definitions(),
-                tool_executor=(
-                    self.runtime.graph_queries
-                    if context.semantic_projection_fallback
-                    else self.runtime.semantic_queries
-                ),
+                # Model-facing tools use the SQL-rehydrated bounded snapshot,
+                # which removes legacy INTERNAL_CHAT source documents and
+                # excerpts. Semantic reads above still select the relevant
+                # subgraph, but private chat evidence never enters tool output.
+                tool_executor=self.runtime.graph_queries,
             )
             context.tool_usage = ToolUsageResponse.model_validate(result.tool_usage)
         except ModelGatewayError as exc:
@@ -831,7 +866,7 @@ class ChatService:
             )
         acknowledgement = (
             "我们先聚焦这个问题。"
-            if any("\u3400" <= character <= "\u9fff" for character in context.request.message)
+            if self._is_chinese_language(context.response_language)
             else "Let's focus on this question."
         )
         teacher = TeacherOutput(
@@ -881,7 +916,7 @@ class ChatService:
             illustration = f"当前来源摘录 (请核对): {source_excerpt[:2_000]}"
         else:
             illustration = core
-        is_cjk = any("\u3400" <= character <= "\u9fff" for character in context.request.message)
+        is_cjk = ChatService._is_chinese_language(context.response_language)
         if is_cjk:
             takeaway = "本轮只把能够由当前来源核对的内容作为暂定结论。"
             question = "请用自己的话说明这个学习目标, 并给出一个支持你回答的依据。"
@@ -959,6 +994,7 @@ class ChatService:
                 metadata_json={
                     **self._client_request_metadata(context.request),
                     "hint_level": int(context.directive.hint_level),
+                    "response_language": context.response_language,
                     "assessment_target_knowledge_point_id": str(context.target_node.id),
                     "session_goal_knowledge_point_id": str(
                         context.session_goal_knowledge_point_id or context.target_node.id
@@ -1000,11 +1036,10 @@ class ChatService:
             self._finalize_response(context)
             if context.response is None:
                 raise RuntimeError("teaching response was not assembled")
-            if context.request.client_request_id is not None:
-                context.assistant_turn.metadata_json = {
-                    **context.assistant_turn.metadata_json,
-                    "chat_response": context.response.model_dump(mode="json"),
-                }
+            context.assistant_turn.metadata_json = {
+                **context.assistant_turn.metadata_json,
+                "chat_response": context.response.model_dump(mode="json"),
+            }
             await unit.commit()
         return state
 
@@ -1421,6 +1456,23 @@ class ChatService:
         return _LEARNING_REQUEST_PATTERN.search(message) is not None
 
     @staticmethod
+    def _preferred_response_language(
+        learner_language: str,
+        workspace_default_language: str,
+    ) -> str:
+        """Choose a bounded language tag without turning profile text into an instruction."""
+
+        for value in (learner_language, workspace_default_language):
+            candidate = value.strip()
+            if _LANGUAGE_TAG_PATTERN.fullmatch(candidate):
+                return candidate
+        return _DEFAULT_RESPONSE_LANGUAGE
+
+    @staticmethod
+    def _is_chinese_language(language: str) -> bool:
+        return language.partition("-")[0].casefold() == "zh"
+
+    @staticmethod
     def _is_pure_self_report(message: str) -> bool:
         return _PURE_SELF_REPORT_PATTERN.fullmatch(message) is not None
 
@@ -1653,11 +1705,16 @@ class ChatService:
                     return selected
         return []
 
-    @staticmethod
-    def _source_context(snapshot: GraphSnapshot, node: GraphNode) -> list[JsonObject]:
+    async def _source_context(
+        self,
+        context: ChatTurnContext,
+        snapshot: GraphSnapshot,
+        node: GraphNode,
+    ) -> list[JsonObject]:
+        eligible_spans = await self._user_upload_source_spans(context, snapshot, node)
         source_ids = set(node.source_span_ids)
         selected = sorted(
-            (span for span in snapshot.source_spans if span.id in source_ids),
+            (span for span in eligible_spans if span.id in source_ids),
             key=lambda span: (str(span.document_id), span.page_number or 0, str(span.id)),
         )[:5]
         return [
@@ -1671,6 +1728,41 @@ class ChatService:
                 "parser_version": span.parser_version,
             }
             for span in selected
+        ]
+
+    async def _user_upload_source_spans(
+        self,
+        context: ChatTurnContext,
+        snapshot: GraphSnapshot,
+        node: GraphNode,
+    ) -> list[SourceSpan]:
+        return await self._user_upload_source_spans_for_ids(
+            context,
+            snapshot,
+            set(node.source_span_ids),
+        )
+
+    async def _user_upload_source_spans_for_ids(
+        self,
+        context: ChatTurnContext,
+        snapshot: GraphSnapshot,
+        source_ids: set[UUID],
+    ) -> list[SourceSpan]:
+        candidates = [span for span in snapshot.source_spans if span.id in source_ids]
+        document_ids = {span.document_id for span in candidates}
+        unresolved_ids = document_ids.difference(context.resolved_source_document_ids)
+        if unresolved_ids:
+            async with self.runtime.database.unit_of_work() as unit:
+                origins = await unit.documents.origins_for_ids(
+                    context.request.workspace_id,
+                    unresolved_ids,
+                )
+            context.source_document_origins.update(origins)
+            context.resolved_source_document_ids.update(unresolved_ids)
+        return [
+            span
+            for span in candidates
+            if context.source_document_origins.get(span.document_id) is DocumentOrigin.USER_UPLOAD
         ]
 
     @staticmethod

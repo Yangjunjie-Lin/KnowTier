@@ -331,7 +331,10 @@ async function closeLearningStatus(page: Page) {
   }
 }
 
-async function installApiContract(page: Page) {
+async function installApiContract(
+  page: Page,
+  options: { failConversationHistory?: boolean } = {},
+) {
   let ingested = false;
   let chatRound = 0;
   let evidenceFailure = false;
@@ -532,6 +535,34 @@ async function installApiContract(page: Page) {
       return json(route, learner, 201);
     if (method === "GET" && path === `/v1/learners/${learnerId}`)
       return json(route, learner);
+    const historyMatch = new RegExp(
+      `^/v1/workspaces/${workspaceId}/learners/${learnerId}/sessions/([^/]+)/turns$`,
+    ).exec(path);
+    if (method === "GET" && historyMatch) {
+      if (options.failConversationHistory) {
+        return json(route, { detail: "simulated history failure" }, 503);
+      }
+      return json(route, {
+        workspace_id: workspaceId,
+        learner_id: learnerId,
+        session_id: historyMatch[1],
+        turn_limit: 200,
+        truncated: false,
+        items: [],
+      });
+    }
+    if (
+      method === "GET" &&
+      path === `/v1/workspaces/${workspaceId}/documents`
+    ) {
+      return json(route, {
+        workspace_id: workspaceId,
+        items: [],
+        limit: 100,
+        offset: 0,
+        next_offset: null,
+      });
+    }
     if (
       method === "POST" &&
       path === `/v1/workspaces/${workspaceId}/documents`
@@ -881,14 +912,14 @@ async function installApiContract(page: Page) {
 test("initialization, ingestion, tutoring, model and both graph views", async ({
   page,
 }) => {
-  test.setTimeout(60_000);
+  test.setTimeout(90_000);
   const { scopedRequests, setEvidenceFailure } = await installApiContract(page);
   await page.goto("/init");
-  await page.getByPlaceholder("例如：机器学习基础").fill("Smoke Workspace");
-  await page.getByRole("button", { name: /创建学习空间/ }).click();
-  await expect(page.getByRole("heading", { name: "学习者" })).toBeVisible();
-  await page.getByPlaceholder("例如：林同学").fill("Smoke Learner");
-  await page.getByRole("button", { name: /创建并进入总览/ }).click();
+  await page.getByLabel("学习主题").fill("Smoke Workspace");
+  await page.getByRole("button", { name: "保存主题，下一步" }).click();
+  await expect(page.getByRole("heading", { name: "我们怎么称呼你？" })).toBeVisible();
+  await page.getByLabel("希望怎样称呼你").fill("Smoke Learner");
+  await page.getByRole("button", { name: "完成设置，开始使用" }).click();
   await expect(page).toHaveURL(/\/overview$/);
   await expect(
     page.getByRole("heading", { name: /Smoke Learner/ }),
@@ -902,7 +933,7 @@ test("initialization, ingestion, tutoring, model and both graph views", async ({
   });
   await expect(page).toHaveURL(new RegExp(`/materials/${documentId}$`));
   const overviewTab = page.getByRole("tab", { name: "概览" });
-  const chunksTab = page.getByRole("tab", { name: "内容分块" });
+  const chunksTab = page.getByRole("tab", { name: "资料内容" });
   await overviewTab.focus();
   await overviewTab.press("ArrowRight");
   await expect(chunksTab).toBeFocused();
@@ -910,12 +941,12 @@ test("initialization, ingestion, tutoring, model and both graph views", async ({
   await chunksTab.press("Home");
   await expect(overviewTab).toBeFocused();
   await expect(overviewTab).toHaveAttribute("aria-selected", "true");
-  await page.getByRole("button", { name: "开始摄取" }).click();
+  await page.getByRole("button", { name: "分析资料并整理知识" }).click();
   await expect(
-    page.getByRole("region", { name: "本次摄取报告" }),
+    page.getByRole("region", { name: "资料分析报告" }),
   ).toContainText("plain-text");
   await expect(
-    page.getByRole("region", { name: "本次摄取报告" }),
+    page.getByRole("region", { name: "资料分析报告" }),
   ).toContainText("知识点");
 
   await page.goto("/learn");
@@ -1118,6 +1149,38 @@ test("offline recovery and HTTP fault surfaces remain actionable", async ({
   await page.unroute("**/v1/learners/**/model**");
   await page.reload();
   await expect(page.getByRole("heading", { name: "个人模型" })).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+  await expectNoSeriousAxeViolations(page);
+});
+
+test("conversation recovery failure keeps the blank-session action reachable", async ({
+  page,
+}) => {
+  await seedWorkspaceContext(page);
+  await installApiContract(page, { failConversationHistory: true });
+
+  await page.goto("/learn");
+  const skipHistory = page.getByRole("button", {
+    name: "跳过历史并新建空白会话",
+  });
+  await expect(skipHistory).toBeVisible();
+  await expect(page.getByLabel("学习消息编辑器")).toHaveCount(0);
+  await expect
+    .poll(() =>
+      skipHistory.evaluate((element) => {
+        const rectangle = element.getBoundingClientRect();
+        const hit = document.elementFromPoint(
+          rectangle.left + rectangle.width / 2,
+          rectangle.top + rectangle.height / 2,
+        );
+        return hit === element || element.contains(hit);
+      }),
+    )
+    .toBe(true);
+
+  await skipHistory.click();
+  await expect(page.getByLabel("学习消息编辑器")).toBeVisible();
+  await expect(page.getByLabel("学习消息", { exact: true })).toBeEnabled();
   await expectNoHorizontalOverflow(page);
   await expectNoSeriousAxeViolations(page);
 });

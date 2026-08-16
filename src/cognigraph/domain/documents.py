@@ -11,7 +11,7 @@ from uuid import UUID, uuid4
 from pydantic import Field, field_validator, model_validator
 
 from cognigraph.domain.base import DomainModel, JsonObject, utc_now
-from cognigraph.domain.enums import DocumentStatus, InputKind
+from cognigraph.domain.enums import DocumentOrigin, DocumentStatus, InputKind
 
 _SHA256_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 
@@ -75,6 +75,7 @@ class Document(DomainModel):
     input_kind: InputKind
     content_hash: str
     byte_size: int = Field(ge=0)
+    origin: DocumentOrigin = DocumentOrigin.USER_UPLOAD
     language: str | None = None
     status: DocumentStatus = DocumentStatus.UPLOADED
     parser_name: str | None = None

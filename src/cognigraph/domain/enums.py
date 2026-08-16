@@ -158,6 +158,13 @@ class DocumentStatus(StrEnum):
     FAILED = "FAILED"
 
 
+class DocumentOrigin(StrEnum):
+    """Auditable source of a persisted document record."""
+
+    USER_UPLOAD = "USER_UPLOAD"
+    INTERNAL_CHAT = "INTERNAL_CHAT"
+
+
 class InputKind(StrEnum):
     TEXT = "TEXT"
     PDF = "PDF"

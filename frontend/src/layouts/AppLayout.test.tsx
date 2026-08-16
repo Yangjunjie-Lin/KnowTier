@@ -1,4 +1,12 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import {
+  act,
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   MemoryRouter,
@@ -63,6 +71,7 @@ function renderLayout() {
       <Routes>
         <Route element={<AppLayout />}>
           <Route path="/overview" element={<h1>页面内容</h1>} />
+          <Route path="/model" element={<h1>我的进度页面</h1>} />
         </Route>
       </Routes>
     </MemoryRouter>,
@@ -148,6 +157,25 @@ describe("application shell accessibility", () => {
     );
     expect(document.body.style.overflow).toBe("");
     expect(document.documentElement.style.overflow).toBe("");
+  });
+
+  it("moves focus to updated main content and names the page after navigation", async () => {
+    installViewport();
+    renderLayout();
+
+    fireEvent.click(screen.getByRole("button", { name: "打开导航" }));
+    const drawer = await screen.findByRole("dialog", {
+      name: /移动端主导航/,
+    });
+    fireEvent.click(
+      within(drawer).getByRole("link", { name: "我的进度" }),
+    );
+
+    await waitFor(() => expect(screen.getByRole("main")).toHaveFocus());
+    expect(
+      screen.getByRole("heading", { name: "我的进度页面" }),
+    ).toBeVisible();
+    expect(document.title).toBe("我的进度 · KnowTier");
   });
 
   it("opens global search from the shortcut without hijacking form controls", () => {

@@ -1,4 +1,4 @@
-import { Languages, Menu, Search } from "lucide-react";
+import { ChevronsUpDown, Languages, Menu, Search } from "lucide-react";
 import { useEffect } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { useAppStore } from "@/stores/AppContext";
@@ -50,16 +50,30 @@ export function TopBar({
         >
           <Menu className="h-5 w-5" aria-hidden="true" />
         </button>
-        <div className="min-w-0">
-          <p className="truncate text-sm font-semibold text-slate-800 dark:text-slate-100">
-            {currentWorkspace?.name ?? t("shell.noWorkspace")}
-          </p>
-          <p className="mt-0.5 truncate text-[11px] text-slate-500 dark:text-slate-400">
-            {currentLearner
-              ? t("shell.learner", { name: currentLearner.display_name })
-              : t("shell.finishSetup")}
-          </p>
-        </div>
+        <Link
+          to="/init"
+          className="group flex min-w-0 items-center gap-2 rounded-lg px-1.5 py-1 transition-colors hover:bg-slate-100 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3157D5]/40 dark:hover:bg-slate-900"
+          aria-label={
+            currentWorkspace && currentLearner
+              ? (locale === "en"
+                  ? `Switch learning topic or profile. Current: ${currentWorkspace.name}, ${currentLearner.display_name}`
+                  : `切换学习主题或档案。当前：${currentWorkspace.name}，${currentLearner.display_name}`)
+              : t("shell.finishSetup")
+          }
+          title={locale === "en" ? "Switch topic or profile" : "切换学习主题或档案"}
+        >
+          <span className="min-w-0">
+            <span className="block truncate text-sm font-semibold text-slate-800 dark:text-slate-100">
+              {currentWorkspace?.name ?? t("shell.noWorkspace")}
+            </span>
+            <span className="mt-0.5 block truncate text-[11px] text-slate-500 dark:text-slate-400">
+              {currentLearner
+                ? t("shell.learner", { name: currentLearner.display_name })
+                : t("shell.finishSetup")}
+            </span>
+          </span>
+          <ChevronsUpDown className="hidden h-3.5 w-3.5 shrink-0 text-slate-400 transition-colors group-hover:text-[#3157D5] sm:block" aria-hidden="true" />
+        </Link>
       </div>
       <div className="flex shrink-0 items-center gap-1.5 text-xs text-slate-600 sm:gap-2 dark:text-slate-400">
         {currentWorkspace && currentLearner && (
@@ -79,7 +93,7 @@ export function TopBar({
           <select
             value={locale}
             onChange={(event) => setLocale(event.target.value === "en" ? "en" : "zh-CN")}
-            className="max-w-[6.5rem] cursor-pointer bg-transparent text-xs font-medium text-slate-600 outline-none dark:text-slate-300"
+            className="max-w-[6.5rem] cursor-pointer rounded-md bg-transparent text-xs font-medium text-slate-600 outline-none focus-visible:ring-2 focus-visible:ring-[#3157D5]/40 dark:text-slate-300"
             aria-label={t("shell.interfaceLanguage")}
           >
             <option value="zh-CN">{t("shell.languageChinese")}</option>

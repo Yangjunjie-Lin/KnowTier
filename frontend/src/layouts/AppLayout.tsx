@@ -2,7 +2,7 @@ import { NavLink, Outlet, useLocation } from "react-router-dom";
 import { useEffect, useRef, useState } from "react";
 import { X } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { navigationItems } from "./navigation";
+import { navigationGroups, navigationItems } from "./navigation";
 import { MobileBottomNav } from "./MobileBottomNav";
 import { Sidebar } from "./Sidebar";
 import { TopBar } from "./TopBar";
@@ -13,11 +13,33 @@ export function AppLayout() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const mobileNavigationRef = useRef<HTMLElement>(null);
   const location = useLocation();
+  const previousPathRef = useRef(location.pathname);
   const { t, pick } = useI18n();
 
   useEffect(() => {
+    const pathChanged = previousPathRef.current !== location.pathname;
+    previousPathRef.current = location.pathname;
     setMobileOpen(false);
+    if (!pathChanged || location.pathname === "/search") return;
+    const focusFrame = window.requestAnimationFrame(() => {
+      const main = document.getElementById("main-content");
+      main?.focus({ preventScroll: true });
+      main?.scrollIntoView?.({ block: "start" });
+    });
+    return () => window.cancelAnimationFrame(focusFrame);
   }, [location.pathname]);
+
+  useEffect(() => {
+    const item = navigationItems.find(
+      (candidate) =>
+        location.pathname === candidate.path ||
+        (candidate.key === "materials" &&
+          location.pathname.startsWith("/materials/")) ||
+        (candidate.key === "history" &&
+          location.pathname.startsWith("/history")),
+    );
+    document.title = item ? `${t(item.labelKey)} · KnowTier` : "KnowTier";
+  }, [location.pathname, t]);
 
   useEffect(() => {
     const desktopViewport = window.matchMedia("(min-width: 1024px)");
@@ -164,28 +186,37 @@ export function AppLayout() {
                   <X className="h-5 w-5" aria-hidden="true" />
                 </button>
               </div>
-              <nav className="space-y-1" aria-label={t("shell.primaryNavigation")}>
-                {navigationItems.map((item) => {
-                  const Icon = item.icon;
-                  return (
-                    <NavLink
-                      key={item.key}
-                      to={item.path}
-                      onClick={() => setMobileOpen(false)}
-                      className={({ isActive }) =>
-                        cn(
-                          "flex min-h-11 items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3157D5]/40",
-                          isActive
-                            ? "bg-indigo-50 text-[#3157D5] dark:bg-indigo-950/60 dark:text-indigo-300"
-                            : "text-slate-600 hover:bg-slate-50 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-900",
-                        )
-                      }
-                    >
-                      <Icon className="h-[18px] w-[18px]" aria-hidden="true" />
-                      {t(item.labelKey)}
-                    </NavLink>
-                  );
-                })}
+              <nav className="space-y-5" aria-label={t("shell.primaryNavigation")}>
+                {navigationGroups.map((group) => (
+                  <div key={group.key} className="space-y-1">
+                    <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-600 dark:text-slate-300">
+                      {pick(group.zh, group.en)}
+                    </p>
+                    {navigationItems
+                      .filter((item) => item.group === group.key)
+                      .map((item) => {
+                        const Icon = item.icon;
+                        return (
+                          <NavLink
+                            key={item.key}
+                            to={item.path}
+                            onClick={() => setMobileOpen(false)}
+                            className={({ isActive }) =>
+                              cn(
+                                "flex min-h-11 items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3157D5]/40",
+                                isActive
+                                  ? "bg-indigo-50 text-[#3157D5] dark:bg-indigo-950/60 dark:text-indigo-300"
+                                  : "text-slate-600 hover:bg-slate-50 hover:text-slate-900 dark:text-slate-300 dark:hover:bg-slate-900",
+                              )
+                            }
+                          >
+                            <Icon className="h-[18px] w-[18px]" aria-hidden="true" />
+                            {t(item.labelKey)}
+                          </NavLink>
+                        );
+                      })}
+                  </div>
+                ))}
               </nav>
             </aside>
           </div>

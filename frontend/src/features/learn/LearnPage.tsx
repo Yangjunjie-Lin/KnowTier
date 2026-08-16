@@ -1,4 +1,9 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
+import {
+  useInfiniteQuery,
+  useMutation,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import {
   AlertCircle,
   BookOpen,
@@ -36,17 +41,25 @@ import { EmptyState, ErrorState } from "@/components/shared/States";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { RuntimeModelBadge } from "@/components/shared/RuntimeModelBadge";
 import { useI18n } from "@/lib/i18n";
+import { isApiError } from "@/lib/api/errors";
 import type { PrerequisiteInsight } from "@/lib/learningInsights";
+import {
+  materialFileAccept,
+  validateMaterialFile,
+  type MaterialFileIssue,
+} from "@/lib/materialFiles";
 import { queryKeys } from "@/lib/queryKeys";
 import { cn } from "@/lib/utils";
 import { api } from "@/services/api";
 import { documentsForWorkspace, useAppStore } from "@/stores/AppContext";
 import type {
   ChatResponse,
+  ConversationHistoryResponse,
   JsonObject,
   RequestedMode,
   UUID,
 } from "@/types/api";
+import { recentDocumentFrom } from "@/types/app";
 import type { LocalPreferences, UiLocale } from "@/types/app";
 import { mergeQuickPrompt, quickTeachingActions } from "./quickTeachingActions";
 import {
@@ -85,6 +98,7 @@ interface UploadOperation {
   stage: UploadStage;
   pending: boolean;
   error: unknown;
+  retryable?: boolean;
 }
 
 interface ChatSubmission {
@@ -97,9 +111,6 @@ interface ChatSubmission {
   learnerId: UUID;
   sessionId: UUID;
 }
-
-const acceptedMaterialTypes =
-  ".pdf,.docx,.pptx,.txt,.md,.png,.jpg,.jpeg,.tif,.tiff";
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null;
@@ -139,6 +150,7 @@ function learningTargetSourceLabel(source: string, locale: UiLocale): string {
     "domain-graph": ["领域知识图谱", "Domain map"],
     "student-graph": ["学生知识图谱", "Learner map"],
     "learning-path": ["学习路径", "Learning path"],
+    "personal-model": ["我的进度", "My progress"],
     overview: ["学习总览", "Overview"],
     search: ["全局搜索", "Search"],
     "prerequisite-panel": ["前置知识", "Prerequisites"],
@@ -199,6 +211,86 @@ function quickActionContent(
   return actions[id];
 }
 
+function normalizedContentLanguage(language: string | undefined): string | undefined {
+  const candidate = language?.trim();
+  return candidate && /^[a-z]{2,3}(?:-[a-z0-9]{2,8}){0,2}$/i.test(candidate)
+    ? candidate
+    : undefined;
+}
+
+function starterActionContent(locale: UiLocale): Array<{
+  id: string;
+  label: string;
+  prompt: string;
+}> {
+  return locale === "en"
+    ? [
+        {
+          id: "start-from-zero",
+          label: "Start from zero",
+          prompt: "I want to learn this from scratch: ",
+        },
+        {
+          id: "check-foundation",
+          label: "Check my foundation",
+          prompt:
+            "Before explaining, ask me a few simple questions to understand what I already know and decide where to begin.",
+        },
+        {
+          id: "make-a-plan",
+          label: "Make a learning plan",
+          prompt:
+            "Ask about my goal and available time, then help me create a practical learning plan.",
+        },
+      ]
+    : [
+        {
+          id: "start-from-zero",
+          label: "从零开始讲",
+          prompt: "我想从零开始学习：",
+        },
+        {
+          id: "check-foundation",
+          label: "先了解我的基础",
+          prompt: "讲解前，请先用几个简单问题了解我已经会什么，再决定从哪里开始。",
+        },
+        {
+          id: "make-a-plan",
+          label: "帮我制定学习计划",
+          prompt: "请先询问我的学习目标和可用时间，再帮我制定一份可执行的学习计划。",
+        },
+      ];
+}
+
+function messagesFromHistory(
+  history: ConversationHistoryResponse,
+  documents: ReturnType<typeof documentsForWorkspace>,
+  unknownAttachmentName: string,
+): ConversationMessage[] {
+  const namesById = new Map(
+    documents.map((document) => [document.id, document.filename]),
+  );
+  return history.items.map((item) => {
+    if (item.role === "assistant") {
+      return {
+        id: item.id,
+        role: "assistant",
+        text: item.response.response,
+        result: item.response,
+      };
+    }
+    const attachmentNames = item.attachment_ids.map(
+      (attachmentId) => namesById.get(attachmentId) ?? unknownAttachmentName,
+    );
+    return {
+      id: item.id,
+      role: "user",
+      text: item.content,
+      ...(attachmentNames.length > 0 ? { attachmentNames } : {}),
+    };
+  });
+}
+
 export function LearnPage() {
   const { locale, pick } = useI18n();
   const {
@@ -228,6 +320,8 @@ export function LearnPage() {
   const [attachments, setAttachments] = useState<UUID[]>([]);
   const attachmentIdsRef = useRef<UUID[]>([]);
   const [messages, setMessages] = useState<ConversationMessage[]>([]);
+  const [bypassedHistorySessionId, setBypassedHistorySessionId] =
+    useState<UUID | null>(null);
   const [showAttachments, setShowAttachments] = useState(false);
   const [uploadOperation, setUploadOperation] =
     useState<UploadOperation | null>(null);
@@ -235,6 +329,7 @@ export function LearnPage() {
   const [synchronizingInsightsTargetId, setSynchronizingInsightsTargetId] =
     useState<UUID | null>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const attachmentTriggerRef = useRef<HTMLButtonElement>(null);
   const uploadInputRef = useRef<HTMLInputElement>(null);
   const cameraInputRef = useRef<HTMLInputElement>(null);
   const composerRef = useRef<HTMLDivElement>(null);
@@ -244,6 +339,7 @@ export function LearnPage() {
   const abortControllerRef = useRef<AbortController | null>(null);
   const [requestCancelled, setRequestCancelled] = useState(false);
   const contextKey = `${currentWorkspace?.id ?? "none"}:${currentLearner?.id ?? "none"}:${sessionId}`;
+  const isHistoryBypassed = bypassedHistorySessionId === sessionId;
   const previousContextRef = useRef(contextKey);
   const navigationTargetKey = navigationTarget
     ? `${navigationTarget.id ?? "name"}:${navigationTarget.name}:${navigationTarget.source ?? ""}`
@@ -251,11 +347,62 @@ export function LearnPage() {
   const previousNavigationTargetRef = useRef(navigationTargetKey);
   const viewKey = `${contextKey}:${navigationTargetKey}`;
   const activeViewRef = useRef(viewKey);
+  const appliedHistoryRef = useRef<string | null>(null);
   activeViewRef.current = viewKey;
-  const availableDocuments = useMemo(
-    () => documentsForWorkspace(recentDocuments, currentWorkspace?.id),
-    [currentWorkspace?.id, recentDocuments],
+  const workspaceDocuments = useInfiniteQuery({
+    queryKey: queryKeys.documents(currentWorkspace?.id ?? "none"),
+    initialPageParam: 0,
+    enabled: Boolean(currentWorkspace),
+    queryFn: ({ signal, pageParam }) => {
+      if (!currentWorkspace) {
+        throw new Error("A workspace is required to load materials.");
+      }
+      return api.listDocuments(currentWorkspace.id, signal, pageParam);
+    },
+    getNextPageParam: (lastPage) => lastPage.next_offset ?? undefined,
+  });
+  const availableDocuments = useMemo(() => {
+    const byId = new Map(recentDocuments.map((document) => [document.id, document]));
+    for (const document of
+      workspaceDocuments.data?.pages.flatMap((page) => page.items) ?? []) {
+      byId.set(document.id, recentDocumentFrom(document));
+    }
+    return documentsForWorkspace([...byId.values()], currentWorkspace?.id);
+  }, [currentWorkspace?.id, recentDocuments, workspaceDocuments.data?.pages]);
+  const knownMaterialIds = useMemo(
+    () => new Set(availableDocuments.map((document) => document.id)),
+    [availableDocuments],
   );
+  const conversationHistory = useQuery({
+    queryKey: queryKeys.conversationHistory(
+      currentWorkspace?.id ?? "none",
+      currentLearner?.id ?? "none",
+      sessionId,
+    ),
+    enabled: Boolean(currentWorkspace && currentLearner && !isHistoryBypassed),
+    retry: false,
+    queryFn: ({ signal }) => {
+      const workspaceId = currentWorkspace?.id;
+      const learnerId = currentLearner?.id;
+      if (!workspaceId || !learnerId) {
+        throw new Error("A workspace and learner are required to restore a conversation.");
+      }
+      return api.getConversationHistory(
+        workspaceId,
+        learnerId,
+        sessionId,
+        signal,
+      );
+    },
+  });
+  const isRestoringConversation =
+    !isHistoryBypassed &&
+    (conversationHistory.isPending ||
+      (conversationHistory.isFetching &&
+        conversationHistory.data === undefined));
+  const historyBlocksComposer =
+    isRestoringConversation ||
+    (conversationHistory.isError && !isHistoryBypassed);
   const latestResult = useMemo(
     () =>
       [...messages].reverse().find((item) => item.result !== undefined)?.result,
@@ -334,6 +481,14 @@ export function LearnPage() {
         queryClient.invalidateQueries({
           queryKey: ["learning-path", input.learnerId],
         }),
+        queryClient.invalidateQueries({
+          queryKey: queryKeys.conversationHistory(
+            input.workspaceId,
+            input.learnerId,
+            input.sessionId,
+          ),
+          refetchType: "none",
+        }),
       ]);
       setSynchronizingInsightsTargetId((current) =>
         current === targetId ? null : current,
@@ -367,7 +522,6 @@ export function LearnPage() {
     abortControllerRef.current = null;
     inFlightRef.current = false;
     chatMutation.reset();
-    setMessages([]);
     attachmentIdsRef.current = [];
     setAttachments([]);
     setShowAttachments(false);
@@ -378,6 +532,32 @@ export function LearnPage() {
     setMessage(learningTargetDraft(navigationTarget, locale));
     setRequestCancelled(false);
   }, [chatMutation, locale, navigationTarget, navigationTargetKey]);
+
+  useEffect(() => {
+    if (!conversationHistory.data) return;
+    const applicationKey = `${contextKey}:${conversationHistory.dataUpdatedAt}:${workspaceDocuments.dataUpdatedAt}`;
+    if (appliedHistoryRef.current === applicationKey) return;
+    appliedHistoryRef.current = applicationKey;
+    const restored = messagesFromHistory(
+      conversationHistory.data,
+      availableDocuments,
+      pick("历史资料", "Previous material"),
+    );
+    const restoredById = new Map(restored.map((item) => [item.id, item]));
+    setMessages((current) => {
+      const hasLocalMessages = current.some((item) => !restoredById.has(item.id));
+      return hasLocalMessages
+        ? current.map((item) => restoredById.get(item.id) ?? item)
+        : restored;
+    });
+  }, [
+    availableDocuments,
+    contextKey,
+    conversationHistory.data,
+    conversationHistory.dataUpdatedAt,
+    pick,
+    workspaceDocuments.dataUpdatedAt,
+  ]);
 
   useEffect(() => {
     const composer = composerRef.current;
@@ -391,7 +571,7 @@ export function LearnPage() {
     const observer = new ResizeObserver(updateHeight);
     observer.observe(composer);
     return () => observer.disconnect();
-  }, [currentLearner?.id, currentWorkspace?.id]);
+  }, [currentLearner?.id, currentWorkspace?.id, historyBlocksComposer]);
 
   useEffect(() => {
     messageEndRef.current?.scrollIntoView?.({
@@ -435,11 +615,30 @@ export function LearnPage() {
     replaceAttachments([...current, id]);
   };
 
+  const closeAttachmentMenu = () => {
+    setShowAttachments(false);
+    window.requestAnimationFrame(() => attachmentTriggerRef.current?.focus());
+  };
+
   const processUpload = async (
     file: File,
     resumeUploaded?: Awaited<ReturnType<typeof api.uploadDocument>>,
   ) => {
     if (chatMutation.isPending || uploadOperation?.pending) return;
+    if (!resumeUploaded) {
+      const issue = validateMaterialFile(file);
+      if (issue) {
+        setUploadOperation({
+          fileName: file.name,
+          file,
+          stage: "upload",
+          pending: false,
+          error: new Error(`material-file-${issue}`),
+          retryable: false,
+        });
+        return;
+      }
+    }
     const operationViewKey = viewKey;
     setUploadOperation({
       fileName: file.name,
@@ -463,6 +662,7 @@ export function LearnPage() {
           stage: "upload",
           pending: false,
           error,
+          retryable: !(isApiError(error) && error.status === 422),
         });
         return;
       }
@@ -523,7 +723,13 @@ export function LearnPage() {
 
   const submit = () => {
     const text = message.trim();
-    if (!text || inFlightRef.current || chatMutation.isPending) return;
+    if (
+      !text ||
+      inFlightRef.current ||
+      chatMutation.isPending ||
+      (!conversationHistory.isSuccess && !isHistoryBypassed)
+    )
+      return;
     inFlightRef.current = true;
     setRequestCancelled(false);
     const attachmentIds = [...attachmentIdsRef.current];
@@ -569,6 +775,28 @@ export function LearnPage() {
     );
   };
 
+  const beginNewSession = (bypassHistory: boolean) => {
+    abortControllerRef.current?.abort();
+    abortControllerRef.current = null;
+    inFlightRef.current = false;
+    chatMutation.reset();
+    const nextSessionId = newSession();
+    setBypassedHistorySessionId(bypassHistory ? nextSessionId : null);
+    setMessages([]);
+    setMessage("");
+    replaceAttachments([]);
+    setShowAttachments(false);
+    setUploadOperation(null);
+    setNavigationTargetConfirmed(false);
+    setSynchronizingInsightsTargetId(null);
+    setLearningStatusOpen(false);
+    setRequestCancelled(false);
+    if (uploadInputRef.current) uploadInputRef.current.value = "";
+    if (cameraInputRef.current) cameraInputRef.current.value = "";
+    void navigate("/learn", { replace: true, state: null });
+    window.setTimeout(() => inputRef.current?.focus(), 0);
+  };
+
   const resetLearningSession = () => {
     const hasLocalContent =
       messages.length > 0 ||
@@ -586,24 +814,9 @@ export function LearnPage() {
     ) {
       return;
     }
-    abortControllerRef.current?.abort();
-    abortControllerRef.current = null;
-    inFlightRef.current = false;
-    chatMutation.reset();
-    newSession();
-    setMessages([]);
-    setMessage("");
-    replaceAttachments([]);
-    setShowAttachments(false);
-    setUploadOperation(null);
-    setNavigationTargetConfirmed(false);
-    setSynchronizingInsightsTargetId(null);
-    setLearningStatusOpen(false);
-    setRequestCancelled(false);
-    if (uploadInputRef.current) uploadInputRef.current.value = "";
-    if (cameraInputRef.current) cameraInputRef.current.value = "";
-    void navigate("/learn", { replace: true, state: null });
-    window.setTimeout(() => inputRef.current?.focus(), 0);
+    // A generated UUID cannot have earlier turns. Avoid making a blank
+    // session depend on the history endpoint being available.
+    beginNewSession(true);
   };
 
   const startPrerequisite = (item: PrerequisiteInsight) => {
@@ -613,7 +826,6 @@ export function LearnPage() {
       source: "prerequisite-panel",
     };
     void navigate("/learn", { state: { learningTarget: target } });
-    setMessages([]);
     setNavigationTargetConfirmed(false);
     setSynchronizingInsightsTargetId(null);
     setMessage(learningTargetDraft(target, locale));
@@ -655,10 +867,22 @@ export function LearnPage() {
   const hasProgressColumn = Boolean(
     latestResult || hasMisconceptions || hasEvidence || hasInsightFailure,
   );
+  const firstTurnWithoutTarget = messages.length === 0 && !navigationTarget;
+  const composerActions = firstTurnWithoutTarget
+    ? starterActionContent(locale)
+    : quickTeachingActions.map((action) => ({
+        id: action.id,
+        ...quickActionContent(action.id, preferences, locale),
+      }));
   const retryUpload = (() => {
     const operation = uploadOperation;
     const file = operation?.file;
-    if (!operation || !file || operation.stage === "attachment")
+    if (
+      !operation ||
+      !file ||
+      operation.stage === "attachment" ||
+      operation.retryable === false
+    )
       return undefined;
     return () =>
       void processUpload(
@@ -672,13 +896,15 @@ export function LearnPage() {
       className="min-h-[calc(100vh-8rem)]"
       style={
         {
-          "--learn-composer-height": `${composerHeight}px`,
+          "--learn-composer-height": historyBlocksComposer
+            ? "0px"
+            : `${composerHeight}px`,
         } as CSSProperties
       }
     >
       <PageHeader
         eyebrow={pick("智能教学工作台", "AI learning workspace")}
-        title={pick("学习空间", "Learning")}
+        title={pick("开始学习", "Learning")}
         description={pick(
           "围绕一个目标持续提问、练习并检查理解。",
           "Ask questions, practise, and check your understanding around one goal.",
@@ -866,9 +1092,65 @@ export function LearnPage() {
             tabIndex={0}
             aria-label={pick("学习对话记录", "Learning conversation")}
             aria-live="polite"
-            aria-busy={chatMutation.isPending}
+            aria-busy={chatMutation.isPending || isRestoringConversation}
           >
-            {messages.length === 0 ? (
+            {conversationHistory.data?.truncated && !isHistoryBypassed && (
+              <p
+                className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200"
+                role="status"
+              >
+                {pick(
+                  `为保持页面流畅，仅恢复最近 ${conversationHistory.data.turn_limit} 条对话消息。`,
+                  `For a responsive page, only the most recent ${conversationHistory.data.turn_limit} conversation messages were restored.`,
+                )}
+              </p>
+            )}
+            {isRestoringConversation ? (
+              <div
+                className="flex min-h-48 items-center justify-center gap-3 text-sm text-slate-600 sm:min-h-80 dark:text-slate-300"
+                role="status"
+              >
+                <LoaderCircle className="h-5 w-5 animate-spin text-[#3157D5]" />
+                {pick(
+                  "正在恢复这段学习对话…",
+                  "Restoring this learning conversation…",
+                )}
+              </div>
+            ) : conversationHistory.isError && !isHistoryBypassed ? (
+              <div
+                className="mx-auto flex min-h-48 max-w-md flex-col items-center justify-center text-center sm:min-h-80"
+                role="alert"
+              >
+                <AlertCircle className="h-8 w-8 text-red-500" />
+                <h2 className="mt-3 text-base font-medium">
+                  {pick("暂时无法恢复对话", "Conversation could not be restored")}
+                </h2>
+                <p className="mt-1 text-sm leading-6 text-slate-500">
+                  {pick(
+                    "请重试加载；如果想从头开始，也可以新建会话。",
+                    "Retry loading, or start a new session if you want a clean slate.",
+                  )}
+                </p>
+                <button
+                  type="button"
+                  className="secondary-button mt-4"
+                  onClick={() => void conversationHistory.refetch()}
+                >
+                  <RotateCcw className="h-4 w-4" />
+                  {pick("重试加载对话", "Retry conversation")}
+                </button>
+                <button
+                  type="button"
+                  className="quiet-button mt-2"
+                  onClick={() => beginNewSession(true)}
+                >
+                  {pick(
+                    "跳过历史并新建空白会话",
+                    "Skip history and start a blank session",
+                  )}
+                </button>
+              </div>
+            ) : messages.length === 0 ? (
               <div className="flex min-h-48 flex-col items-center justify-start pt-8 text-center sm:min-h-80 sm:justify-center sm:pt-0">
                 <BookOpen className="h-8 w-8 text-[#7B96EF]" />
                 <h2 className="mt-3 text-base font-medium">
@@ -879,8 +1161,8 @@ export function LearnPage() {
                 </h2>
                 <p className="mt-1 max-w-md text-sm leading-6 text-slate-500">
                   {pick(
-                    "直接提问，或先上传资料与照片。每轮讲解后会用一个问题帮助你确认理解。",
-                    "Ask a question, or add a document or photo first. Each explanation ends with one question to check your understanding.",
+                    "可以点击下方的起步选项，也可以直接提问或上传资料。每轮讲解后会用一个问题帮助你确认理解。",
+                    "Choose a starter below, ask your own question, or add a material. Each explanation ends with one question to check your understanding.",
                   )}
                 </p>
               </div>
@@ -889,7 +1171,11 @@ export function LearnPage() {
                 item.role === "user" ? (
                   <UserTurn key={item.id} message={item} />
                 ) : item.result ? (
-                  <TeachingTurn key={item.id} result={item.result} />
+                  <TeachingTurn
+                    key={item.id}
+                    result={item.result}
+                    knownMaterialIds={knownMaterialIds}
+                  />
                 ) : null,
               )
             )}
@@ -952,30 +1238,26 @@ export function LearnPage() {
             <div ref={messageEndRef} aria-hidden="true" />
           </div>
 
-          <div
-            ref={composerRef}
-            className="fixed inset-x-0 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-30 max-h-[calc(100dvh-7.5rem)] shrink-0 overflow-y-auto overscroll-contain border-t border-slate-200 bg-white/95 p-3 shadow-[0_-12px_30px_rgba(15,23,42,0.12)] backdrop-blur-xl dark:border-slate-800 dark:bg-slate-900/95 lg:bottom-0 lg:left-60 lg:right-0 xl:static xl:z-auto xl:max-h-none xl:overflow-visible xl:p-4 xl:shadow-none"
-            aria-label={pick("学习消息编辑器", "Learning message editor")}
-          >
+          {!historyBlocksComposer && (
+            <div
+              ref={composerRef}
+              className="learn-composer fixed inset-x-0 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-30 max-h-[calc(100dvh-7.5rem)] shrink-0 overflow-y-auto overscroll-contain border-t border-slate-200 bg-white/95 p-3 shadow-[0_-12px_30px_rgba(15,23,42,0.12)] backdrop-blur-xl transition-[left] duration-200 motion-reduce:transition-none dark:border-slate-800 dark:bg-slate-900/95 lg:bottom-0 lg:left-60 lg:right-0 xl:static xl:z-auto xl:max-h-none xl:overflow-visible xl:p-4 xl:shadow-none"
+              aria-label={pick("学习消息编辑器", "Learning message editor")}
+            >
             <div
               className="-mx-1 mb-2 flex gap-2 overflow-x-auto px-1 pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
               role="toolbar"
               aria-label={pick("快捷教学操作", "Quick teaching actions")}
               aria-describedby="quick-teaching-actions-help"
             >
-              {quickTeachingActions.map((action) => {
-                const content = quickActionContent(
-                  action.id,
-                  preferences,
-                  locale,
-                );
+              {composerActions.map((action) => {
                 return (
                   <button
                     type="button"
                     key={action.id}
                     onClick={() => {
                       setMessage((current) =>
-                        mergeQuickPrompt(current, content.prompt),
+                        mergeQuickPrompt(current, action.prompt),
                       );
                       inputRef.current?.focus();
                     }}
@@ -983,15 +1265,19 @@ export function LearnPage() {
                     className="quiet-button min-h-9 shrink-0 border border-slate-200 px-2.5 py-1 text-xs dark:border-slate-700"
                   >
                     <Lightbulb className="h-3.5 w-3.5" />
-                    {content.label}
+                    {action.label}
                   </button>
                 );
               })}
             </div>
             <span id="quick-teaching-actions-help" className="sr-only">
               {pick(
-                "可横向滚动查看更多快捷操作。",
-                "Scroll horizontally for more quick actions.",
+                firstTurnWithoutTarget
+                  ? "选择一个起步方式会把可编辑的示例放入输入框。"
+                  : "可横向滚动查看更多快捷操作。",
+                firstTurnWithoutTarget
+                  ? "Choose a starter to place an editable example in the message box."
+                  : "Scroll horizontally for more quick actions.",
               )}
             </span>
             <div className="relative">
@@ -1012,8 +1298,12 @@ export function LearnPage() {
                 rows={3}
                 maxLength={20_000}
                 placeholder={pick(
-                  "输入你的问题或回答…",
-                  "Type your question or answer…",
+                  firstTurnWithoutTarget
+                    ? "例如：请从零讲解什么是机器学习"
+                    : "输入你的问题或回答…",
+                  firstTurnWithoutTarget
+                    ? "For example: Teach me what machine learning is from scratch"
+                    : "Type your question or answer…",
                 )}
                 className="form-input min-h-20 resize-none pr-12 text-base leading-6 sm:text-sm"
                 aria-label={pick("学习消息", "Learning message")}
@@ -1023,7 +1313,11 @@ export function LearnPage() {
               <button
                 type="button"
                 onClick={submit}
-                disabled={!message.trim() || chatMutation.isPending}
+                disabled={
+                  !message.trim() ||
+                  chatMutation.isPending ||
+                  (!conversationHistory.isSuccess && !isHistoryBypassed)
+                }
                 className="absolute bottom-2 right-2 inline-flex h-10 w-10 items-center justify-center rounded-xl bg-[#3157D5] text-white shadow-sm hover:bg-[#2446B8] focus:outline-none focus:ring-2 focus:ring-[#3157D5]/40 focus:ring-offset-2 disabled:opacity-40 dark:focus:ring-offset-slate-950"
                 aria-label={pick("发送学习消息", "Send learning message")}
               >
@@ -1034,6 +1328,7 @@ export function LearnPage() {
             <div className="mt-2 flex flex-wrap items-center gap-2">
               <div className="relative">
                 <button
+                  ref={attachmentTriggerRef}
                   type="button"
                   onClick={() => setShowAttachments((value) => !value)}
                   disabled={chatMutation.isPending}
@@ -1055,8 +1350,14 @@ export function LearnPage() {
                   <AttachmentMenu
                     documents={availableDocuments}
                     selected={attachments}
+                    loading={workspaceDocuments.isPending}
+                    loadError={workspaceDocuments.isError}
+                    hasMore={workspaceDocuments.hasNextPage}
+                    loadingMore={workspaceDocuments.isFetchingNextPage}
+                    onLoadMore={() => void workspaceDocuments.fetchNextPage()}
+                    onRetry={() => void workspaceDocuments.refetch()}
                     onToggle={toggleAttachment}
-                    onClose={() => setShowAttachments(false)}
+                    onClose={closeAttachmentMenu}
                   />
                 )}
               </div>
@@ -1081,7 +1382,7 @@ export function LearnPage() {
               <input
                 ref={uploadInputRef}
                 type="file"
-                accept={acceptedMaterialTypes}
+                accept={materialFileAccept}
                 disabled={chatMutation.isPending}
                 className="sr-only"
                 aria-label={pick("上传学习资料", "Upload learning material")}
@@ -1120,7 +1421,11 @@ export function LearnPage() {
             </div>
 
             {uploadOperation && (
-              <UploadStatus operation={uploadOperation} onRetry={retryUpload} />
+              <UploadStatus
+                operation={uploadOperation}
+                onRetry={retryUpload}
+                onChooseAnother={() => uploadInputRef.current?.click()}
+              />
             )}
             {attachments.length > 0 && (
               <div
@@ -1154,7 +1459,8 @@ export function LearnPage() {
                 })}
               </div>
             )}
-          </div>
+            </div>
+          )}
         </section>
 
         {hasProgressColumn && (
@@ -1300,13 +1606,17 @@ export function LearnPage() {
 
 function UserTurn({ message }: { message: ConversationMessage }) {
   const { pick } = useI18n();
+  const { currentLearner } = useAppStore();
+  const contentLanguage = normalizedContentLanguage(currentLearner?.language);
   return (
     <div className="flex justify-end">
       <div className="max-w-[94%] rounded-2xl rounded-br-md bg-[#3157D5] px-4 py-3 text-sm leading-7 text-white shadow-sm sm:max-w-[88%]">
         <p className="mb-1 text-[10px] font-semibold uppercase tracking-wider text-indigo-100">
           {pick("你", "You")}
         </p>
-        <p className="whitespace-pre-wrap break-words">{message.text}</p>
+        <p className="whitespace-pre-wrap break-words" lang={contentLanguage}>
+          {message.text}
+        </p>
         {message.attachmentNames && message.attachmentNames.length > 0 && (
           <p className="mt-2 border-t border-white/20 pt-2 text-[11px] text-indigo-100">
             {pick("附件：", "Attachments: ")}
@@ -1318,8 +1628,25 @@ function UserTurn({ message }: { message: ConversationMessage }) {
   );
 }
 
-export function TeachingTurn({ result }: { result: ChatResponse }) {
+export function TeachingTurn({
+  result,
+  knownMaterialIds,
+}: {
+  result: ChatResponse;
+  knownMaterialIds?: ReadonlySet<UUID>;
+}) {
   const { locale, pick } = useI18n();
+  const { currentLearner, recentDocuments } = useAppStore();
+  const contentLanguage = normalizedContentLanguage(currentLearner?.language);
+  const localKnownMaterialIds = new Set(
+    recentDocuments.map((document) => document.id),
+  );
+  const effectiveKnownMaterialIds = knownMaterialIds ?? localKnownMaterialIds;
+  const hasKnownExternalSource = result.sources.some(
+    (source) =>
+      typeof source.document_id === "string" &&
+      effectiveKnownMaterialIds.has(source.document_id),
+  );
   return (
     <article
       className="min-w-0 space-y-3"
@@ -1341,7 +1668,7 @@ export function TeachingTurn({ result }: { result: ChatResponse }) {
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 pb-2 dark:border-slate-700">
           <p className="text-[11px] font-medium text-slate-600 dark:text-slate-300">
             {pick("目标知识点", "Learning topic")} ·{" "}
-            {result.target_knowledge_point.name}
+            <span lang={contentLanguage}>{result.target_knowledge_point.name}</span>
           </p>
           <span className="text-[10px] text-slate-500">
             {pick(
@@ -1350,8 +1677,23 @@ export function TeachingTurn({ result }: { result: ChatResponse }) {
             )}
           </span>
         </div>
-        <TeachingResponse content={result.response} />
+        <TeachingResponse
+          content={result.response}
+          contentLanguage={contentLanguage}
+        />
       </section>
+      {!hasKnownExternalSource && (
+        <p
+          className="flex items-start gap-2 rounded-lg border border-sky-200 bg-sky-50 px-3 py-2 text-xs leading-5 text-sky-900 dark:border-sky-900/60 dark:bg-sky-950/25 dark:text-sky-200"
+          role="status"
+        >
+          <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+          {pick(
+            "本轮未关联你添加的外部资料，内容仅作为教学解释，尚未由可追溯来源确认。",
+            "This turn is not linked to an external material you added. Treat it as a teaching explanation that has not yet been confirmed by traceable evidence.",
+          )}
+        </p>
+      )}
       {result.model_fallback && (
         <p
           className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:border-amber-900/50 dark:bg-amber-950/30 dark:text-amber-200"
@@ -1374,7 +1716,10 @@ export function TeachingTurn({ result }: { result: ChatResponse }) {
             {assessmentTypeLabel(result.assessment.type, locale)}
           </h3>
         </div>
-        <p className="mt-2 text-sm leading-6 text-amber-900/80 dark:text-amber-100/80">
+        <p
+          className="mt-2 text-sm leading-6 text-amber-900/80 dark:text-amber-100/80"
+          lang={contentLanguage}
+        >
           {result.assessment.question}
         </p>
       </section>
@@ -1382,7 +1727,11 @@ export function TeachingTurn({ result }: { result: ChatResponse }) {
         <details className="group rounded-xl border border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900">
           <summary className="cursor-pointer list-none rounded-xl px-4 py-3 text-sm font-medium text-slate-700 focus:outline-none focus-visible:ring-2 focus-visible:ring-indigo-400 dark:text-slate-200 [&::-webkit-details-marker]:hidden">
             <span className="flex items-center justify-between gap-3">
-              <span>{pick("查看参考来源", "View sources")}</span>
+              <span>
+                {hasKnownExternalSource
+                  ? pick("查看参考来源", "View sources")
+                  : pick("查看本轮依据（未外部确认）", "View turn basis (not externally confirmed)")}
+              </span>
               <span className="text-xs font-normal text-slate-500">
                 {pick(
                   `${result.sources.length} 条`,
@@ -1406,29 +1755,103 @@ export function TeachingTurn({ result }: { result: ChatResponse }) {
 function AttachmentMenu({
   documents,
   selected,
+  loading,
+  loadError,
+  hasMore,
+  loadingMore,
+  onLoadMore,
+  onRetry,
   onToggle,
   onClose,
 }: {
   documents: ReturnType<typeof documentsForWorkspace>;
   selected: UUID[];
+  loading: boolean;
+  loadError: boolean;
+  hasMore: boolean;
+  loadingMore: boolean;
+  onLoadMore: () => void;
+  onRetry: () => void;
   onToggle: (id: UUID) => void;
   onClose: () => void;
 }) {
   const { pick } = useI18n();
+  const menuRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const menu = menuRef.current;
+    if (!menu) return;
+    const firstItem = menu.querySelector<HTMLButtonElement>(
+      '[role="menuitemcheckbox"]',
+    );
+    const activeElement = document.activeElement;
+    if (firstItem) {
+      if (activeElement === menu || !menu.contains(activeElement)) {
+        firstItem.focus();
+      }
+      return;
+    }
+    if (!menu.contains(activeElement)) menu.focus();
+  }, [documents]);
   return (
     <div
+      ref={menuRef}
       id="learning-attachment-menu"
       role="menu"
+      tabIndex={-1}
       aria-label={pick("选择本轮资料", "Choose materials for this turn")}
       onKeyDown={(event) => {
         if (event.key === "Escape") {
           event.preventDefault();
           onClose();
+          return;
         }
+        const items = Array.from(
+          menuRef.current?.querySelectorAll<HTMLButtonElement>(
+            '[role="menuitemcheckbox"]',
+          ) ?? [],
+        );
+        if (items.length === 0) return;
+        const currentIndex = items.indexOf(
+          document.activeElement as HTMLButtonElement,
+        );
+        const requestedIndex =
+          event.key === "Home"
+            ? 0
+            : event.key === "End"
+              ? items.length - 1
+              : event.key === "ArrowDown"
+                ? (Math.max(currentIndex, -1) + 1) % items.length
+                : event.key === "ArrowUp"
+                  ? (currentIndex <= 0 ? items.length : currentIndex) - 1
+                  : null;
+        if (requestedIndex === null) return;
+        event.preventDefault();
+        items[requestedIndex]?.focus();
       }}
       className="absolute bottom-10 left-0 z-20 max-h-72 w-[min(20rem,calc(100vw-1.5rem))] overflow-y-auto rounded-xl border border-slate-200 bg-white p-2 shadow-xl dark:border-slate-700 dark:bg-slate-900"
     >
-      {documents.length === 0 ? (
+      {documents.length === 0 && loading ? (
+        <p className="flex items-center gap-2 px-3 py-4 text-xs text-slate-500" role="status">
+          <LoaderCircle className="h-3.5 w-3.5 animate-spin" aria-hidden="true" />
+          {pick("正在读取已保存的资料…", "Loading saved materials…")}
+        </p>
+      ) : documents.length === 0 && loadError ? (
+        <div className="px-3 py-4 text-xs leading-5 text-amber-700 dark:text-amber-300" role="alert">
+          <p>
+            {pick(
+              "暂时无法读取资料列表，不能确认当前主题是否为空。",
+              "The material list could not be loaded, so this topic may not be empty.",
+            )}
+          </p>
+          <button
+            type="button"
+            className="secondary-button mt-2 min-h-8 px-2 py-1 text-xs"
+            onClick={onRetry}
+          >
+            {pick("重试读取", "Retry loading")}
+          </button>
+        </div>
+      ) : documents.length === 0 ? (
         <p className="px-3 py-4 text-xs text-slate-500">
           {pick(
             "当前学习空间还没有可用资料。",
@@ -1478,6 +1901,36 @@ function AttachmentMenu({
               </span>
             </button>
           ))}
+          {loadError && (
+            <div className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800 dark:bg-amber-950/30 dark:text-amber-200" role="alert">
+              <p>
+                {pick(
+                  "更早的资料加载失败，当前列表可能不完整。",
+                  "Older materials could not be loaded, so this list may be incomplete.",
+                )}
+              </p>
+              <button
+                type="button"
+                className="quiet-button mt-1 min-h-8 px-2 py-1 text-xs"
+                onClick={onRetry}
+              >
+                {pick("重试", "Retry")}
+              </button>
+            </div>
+          )}
+          {hasMore && (
+            <button
+              type="button"
+              disabled={loadingMore}
+              onClick={onLoadMore}
+              className="secondary-button mt-2 w-full text-xs"
+            >
+              {loadingMore ? (
+                <LoaderCircle className="h-3.5 w-3.5 animate-spin" />
+              ) : null}
+              {pick("加载更多资料", "Load more materials")}
+            </button>
+          )}
         </>
       )}
     </div>
@@ -1487,9 +1940,11 @@ function AttachmentMenu({
 function UploadStatus({
   operation,
   onRetry,
+  onChooseAnother,
 }: {
   operation: UploadOperation;
   onRetry?: () => void;
+  onChooseAnother?: () => void;
 }) {
   const { pick } = useI18n();
   const stageLabels: Record<UploadStage, [string, string]> = {
@@ -1498,9 +1953,36 @@ function UploadStatus({
     attachment: ["加入附件", "Attachment"],
   };
   const stageLabel = stageLabels[operation.stage];
-  const localError =
+  const fileIssue =
     operation.error instanceof Error &&
-    operation.error.message === "attachment-limit"
+    operation.error.message.startsWith("material-file-")
+      ? (operation.error.message.slice(
+          "material-file-".length,
+        ) as MaterialFileIssue)
+      : null;
+  const localError =
+    fileIssue === "unsupported"
+      ? pick(
+          "暂不支持这种文件，请重新选择 PDF、Word、PPT、文本、Markdown 或常见图片。",
+          "This file type is not supported. Choose a PDF, Word file, slide deck, text, Markdown, or common image.",
+        )
+      : fileIssue === "empty"
+        ? pick(
+            "这个文件是空的，请重新选择包含内容的资料。",
+            "This file is empty. Choose a material that contains content.",
+          )
+        : fileIssue === "too-large"
+          ? pick(
+              "单个文件不能超过 25 MB，请重新选择较小的资料。",
+              "A material cannot exceed 25 MB. Choose a smaller file.",
+            )
+          : operation.retryable === false
+            ? pick(
+                "这份资料未通过文件校验，请重新选择文件。",
+                "This material did not pass file validation. Choose another file.",
+              )
+            : operation.error instanceof Error &&
+                operation.error.message === "attachment-limit"
       ? pick(
           "每轮最多加入 20 份附件。",
           "You can add up to 20 materials to one turn.",
@@ -1536,6 +2018,15 @@ function UploadStatus({
           >
             <RotateCcw className="h-3.5 w-3.5" />
             {pick("重试", "Retry")}
+          </button>
+        )}
+        {!onRetry && operation.retryable === false && onChooseAnother && (
+          <button
+            type="button"
+            onClick={onChooseAnother}
+            className="quiet-button min-h-8 shrink-0 border border-red-200 bg-white px-2 text-xs dark:border-red-800 dark:bg-slate-900"
+          >
+            {pick("重新选择", "Choose another")}
           </button>
         )}
       </div>

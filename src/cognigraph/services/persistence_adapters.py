@@ -11,7 +11,7 @@ from sqlalchemy.exc import IntegrityError
 
 from cognigraph.domain.base import utc_now
 from cognigraph.domain.documents import Document, DocumentChunk, IngestionReport, SourceSpan
-from cognigraph.domain.enums import DocumentStatus
+from cognigraph.domain.enums import DocumentOrigin, DocumentStatus
 from cognigraph.extraction.schemas import KnowledgeBlueprint
 from cognigraph.graph.comparison import GraphComparisonResult
 from cognigraph.graph.delta import GraphDelta
@@ -95,6 +95,15 @@ class SqlDocumentRecordSink:
                     document.content_hash,
                 )
                 if existing is not None:
+                    if (
+                        document.origin is DocumentOrigin.USER_UPLOAD
+                        and existing.origin == DocumentOrigin.INTERNAL_CHAT.value
+                    ):
+                        existing.origin = DocumentOrigin.USER_UPLOAD.value
+                        existing.filename = document.original_filename
+                        existing.mime_type = document.mime_type
+                        existing.language = document.language
+                        await unit.commit()
                     return self._domain_document(existing)
                 record = await unit.documents.add(
                     DocumentRecord(
@@ -106,6 +115,7 @@ class SqlDocumentRecordSink:
                         mime_type=document.mime_type,
                         byte_size=document.byte_size,
                         sha256=document.content_hash,
+                        origin=document.origin.value,
                         language=document.language,
                         status=document.status.value,
                     )
@@ -125,6 +135,20 @@ class SqlDocumentRecordSink:
         async with self.database.unit_of_work() as unit:
             record = await unit.documents.get(document_id)
         return self._domain_document(record) if record is not None else None
+
+    async def promote_to_user_upload(self, document: Document) -> Document:
+        if document.origin is not DocumentOrigin.USER_UPLOAD:
+            raise ValueError("only a user upload can promote an internal document")
+        async with self.database.unit_of_work() as unit:
+            record = await unit.documents.get(document.id)
+            if record is None:
+                raise LookupError(f"document {document.id} has no SQL upload record")
+            record.origin = DocumentOrigin.USER_UPLOAD.value
+            record.filename = document.original_filename
+            record.mime_type = document.mime_type
+            record.language = document.language
+            await unit.commit()
+            return self._domain_document(record)
 
     async def find_by_hash(
         self,
@@ -293,6 +317,7 @@ class SqlDocumentRecordSink:
             input_kind=input_kind_for(record.mime_type, Path(record.filename).suffix.casefold()),
             content_hash=record.sha256,
             byte_size=record.byte_size,
+            origin=DocumentOrigin(record.origin),
             language=record.language,
             status=DocumentStatus(record.status),
             parser_name=record.parser_name,

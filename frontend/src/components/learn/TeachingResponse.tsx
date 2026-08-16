@@ -158,7 +158,13 @@ const markdownComponents: Components = {
   ),
 };
 
-export function TeachingResponse({ content }: { content: string }) {
+export function TeachingResponse({
+  content,
+  contentLanguage,
+}: {
+  content: string;
+  contentLanguage?: string;
+}) {
   return (
     <div className="min-w-0 break-words text-sm text-slate-700 dark:text-slate-200 [&_.katex-display]:overflow-x-auto [&_.katex-display]:overflow-y-hidden">
       <div className="mb-2 flex justify-end">
@@ -168,13 +174,15 @@ export function TeachingResponse({ content }: { content: string }) {
           labelEn="Copy full tutor response"
         />
       </div>
-      <ReactMarkdown
-        remarkPlugins={[remarkGfm, remarkMath]}
-        rehypePlugins={[rehypeKatex]}
-        components={markdownComponents}
-      >
-        {content}
-      </ReactMarkdown>
+      <div lang={contentLanguage}>
+        <ReactMarkdown
+          remarkPlugins={[remarkGfm, remarkMath]}
+          rehypePlugins={[rehypeKatex]}
+          components={markdownComponents}
+        >
+          {content}
+        </ReactMarkdown>
+      </div>
     </div>
   );
 }

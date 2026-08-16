@@ -14,6 +14,7 @@ vi.mock("@/stores/AppContext", () => ({
   useAppStore: () => ({
     currentWorkspace: { id: "workspace-1", name: "测试空间" },
     currentLearner: { id: "learner-1", display_name: "测试学习者" },
+    recentDocuments: [],
     clearLocalHistory,
     preferences: { uiLocale: "zh-CN" },
     setUiLocale: vi.fn(),
@@ -78,5 +79,75 @@ describe("OverviewPage recovery", () => {
       await screen.findByRole("button", { name: "重新初始化" }),
     );
     expect(clearLocalHistory).toHaveBeenCalledOnce();
+  });
+
+  it("replaces zero-value analytics with two clear first-step choices", async () => {
+    vi.mocked(api.getManifest).mockResolvedValue({
+      workspace_id: "workspace-1",
+      graph_revision_id: null,
+      data: {
+        workspace_id: "workspace-1",
+        revision_id: null,
+        ontology: { entity_types: [], relation_types: [] },
+        top_level_domains: [],
+        theories: [],
+        knowledge_point_count: 0,
+        assertion_count: 0,
+        source_count: 0,
+        major_clusters: [],
+      },
+    });
+    vi.mocked(api.getLearnerModel).mockResolvedValue({
+      learner_id: "learner-1",
+      workspace_id: "workspace-1",
+      items: [],
+    });
+
+    renderPage();
+
+    expect(
+      await screen.findByRole("heading", { name: "选择最适合你的开始方式" }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("link", { name: /直接问第一个问题/ }),
+    ).toHaveAttribute("href", "/learn");
+    expect(
+      screen.getByRole("link", { name: /先添加一份学习资料/ }),
+    ).toHaveAttribute("href", "/materials");
+    expect(screen.queryByText("领域知识点")).not.toBeInTheDocument();
+  });
+
+  it("treats a profile as new even when the shared topic already has knowledge", async () => {
+    vi.mocked(api.getManifest).mockResolvedValue({
+      workspace_id: "workspace-1",
+      graph_revision_id: "revision-1",
+      data: {
+        workspace_id: "workspace-1",
+        revision_id: "revision-1",
+        ontology: { entity_types: [], relation_types: [] },
+        top_level_domains: [],
+        theories: [],
+        knowledge_point_count: 12,
+        assertion_count: 18,
+        source_count: 1,
+        major_clusters: [],
+      },
+    });
+    vi.mocked(api.getLearnerModel).mockResolvedValue({
+      learner_id: "learner-1",
+      workspace_id: "workspace-1",
+      items: [],
+    });
+
+    renderPage();
+
+    expect(
+      await screen.findByRole("heading", {
+        name: "选择最适合你的开始方式",
+      }),
+    ).toBeVisible();
+    expect(
+      screen.getByText("你的学习档案已经准备好。选择一种方式，开始第一次学习。"),
+    ).toBeVisible();
   });
 });

@@ -51,9 +51,23 @@ class LearnerRepository:
         result: Learner | None = await self.session.scalar(statement)
         return result
 
-    async def list_for_workspace(self, workspace_id: UUID) -> list[Learner]:
+    async def list_for_workspace(
+        self,
+        workspace_id: UUID,
+        *,
+        active_only: bool = False,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[Learner]:
+        if not 1 <= limit <= 101:
+            raise ValueError("limit must be between 1 and 101")
+        if offset < 0:
+            raise ValueError("offset cannot be negative")
+        statement = select(Learner).where(Learner.workspace_id == workspace_id)
+        if active_only:
+            statement = statement.where(Learner.is_active.is_(True))
         result = await self.session.scalars(
-            select(Learner).where(Learner.workspace_id == workspace_id).order_by(Learner.created_at)
+            statement.order_by(Learner.created_at.desc(), Learner.id).offset(offset).limit(limit)
         )
         return list(result.all())
 

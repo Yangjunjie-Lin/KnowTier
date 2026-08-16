@@ -5,7 +5,15 @@ export const queryKeys = {
   activeModel: (role: string) => ["active-model", role] as const,
   globalSearch: (workspaceId: string, learnerId: string, query: string) =>
     ["global-search", workspaceId, learnerId, query] as const,
+  workspaces: ["workspaces"] as const,
+  learners: (workspaceId: string) => ["learners", workspaceId] as const,
   learner: (learnerId: string) => ["learner", learnerId] as const,
+  conversationHistory: (
+    workspaceId: string,
+    learnerId: string,
+    sessionId: string,
+  ) =>
+    ["conversation-history", workspaceId, learnerId, sessionId] as const,
   model: (learnerId: string) => ["learner-model", learnerId] as const,
   evidence: (learnerId: string) => ["learner-evidence", learnerId] as const,
   learnerGraph: (learnerId: string) => ["learner-graph", learnerId] as const,
@@ -14,6 +22,7 @@ export const queryKeys = {
   learningPath: (learnerId: string, targetId?: string) =>
     ["learning-path", learnerId, targetId ?? "auto"] as const,
   document: (documentId: string) => ["document", documentId] as const,
+  documents: (workspaceId: string) => ["documents", workspaceId] as const,
   documentChunks: (documentId: string) =>
     ["document-chunks", documentId] as const,
   extractedKnowledge: (documentId: string) =>

@@ -52,7 +52,7 @@ export function ErrorState({
           )}
         </div>
         {(onRetry || action) && (
-          <div className="ml-8 flex shrink-0 flex-wrap items-center gap-2 sm:ml-0">
+          <div className="ml-8 flex w-full shrink-0 flex-wrap items-center gap-2 sm:ml-0 sm:w-auto">
             {onRetry && (
               <button
                 type="button"

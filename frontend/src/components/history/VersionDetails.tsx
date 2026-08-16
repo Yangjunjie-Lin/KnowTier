@@ -491,7 +491,7 @@ function createdByLabel(value: string | null, locale: "zh-CN" | "en"): string {
   const en = locale === "en";
   if (!value) return en ? "Not recorded" : "暂无记录";
   if (value === "system") return en ? "Created automatically" : "系统自动创建";
-  if (value === "ingestion") return en ? "Created by material processing" : "资料摄取创建";
+  if (value === "ingestion") return en ? "Created by material analysis" : "由资料分析创建";
   if (value === "chat") return en ? "Created by a learning conversation" : "学习对话创建";
   return en ? "Creation source recorded" : "已记录创建来源";
 }

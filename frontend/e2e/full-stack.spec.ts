@@ -162,25 +162,25 @@ test("real stack persists ingestion, tutoring, graphs, and versions across an AP
 
   await page.goto("/init");
   await page
-    .getByPlaceholder("例如：机器学习基础")
+    .getByLabel("学习主题")
     .fill(workspaceName);
   const workspace = await captureJson<IdentifiedPayload>(
     page,
     "POST",
     "/v1/workspaces",
-    () => page.getByRole("button", { name: /创建学习空间/ }).click(),
+    () => page.getByRole("button", { name: "保存主题，下一步" }).click(),
   );
   expect(workspace.id).toMatch(
     /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i,
   );
 
-  await expect(page.getByRole("heading", { name: "学习者" })).toBeVisible();
-  await page.getByPlaceholder("例如：林同学").fill(learnerName);
+  await expect(page.getByRole("heading", { name: "我们怎么称呼你？" })).toBeVisible();
+  await page.getByLabel("希望怎样称呼你").fill(learnerName);
   const learner = await captureJson<IdentifiedPayload>(
     page,
     "POST",
     "/v1/learners",
-    () => page.getByRole("button", { name: /创建并进入总览/ }).click(),
+    () => page.getByRole("button", { name: "完成设置，开始使用" }).click(),
   );
   await expect(page).toHaveURL(/\/overview$/);
 
@@ -210,7 +210,7 @@ test("real stack persists ingestion, tutoring, graphs, and versions across an AP
     `/v1/documents/${document.id}/ingest`,
     () =>
       page
-        .getByRole("button", { name: /开始摄取|重新摄取/ })
+        .getByRole("button", { name: /分析资料并整理知识|重新分析资料/ })
         .click(),
   );
   expect(ingestion.document_id).toBe(document.id);
@@ -221,7 +221,7 @@ test("real stack persists ingestion, tutoring, graphs, and versions across an AP
     page,
     "GET",
     `/v1/documents/${document.id}/extracted-knowledge`,
-    () => page.getByRole("tab", { name: "抽取知识" }).click(),
+    () => page.getByRole("tab", { name: "整理出的知识" }).click(),
   );
   expect(JSON.stringify(extractedKnowledge.blueprint)).toContain(
     "bayesian updating target",
@@ -232,7 +232,7 @@ test("real stack persists ingestion, tutoring, graphs, and versions across an AP
 
   await page.goto("/learn");
   await expect(
-    page.getByRole("heading", { name: /学习空间|教学工作台/ }),
+    page.getByRole("heading", { name: /开始学习|教学工作台/ }),
   ).toBeVisible();
   const attachmentButton = page.getByRole("button", {
     name: /附加资料|附件|选择已有资料/,
@@ -468,6 +468,9 @@ test("real stack persists ingestion, tutoring, graphs, and versions across an AP
   );
 
   await page.goto("/learn");
+  await expect(
+    page.getByText(targetChat.response, { exact: true }).last(),
+  ).toBeVisible();
   const recoveredLearningInput = page.getByLabel("学习消息", { exact: true });
   await recoveredLearningInput.fill(
     "Teach me bayesian updating target after the API restart.",

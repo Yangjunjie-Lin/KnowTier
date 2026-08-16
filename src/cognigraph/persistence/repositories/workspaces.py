@@ -44,8 +44,19 @@ class WorkspaceRepository:
         )
         return result
 
-    async def list(self, *, active_only: bool = True) -> list[Workspace]:
-        statement = select(Workspace).order_by(Workspace.created_at)
+    async def list(
+        self,
+        *,
+        active_only: bool = True,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[Workspace]:
+        if not 1 <= limit <= 101:
+            raise ValueError("limit must be between 1 and 101")
+        if offset < 0:
+            raise ValueError("offset cannot be negative")
+        statement = select(Workspace).order_by(Workspace.created_at.desc(), Workspace.id)
         if active_only:
             statement = statement.where(Workspace.is_active.is_(True))
+        statement = statement.offset(offset).limit(limit)
         return list((await self.session.scalars(statement)).all())

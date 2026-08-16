@@ -106,3 +106,15 @@ html[data-font-size="medium"] {
 html[data-font-size="large"] {
   font-size: 18px;
 }
+
+html[data-font-size="large"] .text-\[9px\],
+html[data-font-size="large"] .text-\[10px\],
+html[data-font-size="large"] .text-\[11px\] {
+  font-size: 0.75rem;
+}
+
+@media (min-width: 1024px) and (max-width: 1279px) {
+  [data-sidebar-state="collapsed"] .learn-composer {
+    left: 4rem;
+  }
+}

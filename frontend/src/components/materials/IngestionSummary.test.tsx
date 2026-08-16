@@ -28,7 +28,7 @@ describe("IngestionSummary", () => {
   it("prioritizes learning outcomes and keeps processing details available", () => {
     render(<IngestionSummary report={report()} />);
 
-    expect(screen.getByText("本次摄取完成")).toBeInTheDocument();
+    expect(screen.getByText("资料分析完成")).toBeInTheDocument();
     expect(screen.getByText("知识点")).toBeInTheDocument();
     expect(screen.getByText("查看处理技术信息")).toBeInTheDocument();
     expect(screen.getByText("内容解析器")).toBeInTheDocument();
@@ -41,6 +41,6 @@ describe("IngestionSummary", () => {
       />,
     );
 
-    expect(screen.getByText("摄取完成，请检查警告")).toBeInTheDocument();
+    expect(screen.getByText("资料分析完成，请检查提示")).toBeInTheDocument();
   });
 });

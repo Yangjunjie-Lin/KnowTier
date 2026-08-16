@@ -88,6 +88,16 @@ class FakeProvider(ModelProvider):
                 }
             )
         if "assessment_question" in properties:
+            if _is_chinese_response(messages):
+                return json.dumps(
+                    {
+                        "core_explanation": "我们会依据当前证据, 一次聚焦一个知识点。",
+                        "illustration": "可以把前置知识想象成开门前必须准备好的钥匙。",
+                        "key_takeaway": "只有当前置知识能够实际运用时, 下一步学习才更可靠。",
+                        "assessment_question": "你会先检查哪一个前置知识? 为什么?",
+                    },
+                    ensure_ascii=False,
+                )
             return json.dumps(
                 {
                     "core_explanation": (
@@ -281,6 +291,23 @@ def _message_text(message: ChatMessage) -> str:
 def _contains_rag_topic(messages: list[ChatMessage]) -> bool:
     joined = "\n".join(_message_text(message) for message in messages).casefold()
     return re.search(r"(?<![a-z0-9])rag(?![a-z0-9])", joined) is not None
+
+
+def _is_chinese_response(messages: list[ChatMessage]) -> bool:
+    """Read the normalized locale supplied by ChatService, never infer it from content."""
+
+    for message in reversed(messages):
+        text = _message_text(message)
+        try:
+            payload = json.loads(text)
+        except (json.JSONDecodeError, TypeError):
+            continue
+        if not isinstance(payload, dict):
+            continue
+        language = payload.get("response_language")
+        if isinstance(language, str):
+            return language.partition("-")[0].casefold() == "zh"
+    return False
 
 
 def _rag_blueprint(source_id: str) -> dict[str, object]:

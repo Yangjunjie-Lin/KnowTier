@@ -9,6 +9,7 @@ from uuid import UUID, uuid4
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from cognigraph.domain.enums import DocumentOrigin
 from cognigraph.persistence.postgres.base import utc_now
 from cognigraph.persistence.postgres.models import (
     AssertionSource,
@@ -22,6 +23,7 @@ from cognigraph.persistence.postgres.models import (
     SourceSpan,
     Workspace,
 )
+from cognigraph.persistence.postgres.models import Document as DocumentRecord
 from cognigraph.persistence.repositories._serialization import (
     as_mapping,
     datetime_value,
@@ -134,9 +136,11 @@ class GraphDeltaRepository:
                 await self.session.scalars(
                     select(SourceSpan)
                     .join(GraphNodeSource, GraphNodeSource.source_span_id == SourceSpan.id)
+                    .join(DocumentRecord, DocumentRecord.id == SourceSpan.document_id)
                     .where(
                         GraphNodeSource.node_id == node_id,
                         SourceSpan.workspace_id == workspace_id,
+                        DocumentRecord.origin == DocumentOrigin.USER_UPLOAD.value,
                     )
                     .order_by(SourceSpan.created_at)
                 )
@@ -184,9 +188,11 @@ class GraphDeltaRepository:
                 await self.session.scalars(
                     select(SourceSpan)
                     .join(AssertionSource, AssertionSource.source_span_id == SourceSpan.id)
+                    .join(DocumentRecord, DocumentRecord.id == SourceSpan.document_id)
                     .where(
                         AssertionSource.assertion_id == assertion_id,
                         SourceSpan.workspace_id == workspace_id,
+                        DocumentRecord.origin == DocumentOrigin.USER_UPLOAD.value,
                     )
                     .order_by(SourceSpan.created_at)
                 )

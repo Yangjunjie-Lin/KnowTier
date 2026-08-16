@@ -35,17 +35,29 @@ export function RuntimeModelBadge({
     );
   }
   const providerName = providerLabel(model.data.provider, locale);
+  const isMock = model.data.provider.trim().toLowerCase().includes("mock");
+  const mockNotice = pick(
+    "离线演示，仅用于体验流程",
+    "Offline demo for trying the workflow",
+  );
   return (
     <span
-      className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-slate-200 bg-white px-2.5 py-1 text-xs text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
-      aria-label={`${accessibleLabel}: ${providerName} ${model.data.model}`}
-      title={`${model.data.profile_name} · ${providerName} / ${model.data.model}`}
+      className={`inline-flex max-w-full flex-wrap items-center gap-1.5 rounded-full border px-2.5 py-1 text-xs ${
+        isMock
+          ? "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200"
+          : "border-slate-200 bg-white text-slate-600 dark:border-slate-700 dark:bg-slate-900 dark:text-slate-300"
+      }`}
+      aria-label={`${accessibleLabel}: ${providerName} ${model.data.model}${isMock ? `; ${mockNotice}` : ""}`}
+      title={`${model.data.profile_name} · ${providerName} / ${model.data.model}${isMock ? ` · ${mockNotice}` : ""}`}
     >
       <Cpu className="h-3.5 w-3.5 shrink-0 text-[#3157D5]" />
       <span className="shrink-0 font-medium">{accessibleLabel}</span>
       <span className="truncate font-mono">
         {providerName} / {model.data.model}
       </span>
+      {isMock && (
+        <span className="font-sans font-medium">· {mockNotice}</span>
+      )}
     </span>
   );
 }

@@ -10,6 +10,7 @@ from cognigraph.domain.documents import DocumentChunk
 from cognigraph.domain.enums import (
     CognitiveLevel,
     ConflictType,
+    DocumentOrigin,
     EpistemicStatus,
     NodeType,
     RelationTypeKey,
@@ -141,6 +142,38 @@ async def test_blueprint_builds_source_grounded_delta_and_applies() -> None:
     applied = await InMemoryGraphApplier().apply(delta)
     assert applied.revision.sequence == 1
     assert applied.snapshot.source_spans[0].id == span.id
+
+
+def test_internal_chat_blueprint_keeps_unverified_topics_without_provenance() -> None:
+    workspace_id = uuid4()
+    document, span = source_document(workspace_id)
+    internal_document = document.model_copy(update={"origin": DocumentOrigin.INTERNAL_CHAT})
+
+    delta = BlueprintGraphDeltaBuilder().build(
+        workspace_id=workspace_id,
+        document=internal_document,
+        source_spans=[span],
+        blueprint=blueprint(span.id),
+        snapshot=GraphSnapshot(workspace_id=workspace_id),
+    )
+
+    assert all(
+        node.node_type not in {NodeType.SOURCE_DOCUMENT, NodeType.SOURCE_SPAN}
+        for node in delta.add_nodes
+    )
+    candidate_nodes = [
+        node
+        for node in delta.add_nodes
+        if node.created_by in {"knowledge_extractor", "blueprint_builder"}
+    ]
+    assert candidate_nodes
+    assert all(node.epistemic_status is EpistemicStatus.UNVERIFIED for node in candidate_nodes)
+    assert all(not node.source_span_ids for node in delta.add_nodes)
+    assert all(
+        assertion.epistemic_status is EpistemicStatus.UNVERIFIED and not assertion.source_span_ids
+        for assertion in delta.add_assertions
+    )
+    assert delta.add_provenance_links == []
 
 
 @pytest.mark.asyncio
