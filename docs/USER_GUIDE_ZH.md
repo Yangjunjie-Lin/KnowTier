@@ -1,4 +1,4 @@
-# KnowTier v1.0.0 中文使用说明
+# KnowTier v1.0.1 中文使用说明
 
 KnowTier 是一款本地优先的 AI 学习助手。桌面版已经包含界面和本地服务，普通用户不需要
 安装 Node.js、Python、Docker、PostgreSQL 或 Neo4j。
@@ -7,15 +7,15 @@ KnowTier 是一款本地优先的 AI 学习助手。桌面版已经包含界面�
 
 从 [GitHub 最新正式版](https://github.com/Yangjunjie-Lin/KnowTier/releases/latest) 下载：
 
-- Windows 日常安装：`KnowTier-Setup-1.0.0-windows-x64.exe`
-- Windows 免安装：`KnowTier-Portable-1.0.0-windows-x64.zip`
-- macOS Intel：`KnowTier-1.0.0-macOS-x64.dmg`
-- Linux：`KnowTier-1.0.0-linux-x64.AppImage` 或 `knowtier_1.0.0_amd64.deb`
+- Windows 日常安装：`KnowTier-Setup-1.0.1-windows-x64.exe`
+- Windows 免安装：`KnowTier-Portable-1.0.1-windows-x64.zip`
+- macOS Intel：`KnowTier-1.0.1-macOS-x64.dmg`
+- Linux：`KnowTier-1.0.1-linux-x64.AppImage` 或 `knowtier_1.0.1_amd64.deb`
 
 同时下载 `SHA256SUMS.txt` 和对应平台的签名状态文件。Windows 可用以下命令计算哈希：
 
 ```powershell
-Get-FileHash .\KnowTier-Setup-1.0.0-windows-x64.exe -Algorithm SHA256
+Get-FileHash .\KnowTier-Setup-1.0.1-windows-x64.exe -Algorithm SHA256
 ```
 
 本版本没有代码签名证书时会明确附带 `UNSIGNED-<platform>.txt`。`UNSIGNED` 表示系统可能
@@ -30,9 +30,9 @@ Windows 推荐运行安装包并按默认的“当前用户”方式安装。Por
 第一次启动时：
 
 1. 选择中文或 English；
-2. 创建学习空间；
-3. 创建学习者；
-4. 进入总览或学习空间。
+2. 填写想学习的主题；
+3. 填写希望使用的称呼（不必是真实姓名）；
+4. 在总览选择“直接问第一个问题”或“先添加一份学习资料”。
 
 默认使用离线 Mock Provider，不需要 API Key，也不会产生模型费用。它用于熟悉界面和验证
 完整流程，不代表真实模型质量。
@@ -40,12 +40,15 @@ Windows 推荐运行安装包并按默认的“当前用户”方式安装。Por
 ## 3. 推荐学习流程
 
 1. 在“资料库”上传 TXT、Markdown、PDF、DOCX、PPTX 或支持的图片；
-2. 等待摄取完成，检查知识蓝图、来源和部分成功提示；
-3. 在“领域知识图谱”确认知识点和关系；
-4. 在“学习空间”选择目标并对话；
+2. 点击“分析资料并整理知识”，检查内容结构、来源和处理提示；
+3. 在“知识全景”确认知识点和关系；
+4. 在“开始学习”选择目标并对话；
 5. 通过“学习状态”查看前置知识、误解、证据、来源和本轮变化；
-6. 在“个人模型”“学生知识图谱”和“学习路径”查看长期学习状态；
-7. 在“版本记录”检查领域与学生图谱的可追溯变化。
+6. 在“我的进度”“我的知识地图”和“学习路径”查看长期学习状态；
+7. 在“变化记录”检查知识内容与个人进度的可追溯变化。
+
+没有资料也可以直接提问；这类回答会明确标记为尚未由外部资料确认。需要可追溯事实时，
+请先添加资料，并在每轮回答下展开来源核对原文。
 
 图谱默认把同一对实体的多个事实聚合为一条线。点击该线可查看关系本体、方向、置信度、
 证据与历史；列表视图适合键盘操作和复杂图谱阅读。

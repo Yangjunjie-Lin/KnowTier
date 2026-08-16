@@ -23,12 +23,25 @@ export interface Workspace {
   created_at: string;
 }
 
+export interface PageResponse<T> {
+  items: T[];
+  limit: number;
+  offset: number;
+  next_offset: number | null;
+}
+
+export type WorkspaceListResponse = PageResponse<Workspace>;
+
 export interface Learner {
   id: UUID;
   workspace_id: UUID;
   display_name: string;
   language: string;
   created_at: string;
+}
+
+export interface LearnerListResponse extends PageResponse<Learner> {
+  workspace_id: UUID;
 }
 
 export interface DocumentRecord {
@@ -42,6 +55,10 @@ export interface DocumentRecord {
   page_count: number | null;
   warnings: string[];
   created_at: string;
+}
+
+export interface DocumentListResponse extends PageResponse<DocumentRecord> {
+  workspace_id: UUID;
 }
 
 export interface IngestionReport {
@@ -103,6 +120,34 @@ export interface ChatResponse {
   } | null;
   model_fallback?: boolean;
   sources: JsonObject[];
+}
+
+export interface ConversationHistoryUserTurn {
+  id: UUID;
+  role: "user";
+  content: string;
+  attachment_ids: UUID[];
+  created_at: string;
+}
+
+export interface ConversationHistoryAssistantTurn {
+  id: UUID;
+  role: "assistant";
+  response: ChatResponse;
+  created_at: string;
+}
+
+export type ConversationHistoryItem =
+  | ConversationHistoryUserTurn
+  | ConversationHistoryAssistantTurn;
+
+export interface ConversationHistoryResponse {
+  workspace_id: UUID;
+  learner_id: UUID;
+  session_id: UUID;
+  turn_limit: number;
+  truncated: boolean;
+  items: ConversationHistoryItem[];
 }
 
 export interface LearnerModelItem {

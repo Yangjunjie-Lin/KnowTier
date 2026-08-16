@@ -12,6 +12,7 @@ from cognigraph.api.dependencies import (
     WorkspaceScopeDependency,
     enforce_workspace_scope,
 )
+from cognigraph.domain.enums import DocumentOrigin
 from cognigraph.persistence.postgres.models import (
     Document,
     DocumentChunk,
@@ -71,6 +72,7 @@ async def global_search(
                     select(Document)
                     .where(
                         Document.workspace_id == workspace_id,
+                        Document.origin == DocumentOrigin.USER_UPLOAD.value,
                         Document.filename.icontains(query, autoescape=True),
                     )
                     .order_by(Document.filename)
@@ -82,8 +84,11 @@ async def global_search(
             (
                 await session.scalars(
                     select(DocumentChunk)
+                    .join(Document, Document.id == DocumentChunk.document_id)
                     .where(
                         DocumentChunk.workspace_id == workspace_id,
+                        Document.workspace_id == workspace_id,
+                        Document.origin == DocumentOrigin.USER_UPLOAD.value,
                         DocumentChunk.normalized_text.icontains(query, autoescape=True),
                     )
                     .order_by(DocumentChunk.document_id, DocumentChunk.ordinal)
@@ -125,6 +130,7 @@ async def global_search(
                     await session.execute(
                         select(Document.id, Document.filename).where(
                             Document.workspace_id == workspace_id,
+                            Document.origin == DocumentOrigin.USER_UPLOAD.value,
                             Document.id.in_(missing_document_ids),
                         )
                     )

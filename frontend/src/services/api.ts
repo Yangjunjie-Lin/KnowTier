@@ -4,8 +4,10 @@ import type {
   ActiveModel,
   ChatRequest,
   ChatResponse,
+  ConversationHistoryResponse,
   CytoscapeGraph,
   DocumentChunk,
+  DocumentListResponse,
   DocumentRecord,
   ExtractedKnowledge,
   EvidenceItem,
@@ -16,6 +18,7 @@ import type {
   IngestionReport,
   JsonValue,
   Learner,
+  LearnerListResponse,
   LearnerModelResponse,
   LearnerRevision,
   LearningPathData,
@@ -28,6 +31,7 @@ import type {
   RevisionSummary,
   UUID,
   Workspace,
+  WorkspaceListResponse,
 } from "@/types/api";
 
 export const api = {
@@ -125,6 +129,14 @@ export const api = {
       workspaceScoped: false,
       signal,
     }),
+  listWorkspaces: (signal?: AbortSignal, offset = 0) =>
+    apiClient.get<WorkspaceListResponse>(
+      `/v1/workspaces?limit=100&offset=${offset}`,
+      {
+      workspaceScoped: false,
+      signal,
+      },
+    ),
   createLearner: (input: {
     workspace_id: UUID;
     display_name: string;
@@ -133,6 +145,11 @@ export const api = {
   }) => apiClient.post<Learner>("/v1/learners", input),
   getLearner: (learnerId: UUID, signal?: AbortSignal) =>
     apiClient.get<Learner>(`/v1/learners/${learnerId}`, { signal }),
+  listLearners: (workspaceId: UUID, signal?: AbortSignal, offset = 0) =>
+    apiClient.get<LearnerListResponse>(
+      `/v1/workspaces/${workspaceId}/learners?limit=100&offset=${offset}`,
+      { signal },
+    ),
   uploadDocument: (workspaceId: UUID, file: File) => {
     const body = new FormData();
     body.append("file", file);
@@ -144,6 +161,11 @@ export const api = {
   },
   getDocument: (documentId: UUID, signal?: AbortSignal) =>
     apiClient.get<DocumentRecord>(`/v1/documents/${documentId}`, { signal }),
+  listDocuments: (workspaceId: UUID, signal?: AbortSignal, offset = 0) =>
+    apiClient.get<DocumentListResponse>(
+      `/v1/workspaces/${workspaceId}/documents?limit=100&offset=${offset}`,
+      { signal },
+    ),
   ingestDocument: (documentId: UUID) =>
     apiClient.post<IngestionReport>(
       `/v1/documents/${documentId}/ingest`,
@@ -166,6 +188,16 @@ export const api = {
       retries: 0,
       signal,
     }),
+  getConversationHistory: (
+    workspaceId: UUID,
+    learnerId: UUID,
+    sessionId: UUID,
+    signal?: AbortSignal,
+  ) =>
+    apiClient.get<ConversationHistoryResponse>(
+      `/v1/workspaces/${encodeURIComponent(workspaceId)}/learners/${encodeURIComponent(learnerId)}/sessions/${encodeURIComponent(sessionId)}/turns`,
+      { signal },
+    ),
   getManifest: (workspaceId: UUID, signal?: AbortSignal) =>
     apiClient.get<
       GraphQueryEnvelope<GraphManifest & { [key: string]: JsonValue }>

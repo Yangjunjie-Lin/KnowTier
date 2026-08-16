@@ -32,8 +32,8 @@ type Tab = "overview" | "chunks" | "knowledge";
 
 const documentTabs = [
   { id: "overview", zh: "概览", en: "Overview", icon: FileText },
-  { id: "chunks", zh: "内容分块", en: "Content", icon: Table2 },
-  { id: "knowledge", zh: "抽取知识", en: "Knowledge", icon: Braces },
+  { id: "chunks", zh: "资料内容", en: "Material content", icon: Table2 },
+  { id: "knowledge", zh: "整理出的知识", en: "Organized knowledge", icon: Braces },
 ] as const;
 
 export function DocumentDetailPage() {
@@ -46,6 +46,8 @@ export function DocumentDetailPage() {
     queryKey: queryKeys.document(documentId ?? ""),
     queryFn: ({ signal }) => api.getDocument(documentId!, signal),
     enabled: Boolean(documentId),
+    refetchInterval: (query) =>
+      query.state.data?.status === "PARSING" ? 2_000 : false,
   });
   useEffect(() => {
     if (document.data) rememberDocument(document.data);
@@ -95,6 +97,19 @@ export function DocumentDetailPage() {
       />
     );
   const record = document.data;
+  const startAnalysis = () => {
+    if (
+      record.status === "INGESTED" &&
+      !window.confirm(
+        pick(
+          "重新分析会再次整理资料中的知识并更新学习内容，可能消耗模型额度。要继续吗？",
+          "Analyzing again will reorganize knowledge from the material and update learning content, and may use model quota. Continue?",
+        ),
+      )
+    )
+      return;
+    ingest.mutate();
+  };
   return (
     <div>
       <Link
@@ -112,25 +127,30 @@ export function DocumentDetailPage() {
           <button
             type="button"
             disabled={ingest.isPending || record.status === "PARSING"}
-            onClick={() => ingest.mutate()}
-            className="primary-button"
+            onClick={startAnalysis}
+            className={record.status === "INGESTED" ? "secondary-button" : "primary-button"}
           >
             <Play className="h-4 w-4" />
             {ingest.isPending
-              ? pick("摄取中…", "Processing…")
+              ? pick("正在分析…", "Analyzing…")
               : record.status === "PARSING"
-                ? pick("正在处理…", "Processing…")
+                ? pick("正在分析…", "Analyzing…")
               : record.status === "INGESTED"
-                ? pick("重新摄取", "Process again")
-                : pick("开始摄取", "Process material")}
+                ? pick("重新分析资料", "Analyze again")
+                : pick("分析资料并整理知识", "Analyze and organize knowledge")}
           </button>
         }
       />
-      <div className="mb-4 flex flex-wrap gap-2" aria-label={pick("资料处理运行模型", "Models used for material processing")}>
-        <RuntimeModelBadge role="extractor" label={pick("知识抽取", "Knowledge extraction")} />
-        <RuntimeModelBadge role="embedding" label={pick("向量检索", "Semantic search")} />
-        <RuntimeModelBadge role="vision" label={pick("图像识别", "Image understanding")} />
-      </div>
+      <details className="mb-4 rounded-xl border border-slate-200 px-3 py-2 dark:border-slate-700">
+        <summary className="cursor-pointer text-xs font-medium text-slate-600 dark:text-slate-300">
+          {pick("技术信息：本次处理使用的模型", "Technical: models used for processing")}
+        </summary>
+        <div className="mt-3 flex flex-wrap gap-2" aria-label={pick("资料处理运行模型", "Models used for material processing")}>
+          <RuntimeModelBadge role="extractor" label={pick("知识整理", "Knowledge organization")} />
+          <RuntimeModelBadge role="embedding" label={pick("内容查找", "Content retrieval")} />
+          <RuntimeModelBadge role="vision" label={pick("图像识别", "Image understanding")} />
+        </div>
+      </details>
       {ingest.isPending && (
         <div className="mb-4 flex items-center gap-2 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 text-sm text-indigo-800 dark:border-indigo-900 dark:bg-indigo-950/30 dark:text-indigo-200" role="status">
           <LoaderCircle className="h-4 w-4 animate-spin" />
@@ -149,7 +169,7 @@ export function DocumentDetailPage() {
       )}
       {record.status === "FAILED" && record.warnings.length > 0 && (
         <div className="mb-4">
-          <PartialSuccess title={pick("上次摄取失败", "The previous processing run failed")}>
+          <PartialSuccess title={pick("上次资料分析失败", "The previous analysis failed")}>
             {record.warnings.join(pick("；", "; "))}
           </PartialSuccess>
         </div>
@@ -255,7 +275,7 @@ function Overview({
             { label: pick("添加时间", "Added"), value: formatDate(record.created_at, true, locale) },
           ].map(({ label, value }) => (
             <div key={label}>
-              <dt className="text-xs text-slate-400">{label}</dt>
+              <dt className="text-xs text-slate-600 dark:text-slate-400">{label}</dt>
               <dd className="mt-1 break-all text-sm text-slate-700 dark:text-slate-200">
                 {value}
               </dd>
@@ -293,10 +313,23 @@ function Overview({
               </li>
             ))}
           </ul>
-        ) : (
+        ) : record.status === "INGESTED" ? (
           <p className="mt-3 flex items-center gap-2 text-sm text-emerald-700">
             <CheckCircle2 className="h-4 w-4" />
-            {pick("处理正常，未发现需要处理的问题", "Processing completed with no issues requiring attention")}
+            {pick("资料分析完成，未发现需要处理的问题", "Analysis completed with no issues requiring attention")}
+          </p>
+        ) : record.status === "FAILED" ? (
+          <p className="mt-3 text-sm leading-6 text-red-700 dark:text-red-300">
+            {pick("资料分析未完成，请使用上方按钮重试。", "Analysis did not finish. Use the button above to try again.")}
+          </p>
+        ) : record.status === "PARSING" ? (
+          <p className="mt-3 flex items-center gap-2 text-sm text-indigo-700 dark:text-indigo-300" role="status">
+            <LoaderCircle className="h-4 w-4 animate-spin" />
+            {pick("正在分析资料，页面会自动更新。", "Analyzing the material. This page will update automatically.")}
+          </p>
+        ) : (
+          <p className="mt-3 text-sm leading-6 text-slate-600 dark:text-slate-300">
+            {pick("尚未分析。点击“分析资料并整理知识”后可查看处理结果。", "Not analyzed yet. Select “Analyze and organize knowledge” to see results.")}
           </p>
         )}
       </section>
@@ -306,7 +339,7 @@ function Overview({
 
 function Chunks({ query }: { query: ReturnType<typeof useQuery> }) {
   const { pick } = useI18n();
-  if (query.isLoading) return <LoadingState label={pick("正在读取内容分块", "Loading extracted content")} />;
+  if (query.isLoading) return <LoadingState label={pick("正在读取资料内容", "Loading material content")} />;
   if (query.isError)
     return (
       <ErrorState error={query.error} onRetry={() => void query.refetch()} />
@@ -330,8 +363,8 @@ function Chunks({ query }: { query: ReturnType<typeof useQuery> }) {
   if (!items.length)
     return (
       <EmptyState
-        title={pick("暂无内容分块", "No extracted content yet")}
-        description={pick("先完成一次摄取，或确认该资料属于当前学习空间。", "Process this material first, or confirm it belongs to the current workspace.")}
+        title={pick("暂无可查看内容", "No material content yet")}
+        description={pick("请先分析这份资料，或确认它属于当前学习空间。", "Analyze this material first, or confirm it belongs to the current workspace.")}
       />
     );
   return (
@@ -341,20 +374,19 @@ function Chunks({ query }: { query: ReturnType<typeof useQuery> }) {
           key={chunk.id}
           className="rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900"
         >
-          <div className="mb-2 flex flex-col gap-1 text-[11px] text-slate-400 sm:flex-row sm:items-center sm:justify-between">
+          <div className="mb-2 flex flex-col gap-1 text-[11px] text-slate-600 sm:flex-row sm:items-center sm:justify-between dark:text-slate-400">
             <span className="font-mono">#{chunk.sequence}</span>
             <span>
               {chunk.page_start
                 ? pick(`第 ${chunk.page_start}${chunk.page_end && chunk.page_end !== chunk.page_start ? `–${chunk.page_end}` : ""} 页`, `Page ${chunk.page_start}${chunk.page_end && chunk.page_end !== chunk.page_start ? `–${chunk.page_end}` : ""}`)
-                : pick("无页码", "No page number")}{" "}
-              · {pick(`约 ${chunk.token_count} 个词元`, `about ${chunk.token_count} tokens`)}
+                : pick("无页码", "No page number")}
             </span>
           </div>
           <p className="whitespace-pre-wrap text-sm leading-6 text-slate-700 dark:text-slate-200">
             {chunk.text}
           </p>
           {chunk.heading_path?.length > 0 && (
-            <p className="mt-2 text-[11px] text-slate-400">
+            <p className="mt-2 text-[11px] text-slate-600 dark:text-slate-400">
               {chunk.heading_path.join(" / ")}
             </p>
           )}
@@ -366,7 +398,7 @@ function Chunks({ query }: { query: ReturnType<typeof useQuery> }) {
 
 function Knowledge({ query }: { query: ReturnType<typeof useQuery> }) {
   const { pick } = useI18n();
-  if (query.isLoading) return <LoadingState label={pick("正在读取抽取知识", "Loading extracted knowledge")} />;
+  if (query.isLoading) return <LoadingState label={pick("正在读取整理出的知识", "Loading organized knowledge")} />;
   if (query.isError)
     return (
       <ErrorState error={query.error} onRetry={() => void query.refetch()} />
@@ -376,8 +408,8 @@ function Knowledge({ query }: { query: ReturnType<typeof useQuery> }) {
   if (!blueprint)
     return (
       <EmptyState
-        title={pick("暂无抽取知识", "No extracted knowledge yet")}
-        description={pick("完成摄取后，这里会展示可用于学习和图谱构建的知识蓝图。", "After processing, a learning-ready knowledge blueprint will appear here.")}
+        title={pick("暂无整理出的知识", "No organized knowledge yet")}
+        description={pick("完成资料分析后，这里会展示可用于学习和知识地图的内容结构。", "After analysis, a learning-ready content structure will appear here.")}
       />
     );
   return <KnowledgeBlueprintView value={blueprint} />;

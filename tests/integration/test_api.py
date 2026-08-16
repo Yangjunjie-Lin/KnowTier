@@ -111,7 +111,7 @@ def test_api_chat_graph_and_learner_exports(tmp_path: Path) -> None:
             params={"workspace_id": workspace_id},
         )
         assert assertion.status_code == 200, assertion.text
-        assert assertion.json()["data"]["sources"]
+        assert assertion.json()["data"]["sources"] == []
 
         revisions = client.get(
             "/v1/graph/revisions",

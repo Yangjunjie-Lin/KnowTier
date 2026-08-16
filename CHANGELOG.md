@@ -5,8 +5,22 @@ All notable changes to KnowTier are documented in this file. The format is based
 
 ## [Unreleased]
 
+## [1.0.1] - 2026-08-16
+
+### Added
+
+- Added a two-step learner onboarding flow that discovers saved topics and profiles, keeps
+  deployment identifiers in advanced controls, and lets returning learners resume directly.
+- Added workspace- and learner-scoped conversation recovery, bounded history loading, safe
+  empty-session fallback, and explicit internal-versus-uploaded document provenance.
+
 ### Changed
 
+- Reworked the overview, learning workspace, material library, document details, navigation, and
+  settings around novice-friendly language, clear next actions, and responsive desktop, tablet,
+  and mobile layouts.
+- Added paginated material discovery, drag-and-drop validation, ingestion progress and retry
+  guidance, plus clearer disclosure when Mock teaching or model output lacks external evidence.
 - Added credential-free one-command source launchers for Windows, macOS, and Linux. They provision
   locked dependencies, SQLite, Mock LLM, readiness checks, automatic UI opening, port collision
   protection, isolated runtime environments, and process cleanup.
@@ -23,6 +37,11 @@ All notable changes to KnowTier are documented in this file. The format is based
 
 ### Fixed
 
+- Prevented synthetic chat documents from appearing as uploaded material, search results,
+  attachments, graph sources, or external evidence; unsupported model claims remain unverified.
+- Preserved active conversations when reselecting the same topic or learner, restored keyboard and
+  screen-reader relationships across onboarding and attachment controls, and kept mobile recovery
+  actions readable at narrow widths.
 - Corrected the v1 acceptance record to describe the published lightweight tag and the project
   policy against moving it without implying GitHub-side tag protection or technical immutability.
 - Pointed README downloads at immutable v1.0.0 assets and corrected the signing-status filenames
@@ -249,7 +268,8 @@ All notable changes to KnowTier are documented in this file. The format is based
 - Mutable desktop data is kept outside the installed application, in the operating system's
   per-user application-data directory.
 
-[Unreleased]: https://github.com/Yangjunjie-Lin/KnowTier/compare/v1.0.0...HEAD
+[Unreleased]: https://github.com/Yangjunjie-Lin/KnowTier/compare/v1.0.1...HEAD
+[1.0.1]: https://github.com/Yangjunjie-Lin/KnowTier/releases/tag/v1.0.1
 [1.0.0]: https://github.com/Yangjunjie-Lin/KnowTier/releases/tag/v1.0.0
 [1.0.0-rc.5]: https://github.com/Yangjunjie-Lin/KnowTier/releases/tag/v1.0.0-rc.5
 [1.0.0-rc.4]: https://github.com/Yangjunjie-Lin/KnowTier/releases/tag/v1.0.0-rc.4

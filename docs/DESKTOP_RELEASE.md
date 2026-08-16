@@ -10,7 +10,7 @@ signing evidence before anything is published.
 
 - A manual run always performs the gate and builds. Set `create_draft_release` only when the run
   should create a draft, and provide the intended `v<semver>` tag. The current release is
-  `v1.0.0`.
+  `v1.0.1`.
 - Set `run_live_siliconflow` only for an intentional paid-provider smoke test. It is impossible for
   that job to run from a tag, release event, or other automatic event.
 - Publishing the reviewed draft creates the immutable tag without launching a second packaging
@@ -18,9 +18,9 @@ signing evidence before anything is published.
   would be unable to replace a published release.
 
 The release tag and all Python, npm, Tauri, and Cargo manifests and lockfiles must describe
-`1.0.0`. Update the changelog and
+`1.0.1`. Update the changelog and
 privacy notice when their contents change, commit the release state, then create
-`v1.0.0` from that reviewed commit. Release tags are immutable: if a tag already exists at another
+`v1.0.1` from that reviewed commit. Release tags are immutable: if a tag already exists at another
 commit, create a new semantic version instead of moving the tag.
 
 ## Quality gate and build matrix

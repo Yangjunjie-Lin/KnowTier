@@ -187,6 +187,39 @@ class TurnRepository:
         turns.reverse()
         return turns
 
+    async def for_learner_session(
+        self,
+        *,
+        workspace_id: UUID,
+        learner_id: UUID,
+        session_id: UUID,
+        limit: int,
+    ) -> list[ConversationTurn]:
+        """Return a bounded recent history only within its tenant and owner scope."""
+
+        if not 1 <= limit <= 201:
+            raise ValueError("history limit must be between 1 and 201")
+
+        statement = (
+            select(ConversationTurn)
+            .join(
+                TutoringSession,
+                ConversationTurn.session_id == TutoringSession.id,
+            )
+            .where(
+                TutoringSession.id == session_id,
+                TutoringSession.workspace_id == workspace_id,
+                TutoringSession.learner_id == learner_id,
+                ConversationTurn.workspace_id == workspace_id,
+                ConversationTurn.learner_id == learner_id,
+            )
+            .order_by(ConversationTurn.sequence_number.desc())
+            .limit(limit)
+        )
+        turns = list((await self.session.scalars(statement)).all())
+        turns.reverse()
+        return turns
+
 
 def _is_turn_sequence_conflict(error: IntegrityError) -> bool:
     message = str(error.orig).casefold()

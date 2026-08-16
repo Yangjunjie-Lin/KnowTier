@@ -379,6 +379,7 @@ export function DomainGraphPage() {
       <div className="grid gap-5 xl:grid-cols-[minmax(0,1fr)_260px]">
         <GraphCanvas
           graph={productGraph ?? data}
+          locale={locale}
           search={search}
           nodeTypes={typeFilter}
           relationTypes={relationFilter}

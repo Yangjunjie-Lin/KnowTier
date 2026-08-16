@@ -1,4 +1,4 @@
-import { useQuery } from "@tanstack/react-query";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   CheckCircle2,
   ExternalLink,
@@ -25,9 +25,11 @@ import { useI18n } from "@/lib/i18n";
 
 export function SettingsPage() {
   const store = useAppStore();
+  const queryClient = useQueryClient();
   const { locale, setLocale, pick, t } = useI18n();
   const [baseUrl, setBaseUrl] = useState(store.preferences.apiBaseUrl);
   const [saved, setSaved] = useState(false);
+  const [savingUrl, setSavingUrl] = useState(false);
   const [urlError, setUrlError] = useState<string | null>(null);
   const health = useQuery({
     queryKey: queryKeys.health,
@@ -40,7 +42,7 @@ export function SettingsPage() {
     staleTime: 10_000,
     retry: false,
   });
-  const saveUrl = () => {
+  const saveUrl = async () => {
     const normalized = sanitizeApiBaseUrl(baseUrl);
     if (!normalized) {
       setUrlError(
@@ -53,30 +55,48 @@ export function SettingsPage() {
       return;
     }
     setUrlError(null);
-    store.setApiBaseUrl(normalized);
-    setSaved(true);
-    window.setTimeout(() => setSaved(false), 1800);
+    if (normalized === store.preferences.apiBaseUrl) {
+      setSaved(true);
+      window.setTimeout(() => setSaved(false), 1800);
+      return;
+    }
+    setSavingUrl(true);
+    try {
+      // Query keys intentionally describe domain scope, not the service
+      // origin. Cancel old-origin work and remove every cached query before
+      // mounted observers rebuild against the new transport base URL.
+      await queryClient.cancelQueries();
+      store.setApiBaseUrl(normalized);
+      queryClient.getQueryCache().clear();
+      setSaved(true);
+      window.setTimeout(() => setSaved(false), 1800);
+    } finally {
+      setSavingUrl(false);
+    }
   };
   return (
     <div>
       <PageHeader
-        eyebrow={pick("个性化与连接", "Personalization and connections")}
+        eyebrow={pick("显示、学习与连接", "Appearance, learning, and connections")}
         title={t("nav.settings")}
         description={pick(
-          "管理模型连接、学习偏好和显示方式。敏感凭据不会写入浏览器偏好。",
-          "Manage model connections, learning preferences, and appearance. Sensitive credentials are never stored in browser preferences.",
+          "调整显示方式，以及学习页的初始模式和快捷提问。模型连接、服务地址与系统诊断属于高级设置；敏感凭据不会写入浏览器偏好。",
+          "Adjust appearance, the Learning page's initial mode, and its quick questions. Model connections, service addresses, and system diagnostics are advanced settings; sensitive credentials are never stored in browser preferences.",
         )}
       />
-      <ModelConfigurationSection />
       <div className="grid gap-5 lg:grid-cols-2">
         <div className="space-y-5">
-          <SettingSection title={pick("应用服务连接", "Application service")}>
-            <label className="block space-y-2">
-              <span className="text-xs font-medium text-slate-600 dark:text-slate-300">
+          <SettingSection title={pick("高级设置 · 应用服务连接", "Advanced · Application service")}>
+            <div className="block space-y-2">
+              <label
+                htmlFor="service-url"
+                className="text-xs font-medium text-slate-600 dark:text-slate-300"
+              >
                 {pick("KnowTier 服务地址（API Base URL）", "KnowTier service address (API Base URL)")}
-              </span>
+              </label>
               <div className="flex gap-2">
                 <input
+                  id="service-url"
                   value={baseUrl}
                   onChange={(event) => setBaseUrl(event.target.value)}
                   className="form-input font-mono text-xs"
@@ -92,11 +112,16 @@ export function SettingsPage() {
                 />
                 <button
                   type="button"
-                  onClick={saveUrl}
+                  onClick={() => void saveUrl()}
+                  disabled={savingUrl}
                   className="secondary-button shrink-0"
                 >
-                  <Save className="h-4 w-4" />
-                  {t("common.save")}
+                  {savingUrl ? (
+                    <LoaderCircle className="h-4 w-4 animate-spin" />
+                  ) : (
+                    <Save className="h-4 w-4" />
+                  )}
+                  {savingUrl ? pick("正在切换", "Switching") : t("common.save")}
                 </button>
               </div>
               <span
@@ -108,7 +133,7 @@ export function SettingsPage() {
                   "The desktop app normally uses /api. For a remote service, enter an HTTPS address without credentials or query parameters.",
                 )}
               </span>
-            </label>
+            </div>
             {urlError && (
               <p
                 id="service-url-error"
@@ -271,19 +296,32 @@ export function SettingsPage() {
           </SettingSection>
         </div>
         <div className="space-y-5">
-          <SettingSection title={pick("本地学习偏好", "Learning preferences")}>
+          <SettingSection
+            title={pick(
+              "学习页默认与快捷提问",
+              "Learning page defaults and quick questions",
+            )}
+          >
             <div className="space-y-4">
               <p className="rounded-lg bg-indigo-50 px-3 py-2 text-xs leading-5 text-indigo-700 dark:bg-indigo-950/40 dark:text-indigo-300">
                 {pick(
-                  "这些偏好只影响当前设备，可随时恢复或调整。学习空间只显示当前教学任务，详细偏好统一在这里管理。",
-                  "These preferences apply only to this device. The learning workspace stays focused on the current lesson; detailed preferences are managed here.",
+                  "这些设置只保存在当前设备。默认教学模式会初始化学习页；其余选项只调整快捷按钮填入的提问文字。",
+                  "These settings are stored only on this device. The default teaching mode initializes the Learning page; the remaining options only adjust the question text inserted by quick buttons.",
                 )}
               </p>
-              <label className="block space-y-2">
-                <span className="text-xs font-medium text-slate-600 dark:text-slate-300">
-                  {pick("默认教学模式", "Default teaching mode")}
-                </span>
+              <div className="block space-y-2">
+                <label
+                  htmlFor="default-teaching-mode"
+                  className="text-xs font-medium text-slate-600 dark:text-slate-300"
+                >
+                  {pick(
+                    "打开学习页时的默认教学模式",
+                    "Default mode when opening Learning",
+                  )}
+                </label>
                 <select
+                  id="default-teaching-mode"
+                  aria-describedby="default-teaching-mode-help"
                   value={store.preferences.defaultTeachingMode}
                   onChange={(event) =>
                     store.setDefaultTeachingMode(
@@ -303,78 +341,88 @@ export function SettingsPage() {
                     </option>
                   ))}
                 </select>
-              </label>
-              <label className="block space-y-2">
-                <span className="text-xs font-medium text-slate-600 dark:text-slate-300">
-                  {pick("解释详细程度", "Explanation detail")}
-                </span>
-                <select
-                  value={store.preferences.explanationDetail}
-                  onChange={(event) =>
-                    store.setExplanationDetail(
-                      event.target.value as
-                        | "concise"
-                        | "balanced"
-                        | "detailed",
-                    )
-                  }
-                  className="form-input"
+                <span
+                  id="default-teaching-mode-help"
+                  className="block text-[11px] font-normal leading-5 text-slate-500"
                 >
-                  <option value="concise">{pick("简洁", "Concise")}</option>
-                  <option value="balanced">{pick("平衡", "Balanced")}</option>
-                  <option value="detailed">{pick("详细", "Detailed")}</option>
-                </select>
-              </label>
-              <ToggleRow
-                label={pick("优先示例", "Prioritize examples")}
-                checked={store.preferences.prioritizeExamples}
-                onChange={store.setPrioritizeExamples}
-              />
-              <label className="block space-y-2">
-                <span className="text-xs font-medium text-slate-600 dark:text-slate-300">
-                  {pick("提示强度", "Hint strength")}
+                  {pick(
+                    "仅作为学习页首次打开时的初始值；你仍可在学习页随时切换。",
+                    "Used only as the initial mode when the Learning page first opens; you can switch it there at any time.",
+                  )}
                 </span>
-                <select
-                  value={store.preferences.hintStrength}
-                  onChange={(event) =>
-                    store.setHintStrength(
-                      event.target.value as "light" | "balanced" | "strong",
-                    )
-                  }
-                  className="form-input"
-                >
-                  <option value="light">{pick("轻提示", "Light hints")}</option>
-                  <option value="balanced">{pick("平衡提示", "Balanced hints")}</option>
-                  <option value="strong">{pick("强提示", "Strong hints")}</option>
-                </select>
-              </label>
-              <label className="block space-y-2">
-                <span className="text-xs font-medium text-slate-600 dark:text-slate-300">
-                  {pick("复习频率", "Review frequency")}
-                </span>
-                <select
-                  value={store.preferences.reviewFrequency}
-                  onChange={(event) =>
-                    store.setReviewFrequency(
-                      event.target.value as
-                        | "daily"
-                        | "twice-weekly"
-                        | "weekly",
-                    )
-                  }
-                  className="form-input"
-                >
-                  <option value="daily">{pick("每天", "Daily")}</option>
-                  <option value="twice-weekly">{pick("每周两次", "Twice a week")}</option>
-                  <option value="weekly">{pick("每周一次", "Weekly")}</option>
-                </select>
-              </label>
+              </div>
+              <fieldset className="space-y-4 rounded-lg border border-slate-200 p-4 dark:border-slate-700">
+                <legend className="px-1 text-sm font-semibold text-slate-700 dark:text-slate-200">
+                  {pick("快捷提问偏好", "Quick-question preferences")}
+                </legend>
+                <p className="text-xs leading-5 text-slate-500">
+                  {pick(
+                    "以下选项只会改变学习页快捷按钮放入输入框的提问文字；发送前仍可编辑，也不会作为全局规则改变教师回答。",
+                    "These options only change the question text inserted by Learning page quick buttons. You can edit it before sending, and they are not global rules for the tutor's replies.",
+                  )}
+                </p>
+                <label className="block space-y-2">
+                  <span className="text-xs font-medium text-slate-600 dark:text-slate-300">
+                    {pick(
+                      "“换一种解释”的详细程度",
+                      "Detail for “Explain differently”",
+                    )}
+                  </span>
+                  <select
+                    value={store.preferences.explanationDetail}
+                    onChange={(event) =>
+                      store.setExplanationDetail(
+                        event.target.value as
+                          | "concise"
+                          | "balanced"
+                          | "detailed",
+                      )
+                    }
+                    className="form-input"
+                  >
+                    <option value="concise">{pick("简洁", "Concise")}</option>
+                    <option value="balanced">{pick("平衡", "Balanced")}</option>
+                    <option value="detailed">{pick("详细", "Detailed")}</option>
+                  </select>
+                </label>
+                <ToggleRow
+                  label={pick(
+                    "“给我一个例子”先展示示例",
+                    "Start “Show an example” with the example",
+                  )}
+                  checked={store.preferences.prioritizeExamples}
+                  onChange={store.setPrioritizeExamples}
+                />
+                <label className="block space-y-2">
+                  <span className="text-xs font-medium text-slate-600 dark:text-slate-300">
+                    {pick(
+                      "“给我一个提示”的提示强度",
+                      "Hint strength for “Give me a hint”",
+                    )}
+                  </span>
+                  <select
+                    value={store.preferences.hintStrength}
+                    onChange={(event) =>
+                      store.setHintStrength(
+                        event.target.value as "light" | "balanced" | "strong",
+                      )
+                    }
+                    className="form-input"
+                  >
+                    <option value="light">{pick("轻提示", "Light hints")}</option>
+                    <option value="balanced">{pick("平衡提示", "Balanced hints")}</option>
+                    <option value="strong">{pick("强提示", "Strong hints")}</option>
+                  </select>
+                </label>
+              </fieldset>
             </div>
           </SettingSection>
           <section className="rounded-xl border border-slate-200 bg-white p-5 dark:border-slate-800 dark:bg-slate-900">
           <div className="mb-4 flex items-center gap-2">
             <HeartPulse className="h-4 w-4 text-[#3157D5]" />
-            <h2 className="text-base font-semibold">{pick("系统健康状态", "System health")}</h2>
+            <h2 className="text-base font-semibold">
+              {pick("高级设置 · 系统诊断", "Advanced · System diagnostics")}
+            </h2>
             <button
               type="button"
               onClick={() => {
@@ -438,6 +486,9 @@ export function SettingsPage() {
           </p>
           </section>
         </div>
+      </div>
+      <div className="mt-5">
+        <ModelConfigurationSection />
       </div>
       <section className="mt-5 rounded-xl border border-red-200 bg-white p-5 dark:border-red-900/50 dark:bg-slate-900">
         <div className="flex flex-col items-start justify-between gap-4 sm:flex-row sm:items-center">

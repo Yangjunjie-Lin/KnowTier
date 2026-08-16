@@ -519,14 +519,19 @@ export function ModelConfigurationSection() {
     >
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <p className="text-xs font-medium text-[#3157D5]">{pick("统一模型网关", "Unified model gateway")}</p>
+          <p className="text-xs font-medium text-[#3157D5]">
+            {pick(
+              "高级设置 · 统一模型网关",
+              "Advanced · Unified model gateway",
+            )}
+          </p>
           <h2 id="model-configuration-heading" className="mt-1 text-lg font-semibold">
             {pick("模型与供应商", "Models and providers")}
           </h2>
           <p className="mt-1 max-w-3xl text-sm leading-6 text-slate-500">
             {pick(
-              "所有模型调用都由 KnowTier 服务统一执行。API Key 不会进入浏览器存储、网址或普通配置文件。",
-              "KnowTier runs every model call through its backend service. API keys never enter browser storage, URLs, or ordinary configuration files.",
+              "供部署或维护人员配置。所有模型调用都由 KnowTier 服务统一执行；普通学习无需更改。API Key 不会进入浏览器存储、网址或普通配置文件。",
+              "For deployment or maintenance. KnowTier runs every model call through its backend service; learners normally do not need to change this. API keys never enter browser storage, URLs, or ordinary configuration files.",
             )}
           </p>
         </div>

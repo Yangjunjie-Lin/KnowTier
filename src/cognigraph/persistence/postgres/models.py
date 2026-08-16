@@ -110,6 +110,9 @@ class Document(UUIDPrimaryKeyMixin, TimestampMixin, Base):
     mime_type: Mapped[str] = mapped_column(String(200), nullable=False)
     byte_size: Mapped[int] = mapped_column(BigInteger, nullable=False)
     sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    origin: Mapped[str] = mapped_column(
+        String(32), default="USER_UPLOAD", server_default="USER_UPLOAD", nullable=False
+    )
     language: Mapped[str | None] = mapped_column(String(16))
     status: Mapped[str] = mapped_column(String(32), default="UPLOADED", nullable=False)
     parser_name: Mapped[str | None] = mapped_column(String(100))

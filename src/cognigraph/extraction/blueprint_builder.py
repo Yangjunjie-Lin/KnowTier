@@ -7,6 +7,7 @@ from uuid import UUID, uuid5
 from cognigraph.domain.documents import Document, SourceSpan
 from cognigraph.domain.enums import (
     ConflictType,
+    DocumentOrigin,
     EpistemicStatus,
     NodeType,
     RelationTypeKey,
@@ -147,7 +148,7 @@ class BlueprintGraphDeltaBuilder:
             graph_proposal,
             snapshot,
         )
-        return GraphDelta(
+        delta = GraphDelta(
             id=uuid5(document.id, f"graph-delta:{document.content_hash}"),
             workspace_id=workspace_id,
             base_revision_id=snapshot.revision_id,
@@ -158,6 +159,37 @@ class BlueprintGraphDeltaBuilder:
             merge_candidates=proposal_merges,
             conflicts=[*conflicts, *proposal_conflicts],
             generated_by_model_run_id=model_run_id,
+        )
+        if document.origin is DocumentOrigin.INTERNAL_CHAT:
+            return self.without_external_source_evidence(delta)
+        return delta
+
+    @staticmethod
+    def without_external_source_evidence(delta: GraphDelta) -> GraphDelta:
+        """Keep internal chat topic candidates while removing every evidence carrier."""
+
+        source_node_types = {NodeType.SOURCE_DOCUMENT, NodeType.SOURCE_SPAN}
+        nodes = [
+            node.model_copy(update={"source_span_ids": []})
+            for node in delta.add_nodes
+            if node.node_type not in source_node_types
+        ]
+        assertions = [
+            assertion.model_copy(
+                update={
+                    "epistemic_status": EpistemicStatus.UNVERIFIED,
+                    "source_span_ids": [],
+                }
+            )
+            for assertion in delta.add_assertions
+        ]
+        return GraphDelta.model_validate(
+            {
+                **delta.model_dump(mode="python"),
+                "add_nodes": nodes,
+                "add_assertions": assertions,
+                "add_provenance_links": [],
+            }
         )
 
     @staticmethod

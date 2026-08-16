@@ -6,7 +6,7 @@ and stores mutable data outside the installed application so upgrades do not ove
 workspace. The React UI always runs on Tauri's stable application origin, so browser preferences and
 the selected workspace survive restarts even though the private API port changes.
 
-The current stable build is `v1.0.0`. Download it from the
+The current stable build is `v1.0.1`. Download it from the
 [latest GitHub Release](https://github.com/Yangjunjie-Lin/KnowTier/releases/latest).
 
 ## Choose a download
@@ -38,7 +38,7 @@ On Windows PowerShell, compare the result of the following command with the matc
 `SHA256SUMS.txt`:
 
 ```powershell
-Get-FileHash .\KnowTier-Setup-1.0.0-windows-x64.exe -Algorithm SHA256
+Get-FileHash .\KnowTier-Setup-1.0.1-windows-x64.exe -Algorithm SHA256
 ```
 
 A status file containing `UNSIGNED` means the build lacks a platform code signature. A checksum
@@ -72,11 +72,11 @@ Open Anyway**; managed devices may forbid this completely.
 For an AppImage, make the file executable and run it:
 
 ```bash
-chmod +x KnowTier-1.0.0-linux-x64.AppImage
-./KnowTier-1.0.0-linux-x64.AppImage
+chmod +x KnowTier-1.0.1-linux-x64.AppImage
+./KnowTier-1.0.1-linux-x64.AppImage
 ```
 
-For Debian or Ubuntu, install the package with `sudo apt install ./knowtier_1.0.0_amd64.deb`.
+For Debian or Ubuntu, install the package with `sudo apt install ./knowtier_1.0.1_amd64.deb`.
 Linux packages currently rely on the published checksum rather than a distribution repository
 signature and are explicitly identified as unsigned.
 

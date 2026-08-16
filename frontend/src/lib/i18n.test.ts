@@ -11,10 +11,10 @@ import {
 describe("interface localization", () => {
   it("translates shell copy and interpolation", () => {
     expect(translate("zh-CN", "shell.learner", { name: "小林" })).toBe(
-      "学习者：小林",
+      "学习档案：小林",
     );
     expect(translate("en", "shell.learner", { name: "Alex" })).toBe(
-      "Learner: Alex",
+      "Profile: Alex",
     );
     expect(translate("en", "nav.studentGraph")).toBe("My knowledge map");
   });

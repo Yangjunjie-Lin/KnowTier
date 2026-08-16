@@ -60,7 +60,7 @@ function renderPage() {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
-  return render(
+  const view = render(
     <QueryClientProvider client={client}>
       <AppProvider>
         <MemoryRouter>
@@ -69,6 +69,7 @@ function renderPage() {
       </AppProvider>
     </QueryClientProvider>,
   );
+  return Object.assign(view, { client });
 }
 
 describe("SettingsPage learning preferences", () => {
@@ -89,17 +90,23 @@ describe("SettingsPage learning preferences", () => {
     });
   });
 
-  it("persists local teaching preferences and applies font size", async () => {
+  it("persists learning-page preferences and applies font size", async () => {
     const view = renderPage();
     expect(
       await screen.findByRole("button", { name: "浅色" }),
     ).toHaveAttribute("aria-pressed", "true");
-    fireEvent.change(screen.getByLabelText("默认教学模式"), {
+    fireEvent.change(screen.getByLabelText("打开学习页时的默认教学模式"), {
       target: { value: "research" },
     });
-    fireEvent.change(screen.getByLabelText("解释详细程度"), {
+    fireEvent.change(screen.getByLabelText("“换一种解释”的详细程度"), {
       target: { value: "detailed" },
     });
+    fireEvent.change(screen.getByLabelText("“给我一个提示”的提示强度"), {
+      target: { value: "strong" },
+    });
+    fireEvent.click(
+      screen.getByRole("switch", { name: "“给我一个例子”先展示示例" }),
+    );
     fireEvent.change(screen.getByLabelText("字体大小"), {
       target: { value: "large" },
     });
@@ -116,6 +123,8 @@ describe("SettingsPage learning preferences", () => {
       expect(parsed.preferences).toMatchObject({
         defaultTeachingMode: "research",
         explanationDetail: "detailed",
+        hintStrength: "strong",
+        prioritizeExamples: false,
         fontSize: "large",
         graphLabelDensity: "minimal",
       });
@@ -124,8 +133,15 @@ describe("SettingsPage learning preferences", () => {
 
     view.unmount();
     renderPage();
-    expect(screen.getByLabelText("默认教学模式")).toHaveValue("research");
-    expect(screen.getByLabelText("解释详细程度")).toHaveValue("detailed");
+    expect(
+      screen.getByLabelText("打开学习页时的默认教学模式"),
+    ).toHaveValue("research");
+    expect(screen.getByLabelText("“换一种解释”的详细程度")).toHaveValue(
+      "detailed",
+    );
+    expect(screen.getByLabelText("“给我一个提示”的提示强度")).toHaveValue(
+      "strong",
+    );
     expect(screen.getByLabelText("字体大小")).toHaveValue("large");
   });
 
@@ -139,8 +155,58 @@ describe("SettingsPage learning preferences", () => {
       }),
     );
     renderPage();
-    expect(screen.getByLabelText("默认教学模式")).toHaveValue("learn");
-    expect(screen.getByLabelText("提示强度")).toHaveValue("balanced");
+    expect(
+      screen.getByLabelText("打开学习页时的默认教学模式"),
+    ).toHaveValue("learn");
+    expect(screen.getByLabelText("“给我一个提示”的提示强度")).toHaveValue(
+      "balanced",
+    );
+  });
+
+  it("states the limited scope of quick-question preferences and hides inactive review scheduling", async () => {
+    renderPage();
+
+    expect(
+      screen.getByRole("group", { name: "快捷提问偏好" }),
+    ).toBeVisible();
+    expect(
+      screen.getByText(/只会改变学习页快捷按钮放入输入框的提问文字/),
+    ).toBeVisible();
+    expect(screen.getByText(/不会作为全局规则改变教师回答/)).toBeVisible();
+    expect(screen.queryByLabelText("复习频率")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { name: "高级设置 · 系统诊断" }),
+    ).toBeVisible();
+    expect(
+      await screen.findByText("高级设置 · 统一模型网关"),
+    ).toBeVisible();
+  });
+
+  it("cancels and removes queries from the previous API base URL", async () => {
+    const { client } = renderPage();
+    const cancelQueries = vi.spyOn(client, "cancelQueries");
+    await screen.findByRole("heading", { name: "模型与供应商" });
+    await waitFor(() => expect(api.getModelConfiguration).toHaveBeenCalledTimes(1));
+    client.setQueryData(["old-service-only"], { private: "old data" });
+
+    fireEvent.change(
+      screen.getByLabelText("KnowTier 服务地址（API Base URL）"),
+      { target: { value: "https://next.knowtier.example/api" } },
+    );
+    fireEvent.click(screen.getByRole("button", { name: "保存" }));
+
+    await waitFor(() => expect(cancelQueries).toHaveBeenCalledTimes(1));
+    await waitFor(() =>
+      expect(client.getQueryData(["old-service-only"])).toBeUndefined(),
+    );
+    await waitFor(() =>
+      expect(api.getModelConfiguration).toHaveBeenCalledTimes(2),
+    );
+    await waitFor(() =>
+      expect(localStorage.getItem("knowtier.app-state.v1")).toContain(
+        '"apiBaseUrl":"https://next.knowtier.example/api"',
+      ),
+    );
   });
 
   it("switches the interface between Chinese and English and persists it", async () => {
@@ -149,7 +215,9 @@ describe("SettingsPage learning preferences", () => {
     fireEvent.change(language, { target: { value: "en" } });
 
     expect(await screen.findByRole("heading", { name: "Settings" })).toBeVisible();
-    expect(screen.getByText("Learning preferences")).toBeVisible();
+    expect(
+      screen.getByText("Learning page defaults and quick questions"),
+    ).toBeVisible();
     expect(document.documentElement.lang).toBe("en");
     await waitFor(() =>
       expect(localStorage.getItem("knowtier.app-state.v1")).toContain(

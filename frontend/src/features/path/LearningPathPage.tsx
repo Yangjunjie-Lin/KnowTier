@@ -224,6 +224,7 @@ export function LearningPathPage() {
       ) : (
         <GraphCanvas
           graph={graph}
+          locale={locale}
           density={preferences.graphDensity}
           labelDensity={preferences.graphLabelDensity}
         />

@@ -7,7 +7,7 @@ export function IngestionSummary({ report }: { report: IngestionReport }) {
   const { pick } = useI18n();
   const outcomeMetrics = [
     [pick("页数", "Pages"), report.page_count],
-    [pick("内容分块", "Content sections"), report.chunk_count],
+    [pick("内容段落", "Content sections"), report.chunk_count],
     [pick("知识点", "Knowledge points"), report.knowledge_point_count],
     [pick("关系", "Relationships"), report.assertion_count],
     [pick("低置信度区块", "Low-confidence sections"), report.low_confidence_blocks],
@@ -31,7 +31,7 @@ export function IngestionSummary({ report }: { report: IngestionReport }) {
           ? "border-amber-200 bg-amber-50/70 dark:border-amber-900 dark:bg-amber-950/20"
           : "border-emerald-200 bg-emerald-50/70 dark:border-emerald-900 dark:bg-emerald-950/20",
       )}
-      aria-label={pick("本次摄取报告", "Processing report")}
+      aria-label={pick("资料分析报告", "Material analysis report")}
     >
       <div
         className={cn(
@@ -42,7 +42,7 @@ export function IngestionSummary({ report }: { report: IngestionReport }) {
         )}
       >
         <StatusIcon className="h-4 w-4" aria-hidden="true" />
-        {hasWarnings ? pick("摄取完成，请检查警告", "Processing completed with warnings") : pick("本次摄取完成", "Processing completed")}
+        {hasWarnings ? pick("资料分析完成，请检查提示", "Analysis completed with warnings") : pick("资料分析完成", "Analysis completed")}
       </div>
       <dl className="mt-4 grid grid-cols-2 gap-3 sm:grid-cols-3 xl:grid-cols-6">
         {outcomeMetrics.map(([label, value]) => (

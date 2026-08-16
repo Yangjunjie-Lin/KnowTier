@@ -11,7 +11,7 @@ from sqlalchemy import select
 
 from cognigraph.config import Settings, get_settings
 from cognigraph.domain.documents import SourceSpan
-from cognigraph.domain.enums import EpistemicStatus, NodeType, RelationTypeKey
+from cognigraph.domain.enums import DocumentOrigin, EpistemicStatus, NodeType, RelationTypeKey
 from cognigraph.domain.graph import RelationAssertion
 from cognigraph.extraction.knowledge_extractor import KnowledgeExtractor
 from cognigraph.graph.applier import (
@@ -20,6 +20,7 @@ from cognigraph.graph.applier import (
     InMemoryGraphApplier,
 )
 from cognigraph.graph.comparison import GraphComparisonService
+from cognigraph.graph.delta import GraphDelta
 from cognigraph.graph.exporters import GraphExporter
 from cognigraph.graph.manifest import GraphManifestService
 from cognigraph.graph.query_tools import (
@@ -32,7 +33,11 @@ from cognigraph.graph.query_tools import (
 from cognigraph.ingestion.chunking import HierarchicalChunker
 from cognigraph.ingestion.docling_adapter import DocumentParser
 from cognigraph.ingestion.ocr_adapter import PaddleOCRAdapter
-from cognigraph.ingestion.service import IngestionService, InMemoryDocumentRegistry
+from cognigraph.ingestion.service import (
+    IngestionService,
+    InMemoryDocumentRegistry,
+    without_external_source_evidence,
+)
 from cognigraph.ingestion.vision_adapter import LiteLLMVisionParser
 from cognigraph.llm.configuration import (
     ModelConfigurationService,
@@ -71,6 +76,7 @@ from cognigraph.persistence.postgres.models import (
     TutoringSession,
     Workspace,
 )
+from cognigraph.persistence.postgres.models import Document as DocumentRecord
 from cognigraph.persistence.postgres.models import SourceSpan as SourceSpanRecord
 from cognigraph.prompts import PromptManager
 from cognigraph.services.persistence_adapters import (
@@ -508,6 +514,27 @@ class ApplicationRuntime:
         if not isinstance(self.semantic_graph, InMemoryGraphRepository):
             return
         async with self.database.session() as session:
+            internal_document_ids = set(
+                (
+                    await session.scalars(
+                        select(DocumentRecord.id).where(
+                            DocumentRecord.origin == DocumentOrigin.INTERNAL_CHAT.value
+                        )
+                    )
+                ).all()
+            )
+            internal_span_ids = set(
+                (
+                    await session.scalars(
+                        select(SourceSpanRecord.id)
+                        .join(
+                            DocumentRecord,
+                            DocumentRecord.id == SourceSpanRecord.document_id,
+                        )
+                        .where(DocumentRecord.origin == DocumentOrigin.INTERNAL_CHAT.value)
+                    )
+                ).all()
+            )
             events = list(
                 (
                     await session.scalars(
@@ -522,7 +549,16 @@ class ApplicationRuntime:
                 ).all()
             )
         for event in events:
-            await self.semantic_graph.apply_delta(dict(event.delta))
+            payload = dict(event.delta)
+            delta = GraphDelta.model_validate(
+                {key: value for key, value in event.delta.items() if key in GraphDelta.model_fields}
+            )
+            internal_entity_ids = internal_document_ids | internal_span_ids
+            if any(node.id in internal_entity_ids for node in delta.add_nodes) or any(
+                link.source_span_id in internal_span_ids for link in delta.add_provenance_links
+            ):
+                payload.update(without_external_source_evidence(delta).model_dump(mode="json"))
+            await self.semantic_graph.apply_delta(payload)
 
     async def readiness(self) -> dict[str, bool]:
         postgres_ready = await self.database.ping()
@@ -695,22 +731,45 @@ class ApplicationRuntime:
 
     async def _load_graph_snapshot(self, workspace_id: UUID) -> GraphSnapshot:
         async with self.database.session() as session:
+            internal_document_ids = set(
+                (
+                    await session.scalars(
+                        select(DocumentRecord.id).where(
+                            DocumentRecord.workspace_id == workspace_id,
+                            DocumentRecord.origin == DocumentOrigin.INTERNAL_CHAT.value,
+                        )
+                    )
+                ).all()
+            )
+            internal_span_ids = set(
+                (
+                    await session.scalars(
+                        select(SourceSpanRecord.id)
+                        .join(
+                            DocumentRecord,
+                            DocumentRecord.id == SourceSpanRecord.document_id,
+                        )
+                        .where(
+                            SourceSpanRecord.workspace_id == workspace_id,
+                            DocumentRecord.origin == DocumentOrigin.INTERNAL_CHAT.value,
+                        )
+                    )
+                ).all()
+            )
+            internal_graph_ids = internal_document_ids | internal_span_ids
             revision = await session.scalar(
                 select(GraphRevision)
                 .where(GraphRevision.workspace_id == workspace_id)
                 .order_by(GraphRevision.sequence_number.desc())
                 .limit(1)
             )
-            node_records = list(
-                (
-                    await session.scalars(
-                        select(GraphNodeRecord).where(
-                            GraphNodeRecord.workspace_id == workspace_id,
-                            GraphNodeRecord.is_active.is_(True),
-                        )
-                    )
-                ).all()
+            node_statement = select(GraphNodeRecord).where(
+                GraphNodeRecord.workspace_id == workspace_id,
+                GraphNodeRecord.is_active.is_(True),
             )
+            if internal_graph_ids:
+                node_statement = node_statement.where(GraphNodeRecord.id.not_in(internal_graph_ids))
+            node_records = list((await session.scalars(node_statement)).all())
             assertion_records = list(
                 (
                     await session.scalars(
@@ -734,7 +793,8 @@ class ApplicationRuntime:
                     ).all()
                 )
                 for node_link in node_links:
-                    node_sources[node_link.node_id].append(node_link.source_span_id)
+                    if node_link.source_span_id not in internal_span_ids:
+                        node_sources[node_link.node_id].append(node_link.source_span_id)
                     if node_link.model_run_id is not None:
                         node_model_runs.setdefault(node_link.node_id, node_link.model_run_id)
             if assertion_records:
@@ -750,9 +810,10 @@ class ApplicationRuntime:
                     ).all()
                 )
                 for assertion_link in assertion_links:
-                    assertion_sources[assertion_link.assertion_id].append(
-                        assertion_link.source_span_id
-                    )
+                    if assertion_link.source_span_id not in internal_span_ids:
+                        assertion_sources[assertion_link.assertion_id].append(
+                            assertion_link.source_span_id
+                        )
             graph_span_ids = {item.id for item in node_records if item.entity_type == "SourceSpan"}
             graph_span_ids.update(
                 source_id for source_ids in node_sources.values() for source_id in source_ids
@@ -764,9 +825,15 @@ class ApplicationRuntime:
                 list(
                     (
                         await session.scalars(
-                            select(SourceSpanRecord).where(
+                            select(SourceSpanRecord)
+                            .join(
+                                DocumentRecord,
+                                DocumentRecord.id == SourceSpanRecord.document_id,
+                            )
+                            .where(
                                 SourceSpanRecord.workspace_id == workspace_id,
                                 SourceSpanRecord.id.in_(graph_span_ids),
+                                DocumentRecord.origin == DocumentOrigin.USER_UPLOAD.value,
                             )
                         )
                     ).all()

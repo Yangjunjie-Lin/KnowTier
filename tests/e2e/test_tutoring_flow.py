@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from pathlib import Path
 from uuid import uuid4
 
@@ -11,6 +12,7 @@ from cognigraph.config import Settings
 from cognigraph.domain.enums import CognitiveLevel, NodeType, RelationTypeKey
 from cognigraph.graph.delta import AssertionCreate, GraphDelta, NodeCreate
 from cognigraph.graph.query_tools import QueryResult
+from cognigraph.llm.fake_provider import FakeProvider
 from cognigraph.persistence.postgres.models import (
     ConversationTurn,
     GraphRevision,
@@ -43,11 +45,13 @@ async def test_mock_chat_answers_rag_with_compact_schema_validated_target(
                 workspace_id=workspace_id,
                 name="RAG chat regression",
                 slug=f"rag-chat-{workspace_id.hex[:8]}",
+                default_language="en",
             )
             await unit.learners.create(
                 workspace_id=workspace_id,
                 learner_id=learner_id,
                 display_name="RAG learner",
+                language="zh-CN",
             )
             await unit.commit()
 
@@ -68,6 +72,8 @@ async def test_mock_chat_answers_rag_with_compact_schema_validated_target(
 
         assert response.turn_id is not None
         assert response.response
+        assert "我们会依据当前证据" in response.response
+        assert "你会先检查哪一个前置知识" in response.assessment.question
         assert response.target_knowledge_point.name == "retrieval-augmented generation"
         assert response.graph_update.nodes_added == 1
         assert response.graph_update.revision_id is not None
@@ -76,6 +82,14 @@ async def test_mock_chat_answers_rag_with_compact_schema_validated_target(
         points = [node for node in snapshot.nodes if node.node_type is NodeType.KNOWLEDGE_POINT]
         assert len(points) == 1
         assert all(point.epistemic_status.value == "UNVERIFIED" for point in points)
+        provider = runtime.model_gateway.provider
+        assert isinstance(provider, FakeProvider)
+        teacher_payloads = [
+            json.loads(str(messages[1].content or "{}"))
+            for _model, messages, schema in provider.calls
+            if "assessment_question" in schema.get("properties", {})
+        ]
+        assert teacher_payloads[-1]["response_language"] == "zh-CN"
         async with runtime.database.session() as session:
             roles = set(
                 (

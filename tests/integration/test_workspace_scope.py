@@ -45,6 +45,11 @@ def test_production_scope_header_protocol_and_cross_tenant_isolation(tmp_path: P
         headers_a = _scope_headers(workspace_a)
         headers_b = _scope_headers(workspace_b)
 
+        assert client.get("/v1/workspaces").status_code == 401
+        scoped_workspaces = client.get("/v1/workspaces", headers=headers_a)
+        assert scoped_workspaces.status_code == 200, scoped_workspaces.text
+        assert [item["id"] for item in scoped_workspaces.json()["items"]] == [workspace_a]
+
         missing_scope = client.post(
             "/v1/learners",
             json={"workspace_id": workspace_a, "display_name": "Learner A"},
@@ -129,6 +134,13 @@ def test_production_scope_header_protocol_and_cross_tenant_isolation(tmp_path: P
         assertion_id = learner_graph.json()["elements"]["edges"][0]["data"]["assertion_id"]
 
         cross_tenant_requests = [
+            ("GET", f"/v1/workspaces/{workspace_a}/learners", {}),
+            ("GET", f"/v1/workspaces/{workspace_a}/documents", {}),
+            (
+                "GET",
+                f"/v1/workspaces/{workspace_a}/learners/{learner_id}/sessions/{session_id}/turns",
+                {},
+            ),
             ("GET", f"/v1/learners/{learner_id}", {}),
             ("GET", f"/v1/learners/{learner_id}/model", {}),
             ("GET", f"/v1/learners/{learner_id}/model.csv", {}),
@@ -192,6 +204,18 @@ def test_production_scope_header_protocol_and_cross_tenant_isolation(tmp_path: P
 
         assert client.get(f"/v1/learners/{learner_id}", headers=headers_a).status_code == 200
         assert client.get(f"/v1/documents/{document_id}", headers=headers_a).status_code == 200
+        scoped_learners = client.get(
+            f"/v1/workspaces/{workspace_a}/learners",
+            headers=headers_a,
+        )
+        assert scoped_learners.status_code == 200, scoped_learners.text
+        assert scoped_learners.json()["items"][0]["id"] == learner_id
+        scoped_documents = client.get(
+            f"/v1/workspaces/{workspace_a}/documents",
+            headers=headers_a,
+        )
+        assert scoped_documents.status_code == 200, scoped_documents.text
+        assert scoped_documents.json()["items"][0]["id"] == document_id
         assert (
             client.get(
                 "/v1/graph/manifest",

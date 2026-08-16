@@ -10,7 +10,7 @@ from uuid import UUID, uuid4
 from cognigraph.config import Settings
 from cognigraph.domain.base import utc_now
 from cognigraph.domain.documents import Document, DocumentChunk, IngestionReport, SourceSpan
-from cognigraph.domain.enums import DocumentStatus
+from cognigraph.domain.enums import DocumentOrigin, DocumentStatus
 from cognigraph.extraction import BlueprintGraphDeltaBuilder, KnowledgeBlueprint
 from cognigraph.extraction.knowledge_extractor import KnowledgeExtractor
 from cognigraph.graph.applier import (
@@ -34,6 +34,12 @@ from cognigraph.llm.embedding import EmbeddingProvider
 from cognigraph.llm.schemas import ModelCallContext
 
 logger = logging.getLogger(__name__)
+
+
+def without_external_source_evidence(delta: GraphDelta) -> GraphDelta:
+    """Sanitize legacy internal-chat deltas before rebuilding projections."""
+
+    return BlueprintGraphDeltaBuilder.without_external_source_evidence(delta)
 
 
 class DocumentLoader(Protocol):
@@ -130,6 +136,8 @@ class GraphProposalSink(Protocol):
 class DocumentRecordSink(DocumentLoader, Protocol):
     async def uploaded(self, document: Document) -> Document: ...
 
+    async def promote_to_user_upload(self, document: Document) -> Document: ...
+
     async def load_report(self, document_id: UUID) -> IngestionReport | None: ...
 
     async def staged(
@@ -195,6 +203,7 @@ class IngestionService:
         filename: str,
         mime_type: str,
         content: bytes,
+        origin: DocumentOrigin = DocumentOrigin.USER_UPLOAD,
     ) -> StoredUpload:
         input_kind = validate_upload(
             filename=filename,
@@ -205,6 +214,22 @@ class IngestionService:
         digest = sha256_bytes(content)
         existing = await self.registry.find_by_hash(workspace_id, digest)
         if existing is not None:
+            if (
+                origin is DocumentOrigin.USER_UPLOAD
+                and existing.origin is DocumentOrigin.INTERNAL_CHAT
+            ):
+                promoted = existing.model_copy(
+                    update={
+                        "original_filename": filename,
+                        "mime_type": mime_type,
+                        "input_kind": input_kind,
+                        "origin": DocumentOrigin.USER_UPLOAD,
+                        "updated_at": utc_now(),
+                    }
+                )
+                if self.document_sink is not None:
+                    promoted = await self.document_sink.promote_to_user_upload(promoted)
+                await self.registry.cache(promoted)
             return StoredUpload(document_id=existing.id, deduplicated=True)
         document_id = uuid4()
         path = safe_storage_path(
@@ -224,6 +249,7 @@ class IngestionService:
             input_kind=input_kind,
             content_hash=digest,
             byte_size=len(content),
+            origin=origin,
         )
         if self.document_sink is not None:
             stored = await self.document_sink.uploaded(document)

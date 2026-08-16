@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import sqlite3
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 import pytest
 from fastapi.testclient import TestClient
@@ -33,12 +33,13 @@ def test_mock_chat_rag_returns_teacher_response(tmp_path: Path) -> None:
         )
         assert learner.status_code == 201, learner.text
 
+        session_id = str(uuid4())
         response = client.post(
             "/v1/chat",
             json={
                 "workspace_id": workspace_id,
                 "learner_id": learner.json()["id"],
-                "session_id": str(uuid4()),
+                "session_id": session_id,
                 "message": "什么是RAG",
                 "requested_mode": "learn",
             },
@@ -51,6 +52,48 @@ def test_mock_chat_rag_returns_teacher_response(tmp_path: Path) -> None:
         assert payload["graph_update"]["nodes_added"] == 1
         assert payload["graph_update"]["revision_id"]
         assert payload["learner_graph_update"]["revision_id"]
+        assert payload["sources"] == []
+        assert "什么是RAG" not in response.text
+
+        runtime = app.state.runtime
+        internal_documents = [
+            document
+            for document in runtime.document_registry.documents.values()
+            if document.origin.value == "INTERNAL_CHAT"
+        ]
+        assert len(internal_documents) == 1
+        internal_document = internal_documents[0]
+        internal_span = runtime.document_registry.spans[internal_document.id][0]
+        snapshot = runtime.graph_applier.store.get_snapshot(UUID(workspace_id))
+        target_id = UUID(payload["target_knowledge_point"]["id"])
+        legacy_nodes = [
+            node.model_copy(update={"source_span_ids": [internal_span.id]})
+            if node.id == target_id
+            else node
+            for node in snapshot.nodes
+        ]
+        runtime.graph_applier.store.set_snapshot(
+            snapshot.model_copy(
+                update={
+                    "nodes": legacy_nodes,
+                    "source_spans": [*snapshot.source_spans, internal_span],
+                }
+            )
+        )
+
+        follow_up = client.post(
+            "/v1/chat",
+            json={
+                "workspace_id": workspace_id,
+                "learner_id": learner.json()["id"],
+                "session_id": session_id,
+                "message": "它会先检索相关信息, 再生成回答。",
+                "requested_mode": "learn",
+            },
+        )
+        assert follow_up.status_code == 200, follow_up.text
+        assert follow_up.json()["sources"] == []
+        assert internal_span.text not in follow_up.text
 
 
 @pytest.mark.integration

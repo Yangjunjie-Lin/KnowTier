@@ -2,6 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import {
   ArrowDownAZ,
   ArrowUpAZ,
+  BookOpen,
   Download,
   Filter,
   LoaderCircle,
@@ -415,6 +416,22 @@ function ModelDrawer({
       description={pick(`${item.knowledge_point}的个人模型详情`, `Progress details for ${item.knowledge_point}`)}
     >
       <div className="mt-5 space-y-5">
+          <Link
+            to="/learn"
+            state={{
+              learningTarget: {
+                id: item.knowledge_point_id,
+                name: item.knowledge_point,
+                source: "personal-model",
+              },
+            }}
+            className="primary-button w-full"
+          >
+            <BookOpen className="h-4 w-4" aria-hidden="true" />
+            {item.critical_misconceptions.length > 0
+              ? pick("复习并纠正误解", "Review and correct misconceptions")
+              : pick("继续学习这个知识点", "Continue learning this topic")}
+          </Link>
           <CognitiveBadge level={item.current_level} size="md" />
           <MasteryBar value={item.mastery_score} confidence={item.confidence} />
           <div>

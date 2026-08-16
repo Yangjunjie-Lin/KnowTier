@@ -32,7 +32,7 @@ describe("VersionDetails", () => {
     expect(screen.getByText("状态 · 已应用")).toBeInTheDocument();
     expect(screen.getByText("图谱投影 · 已投影")).toBeInTheDocument();
     expect(screen.getByText("基于上一个版本")).toBeInTheDocument();
-    expect(screen.getByText("资料摄取创建")).toBeInTheDocument();
+    expect(screen.getByText("由资料分析创建")).toBeInTheDocument();
     expect(screen.getByText("已记录")).toBeInTheDocument();
     expect(screen.getByText("新增节点 4；新增关系 3；替代关系 1；记录冲突 0。")).toBeInTheDocument();
     expect(screen.getByText("来源变化")).toBeInTheDocument();

@@ -4,6 +4,7 @@ from cognigraph.domain.documents import Document, DocumentChunk, SourceSpan
 from cognigraph.domain.enums import (
     AssessmentType,
     CognitiveLevel,
+    DocumentOrigin,
     DocumentStatus,
     EpistemicStatus,
     EvidenceType,
@@ -52,6 +53,7 @@ __all__ = [
     "ContextBundle",
     "Document",
     "DocumentChunk",
+    "DocumentOrigin",
     "DocumentStatus",
     "EpistemicStatus",
     "EvidenceType",

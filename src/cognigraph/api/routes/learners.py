@@ -13,7 +13,7 @@ from cognigraph.api.dependencies import (
     WorkspaceScopeDependency,
     enforce_workspace_scope,
 )
-from cognigraph.api.schemas import LearnerCreateRequest, LearnerResponse
+from cognigraph.api.schemas import LearnerCreateRequest, LearnerListResponse, LearnerResponse
 from cognigraph.graph.query_tools import LearningPathParams
 from cognigraph.persistence.postgres.models import (
     ConversationTurn,
@@ -27,6 +27,35 @@ from cognigraph.persistence.postgres.models import (
 from cognigraph.services.runtime import ApplicationRuntime
 
 router = APIRouter(tags=["learners"])
+
+
+@router.get("/workspaces/{workspace_id}/learners", response_model=LearnerListResponse)
+async def list_learners(
+    workspace_id: UUID,
+    runtime: RuntimeDependency,
+    workspace_scope: WorkspaceScopeDependency,
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0, le=10_000),
+) -> LearnerListResponse:
+    enforce_workspace_scope(workspace_scope, workspace_id)
+    async with runtime.database.unit_of_work() as unit:
+        if await unit.workspaces.get(workspace_id) is None:
+            raise HTTPException(status_code=404, detail="workspace not found")
+        records = await unit.learners.list_for_workspace(
+            workspace_id,
+            active_only=True,
+            limit=limit + 1,
+            offset=offset,
+        )
+    has_more = len(records) > limit
+    items = [LearnerResponse.model_validate(item, from_attributes=True) for item in records[:limit]]
+    return LearnerListResponse(
+        workspace_id=workspace_id,
+        items=items,
+        limit=limit,
+        offset=offset,
+        next_offset=offset + len(items) if has_more else None,
+    )
 
 
 @router.post(

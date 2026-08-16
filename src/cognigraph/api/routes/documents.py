@@ -3,16 +3,46 @@ from __future__ import annotations
 import mimetypes
 from uuid import UUID
 
-from fastapi import APIRouter, File, HTTPException, UploadFile, status
+from fastapi import APIRouter, File, HTTPException, Query, UploadFile, status
 
 from cognigraph.api.dependencies import (
     RuntimeDependency,
     WorkspaceScopeDependency,
     enforce_workspace_scope,
 )
-from cognigraph.api.schemas import DocumentResponse, IngestionResponse
+from cognigraph.api.schemas import DocumentListResponse, DocumentResponse, IngestionResponse
+from cognigraph.persistence.postgres.models import Document as DocumentRecord
 
 router = APIRouter(tags=["documents"])
+
+
+@router.get("/workspaces/{workspace_id}/documents", response_model=DocumentListResponse)
+async def list_documents(
+    workspace_id: UUID,
+    runtime: RuntimeDependency,
+    workspace_scope: WorkspaceScopeDependency,
+    limit: int = Query(default=50, ge=1, le=100),
+    offset: int = Query(default=0, ge=0, le=10_000),
+) -> DocumentListResponse:
+    enforce_workspace_scope(workspace_scope, workspace_id)
+    async with runtime.database.unit_of_work() as unit:
+        if await unit.workspaces.get(workspace_id) is None:
+            raise HTTPException(status_code=404, detail="workspace not found")
+        records = await unit.documents.list_for_workspace(
+            workspace_id,
+            user_visible_only=True,
+            limit=limit + 1,
+            offset=offset,
+        )
+    has_more = len(records) > limit
+    items = [_document_record_response(item) for item in records[:limit]]
+    return DocumentListResponse(
+        workspace_id=workspace_id,
+        items=items,
+        limit=limit,
+        offset=offset,
+        next_offset=offset + len(items) if has_more else None,
+    )
 
 
 @router.post(
@@ -52,11 +82,8 @@ async def ingest_document(
     runtime: RuntimeDependency,
     workspace_scope: WorkspaceScopeDependency,
 ) -> IngestionResponse:
-    try:
-        document = await runtime.ingestion.get_document(document_id)
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail="document not found") from exc
-    enforce_workspace_scope(workspace_scope, document.workspace_id)
+    record = await _get_user_visible_document(runtime, document_id)
+    enforce_workspace_scope(workspace_scope, record.workspace_id)
     try:
         report = await runtime.ingestion.ingest(document_id)
     except KeyError as exc:
@@ -72,12 +99,9 @@ async def get_document(
     runtime: RuntimeDependency,
     workspace_scope: WorkspaceScopeDependency,
 ) -> DocumentResponse:
-    try:
-        document = await runtime.ingestion.get_document(document_id)
-    except KeyError as exc:
-        raise HTTPException(status_code=404, detail="document not found") from exc
-    enforce_workspace_scope(workspace_scope, document.workspace_id)
-    return _document_response(document)
+    record = await _get_user_visible_document(runtime, document_id)
+    enforce_workspace_scope(workspace_scope, record.workspace_id)
+    return _document_record_response(record)
 
 
 @router.get("/documents/{document_id}/chunks")
@@ -86,22 +110,15 @@ async def get_document_chunks(
     runtime: RuntimeDependency,
     workspace_scope: WorkspaceScopeDependency,
 ) -> dict[str, object]:
+    document = await _get_user_visible_document(runtime, document_id)
+    enforce_workspace_scope(workspace_scope, document.workspace_id)
     chunks = runtime.document_registry.chunks.get(document_id)
     if chunks is not None:
-        async with runtime.database.unit_of_work() as unit:
-            document = await unit.documents.get(document_id)
-        if document is None:
-            raise HTTPException(status_code=404, detail="document not found")
-        enforce_workspace_scope(workspace_scope, document.workspace_id)
         return {
             "document_id": str(document_id),
             "items": [item.model_dump(mode="json") for item in chunks],
         }
     async with runtime.database.unit_of_work() as unit:
-        document = await unit.documents.get(document_id)
-        if document is None:
-            raise HTTPException(status_code=404, detail="document not found")
-        enforce_workspace_scope(workspace_scope, document.workspace_id)
         records = await unit.documents.list_chunks(document_id)
     return {
         "document_id": str(document_id),
@@ -126,22 +143,14 @@ async def get_extracted_knowledge(
     runtime: RuntimeDependency,
     workspace_scope: WorkspaceScopeDependency,
 ) -> dict[str, object]:
+    record = await _get_user_visible_document(runtime, document_id)
+    enforce_workspace_scope(workspace_scope, record.workspace_id)
     blueprint = runtime.document_registry.blueprints.get(document_id)
     if blueprint is not None:
-        async with runtime.database.unit_of_work() as unit:
-            document = await unit.documents.get(document_id)
-        if document is None:
-            raise HTTPException(status_code=404, detail="document not found")
-        enforce_workspace_scope(workspace_scope, document.workspace_id)
         return {
             "document_id": str(document_id),
             "blueprint": blueprint.model_dump(mode="json"),
         }
-    async with runtime.database.unit_of_work() as unit:
-        record = await unit.documents.get(document_id)
-    if record is None:
-        raise HTTPException(status_code=404, detail="document not found")
-    enforce_workspace_scope(workspace_scope, record.workspace_id)
     parser_output = record.parser_output or {}
     return {
         "document_id": str(document_id),
@@ -166,3 +175,34 @@ def _document_response(document: object) -> DocumentResponse:
         warnings=document.warnings,
         created_at=document.created_at,
     )
+
+
+def _document_record_response(document: DocumentRecord) -> DocumentResponse:
+    parser_output = document.parser_output or {}
+    raw_warnings = parser_output.get("warnings", [])
+    warnings = [str(item) for item in raw_warnings] if isinstance(raw_warnings, list) else []
+    if document.error_code and document.error_code not in warnings:
+        warnings.append(document.error_code)
+    return DocumentResponse(
+        id=document.id,
+        workspace_id=document.workspace_id,
+        filename=document.filename,
+        mime_type=document.mime_type,
+        byte_size=document.byte_size,
+        sha256=document.sha256,
+        status=document.status,
+        page_count=document.page_count,
+        warnings=warnings,
+        created_at=document.created_at,
+    )
+
+
+async def _get_user_visible_document(
+    runtime: RuntimeDependency,
+    document_id: UUID,
+) -> DocumentRecord:
+    async with runtime.database.unit_of_work() as unit:
+        document = await unit.documents.get(document_id, user_visible_only=True)
+    if document is None:
+        raise HTTPException(status_code=404, detail="document not found")
+    return document

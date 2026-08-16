@@ -61,6 +61,13 @@ def test_learning_request_and_self_report_classification_are_separate() -> None:
     assert not ChatService._is_pure_self_report("I understand because it is required first.")
 
 
+def test_response_language_prefers_learner_and_safely_falls_back_to_workspace() -> None:
+    assert ChatService._preferred_response_language("zh-CN", "en") == "zh-CN"
+    assert ChatService._preferred_response_language("", "en") == "en"
+    assert ChatService._preferred_response_language("not a language tag", "zh-CN") == "zh-CN"
+    assert ChatService._preferred_response_language("", "") == "zh-CN"
+
+
 def test_search_terms_split_cjk_learning_prefix_from_ascii_topic() -> None:
     assert ChatService._search_terms("我想学习什么是RAG") == ["rag"]
     assert ChatService._search_terms("请解释条件概率") == ["条件概率"]

@@ -1,7 +1,7 @@
 import { PanelLeftClose, PanelLeftOpen } from "lucide-react";
 import { NavLink, useLocation } from "react-router-dom";
 import { cn } from "@/lib/utils";
-import { navigationItems } from "./navigation";
+import { navigationGroups, navigationItems } from "./navigation";
 import { useI18n } from "@/lib/i18n";
 
 export function Sidebar({
@@ -12,7 +12,7 @@ export function Sidebar({
   onToggle: () => void;
 }) {
   const location = useLocation();
-  const { t } = useI18n();
+  const { pick, t } = useI18n();
   return (
     <aside
       id="desktop-sidebar"
@@ -41,41 +41,55 @@ export function Sidebar({
       </div>
       <nav
         id="desktop-primary-navigation"
-        className="flex-1 space-y-1 overflow-y-auto px-2.5 py-5"
+        className={cn(
+          "flex-1 overflow-y-auto px-2.5 py-4",
+          collapsed ? "space-y-1" : "space-y-4",
+        )}
         aria-label={t("shell.primaryNavigation")}
       >
-        {navigationItems.map((item) => {
-          const label = t(item.labelKey);
-          const active =
-            location.pathname === item.path ||
-            (item.key === "materials" &&
-              location.pathname.startsWith("/materials/")) ||
-            (item.key === "history" &&
-              location.pathname.startsWith("/history"));
-          const Icon = item.icon;
-          return (
-            <NavLink
-              key={item.key}
-              to={item.path}
-              className={cn(
-                "group relative flex min-h-11 items-center rounded-xl px-3 py-2.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3157D5]/45",
-                active
-                  ? "bg-[#EEF2FF] text-[#3157D5] shadow-[inset_0_0_0_1px_rgba(49,87,213,0.04)] dark:bg-indigo-950/60 dark:text-indigo-300"
-                  : "text-slate-600 hover:bg-slate-50 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:text-white",
-                collapsed ? "justify-center" : "gap-3",
-              )}
-              aria-current={active ? "page" : undefined}
-              aria-label={collapsed ? label : undefined}
-              title={collapsed ? label : undefined}
-            >
-              {active && !collapsed && (
-                <span className="absolute inset-y-2 left-0 w-0.5 rounded-full bg-[#3157D5]" aria-hidden="true" />
-              )}
-              <Icon className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />
-              {!collapsed && <span>{label}</span>}
-            </NavLink>
-          );
-        })}
+        {navigationGroups.map((group) => (
+          <div key={group.key} className="space-y-1">
+            {!collapsed && (
+              <p className="px-3 pb-1 text-[10px] font-semibold uppercase tracking-[0.14em] text-slate-600 dark:text-slate-300">
+                {pick(group.zh, group.en)}
+              </p>
+            )}
+            {navigationItems
+              .filter((item) => item.group === group.key)
+              .map((item) => {
+                const label = t(item.labelKey);
+                const active =
+                  location.pathname === item.path ||
+                  (item.key === "materials" &&
+                    location.pathname.startsWith("/materials/")) ||
+                  (item.key === "history" &&
+                    location.pathname.startsWith("/history"));
+                const Icon = item.icon;
+                return (
+                  <NavLink
+                    key={item.key}
+                    to={item.path}
+                    className={cn(
+                      "group relative flex min-h-10 items-center rounded-xl px-3 py-2 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#3157D5]/45",
+                      active
+                        ? "bg-[#EEF2FF] text-[#3157D5] shadow-[inset_0_0_0_1px_rgba(49,87,213,0.04)] dark:bg-indigo-950/60 dark:text-indigo-300"
+                        : "text-slate-600 hover:bg-slate-50 hover:text-slate-900 dark:text-slate-400 dark:hover:bg-slate-900 dark:hover:text-white",
+                      collapsed ? "justify-center" : "gap-3",
+                    )}
+                    aria-current={active ? "page" : undefined}
+                    aria-label={collapsed ? label : undefined}
+                    title={collapsed ? label : undefined}
+                  >
+                    {active && !collapsed && (
+                      <span className="absolute inset-y-2 left-0 w-0.5 rounded-full bg-[#3157D5]" aria-hidden="true" />
+                    )}
+                    <Icon className="h-[18px] w-[18px] shrink-0" aria-hidden="true" />
+                    {!collapsed && <span>{label}</span>}
+                  </NavLink>
+                );
+              })}
+          </div>
+        ))}
       </nav>
       <button
         type="button"

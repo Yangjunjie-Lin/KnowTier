@@ -61,3 +61,47 @@ async def test_learning_insights_fixture_grades_misconception_and_correction() -
     assert corrected_payload["misconceptions"] == []
     assert corrected_payload["correctness"] >= 0.85
     assert misconception in corrected_payload["explanation"]
+
+
+@pytest.mark.unit
+@pytest.mark.asyncio
+async def test_teacher_fixture_uses_explicit_response_language() -> None:
+    provider = FakeProvider()
+    schema = {"properties": {"assessment_question": {}}}
+
+    chinese = await provider.complete(
+        model="mock",
+        messages=[
+            ChatMessage(
+                role="user",
+                content=json.dumps(
+                    {
+                        "response_language": "zh-CN",
+                        "untrusted_learner_message": "Explain RAG.",
+                    }
+                ),
+            )
+        ],
+        response_schema=schema,
+    )
+    english = await provider.complete(
+        model="mock",
+        messages=[
+            ChatMessage(
+                role="user",
+                content=json.dumps(
+                    {
+                        "response_language": "en",
+                        "untrusted_learner_message": "什么是 RAG?",
+                    },
+                    ensure_ascii=False,
+                ),
+            )
+        ],
+        response_schema=schema,
+    )
+
+    chinese_payload = json.loads(chinese.content or "{}")
+    english_payload = json.loads(english.content or "{}")
+    assert "当前证据" in chinese_payload["core_explanation"]
+    assert "current evidence" in english_payload["core_explanation"]

@@ -6,6 +6,7 @@ from uuid import UUID
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from cognigraph.domain.enums import DocumentOrigin
 from cognigraph.persistence.postgres.models import Document, DocumentChunk, SourceSpan
 
 
@@ -45,10 +46,18 @@ class DocumentRepository:
             attributes["id"] = document_id
         return await self.add(Document(**attributes))
 
-    async def get(self, document_id: UUID, *, workspace_id: UUID | None = None) -> Document | None:
+    async def get(
+        self,
+        document_id: UUID,
+        *,
+        workspace_id: UUID | None = None,
+        user_visible_only: bool = False,
+    ) -> Document | None:
         statement = select(Document).where(Document.id == document_id)
         if workspace_id is not None:
             statement = statement.where(Document.workspace_id == workspace_id)
+        if user_visible_only:
+            statement = statement.where(Document.origin == DocumentOrigin.USER_UPLOAD.value)
         result: Document | None = await self.session.scalar(statement)
         return result
 
@@ -60,6 +69,46 @@ class DocumentRepository:
             )
         )
         return result
+
+    async def origins_for_ids(
+        self,
+        workspace_id: UUID,
+        document_ids: set[UUID],
+    ) -> dict[UUID, DocumentOrigin]:
+        if not document_ids:
+            return {}
+        statement = select(Document).where(
+            Document.workspace_id == workspace_id,
+            Document.id.in_(document_ids),
+        )
+        records = list((await self.session.scalars(statement)).all())
+        origins: dict[UUID, DocumentOrigin] = {}
+        for record in records:
+            try:
+                origins[record.id] = DocumentOrigin(record.origin)
+            except ValueError:
+                continue
+        return origins
+
+    async def list_for_workspace(
+        self,
+        workspace_id: UUID,
+        *,
+        user_visible_only: bool = True,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> list[Document]:
+        if not 1 <= limit <= 101:
+            raise ValueError("limit must be between 1 and 101")
+        if offset < 0:
+            raise ValueError("offset cannot be negative")
+        statement = select(Document).where(Document.workspace_id == workspace_id)
+        if user_visible_only:
+            statement = statement.where(Document.origin == DocumentOrigin.USER_UPLOAD.value)
+        statement = (
+            statement.order_by(Document.created_at.desc(), Document.id).offset(offset).limit(limit)
+        )
+        return list((await self.session.scalars(statement)).all())
 
     async def add_chunks(self, chunks: list[DocumentChunk]) -> list[DocumentChunk]:
         self.session.add_all(chunks)
