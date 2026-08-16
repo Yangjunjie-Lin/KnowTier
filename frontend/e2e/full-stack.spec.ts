@@ -468,7 +468,9 @@ test("real stack persists ingestion, tutoring, graphs, and versions across an AP
   );
 
   await page.goto("/learn");
-  await expect(page.getByText(targetChat.response, { exact: true })).toBeVisible();
+  await expect(
+    page.getByText(targetChat.response, { exact: true }).last(),
+  ).toBeVisible();
   const recoveredLearningInput = page.getByLabel("学习消息", { exact: true });
   await recoveredLearningInput.fill(
     "Teach me bayesian updating target after the API restart.",
