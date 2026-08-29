@@ -6,8 +6,8 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
 > Download the desktop app: **[latest stable release](https://github.com/Yangjunjie-Lin/KnowTier/releases/latest)**
-> · [Windows installer](https://github.com/Yangjunjie-Lin/KnowTier/releases/download/v1.0.1/KnowTier-Setup-1.0.1-windows-x64.exe)
-> · [Windows Portable](https://github.com/Yangjunjie-Lin/KnowTier/releases/download/v1.0.1/KnowTier-Portable-1.0.1-windows-x64.zip)
+> · [Windows installer](https://github.com/Yangjunjie-Lin/KnowTier/releases/download/v1.1.0/KnowTier-Setup-1.1.0-windows-x64.exe)
+> · [Windows Portable](https://github.com/Yangjunjie-Lin/KnowTier/releases/download/v1.1.0/KnowTier-Portable-1.1.0-windows-x64.zip)
 > · [中文使用说明](docs/USER_GUIDE_ZH.md)
 > · [Desktop guide](docs/DESKTOP.md)
 
@@ -60,9 +60,9 @@ Chinese users can follow the complete [中文使用说明](docs/USER_GUIDE_ZH.md
 
 The packaged desktop application is the one-click path for normal users: install it (or extract the
 Portable ZIP on Windows), then double-click **KnowTier**. Node.js, Python, uv, Docker, PostgreSQL,
-and Neo4j are not required. The `v1.0.1` release includes a signing-status record for every
+and Neo4j are not required. The `v1.1.0` release includes a signing-status record for every
 platform, and an artifact is never described as signed unless that record confirms it; see the
-[v1.0.1 release](https://github.com/Yangjunjie-Lin/KnowTier/releases/tag/v1.0.1).
+[v1.1.0 release](https://github.com/Yangjunjie-Lin/KnowTier/releases/tag/v1.1.0).
 
 ## Requirements
 

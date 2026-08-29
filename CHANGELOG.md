@@ -5,6 +5,8 @@ All notable changes to KnowTier are documented in this file. The format is based
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-08-30
+
 ### Added
 
 - Added a deterministic learner plan that prioritizes misconceptions, due review, prerequisites,
@@ -295,7 +297,8 @@ All notable changes to KnowTier are documented in this file. The format is based
 - Mutable desktop data is kept outside the installed application, in the operating system's
   per-user application-data directory.
 
-[Unreleased]: https://github.com/Yangjunjie-Lin/KnowTier/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/Yangjunjie-Lin/KnowTier/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/Yangjunjie-Lin/KnowTier/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/Yangjunjie-Lin/KnowTier/releases/tag/v1.0.1
 [1.0.0]: https://github.com/Yangjunjie-Lin/KnowTier/releases/tag/v1.0.0
 [1.0.0-rc.5]: https://github.com/Yangjunjie-Lin/KnowTier/releases/tag/v1.0.0-rc.5

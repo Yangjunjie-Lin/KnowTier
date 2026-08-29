@@ -1848,7 +1848,7 @@ dependencies = [
 
 [[package]]
 name = "knowtier-desktop"
-version = "1.0.1"
+version = "1.1.0"
 dependencies = [
  "getrandom 0.4.3",
  "tauri",

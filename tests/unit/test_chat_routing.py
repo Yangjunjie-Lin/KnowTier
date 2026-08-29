@@ -68,21 +68,30 @@ def test_learning_request_and_self_report_classification_are_separate() -> None:
 
 
 def test_turn_intent_is_conservative_for_instructional_support_requests() -> None:
-    assert ChatService._resolve_turn_intent(
-        TurnIntent.AUTO,
-        message="Give me a hint.",
-        has_prior_assessment=True,
-    ) is TurnIntent.ASK
-    assert ChatService._resolve_turn_intent(
-        TurnIntent.AUTO,
-        message="It works because the invariant is preserved.",
-        has_prior_assessment=True,
-    ) is TurnIntent.ANSWER
-    assert ChatService._resolve_turn_intent(
-        TurnIntent.REQUEST_EXAMPLE,
-        message="anything",
-        has_prior_assessment=True,
-    ) is TurnIntent.REQUEST_EXAMPLE
+    assert (
+        ChatService._resolve_turn_intent(
+            TurnIntent.AUTO,
+            message="Give me a hint.",
+            has_prior_assessment=True,
+        )
+        is TurnIntent.ASK
+    )
+    assert (
+        ChatService._resolve_turn_intent(
+            TurnIntent.AUTO,
+            message="It works because the invariant is preserved.",
+            has_prior_assessment=True,
+        )
+        is TurnIntent.ANSWER
+    )
+    assert (
+        ChatService._resolve_turn_intent(
+            TurnIntent.REQUEST_EXAMPLE,
+            message="anything",
+            has_prior_assessment=True,
+        )
+        is TurnIntent.REQUEST_EXAMPLE
+    )
 
 
 def test_response_language_prefers_learner_and_safely_falls_back_to_workspace() -> None:
