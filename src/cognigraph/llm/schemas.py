@@ -248,13 +248,14 @@ class TeacherOutput(BaseModel):
     assessment: TeacherAssessment
 
     def render(self) -> str:
+        """Render teaching content; the assessment remains a separate API field."""
+
         return "\n\n".join(
             (
                 self.acknowledgement,
                 self.core_explanation,
                 self.illustration,
                 self.key_takeaway,
-                self.assessment.question,
             )
         )
 

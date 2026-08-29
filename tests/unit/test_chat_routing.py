@@ -3,7 +3,13 @@ from __future__ import annotations
 from uuid import UUID, uuid4
 
 from cognigraph.api.schemas import ChatRequest
-from cognigraph.domain.enums import CognitiveLevel, EpistemicStatus, EvidenceType, NodeType
+from cognigraph.domain.enums import (
+    CognitiveLevel,
+    EpistemicStatus,
+    EvidenceType,
+    NodeType,
+    TurnIntent,
+)
 from cognigraph.domain.learner import MasteryEvidence
 from cognigraph.graph.applier import GraphNode
 from cognigraph.services.chat import ChatService, ChatTurnContext
@@ -59,6 +65,24 @@ def test_learning_request_and_self_report_classification_are_separate() -> None:
     assert ChatService._is_pure_self_report("I understand.")
     assert ChatService._is_pure_self_report("我明白了\uff01")
     assert not ChatService._is_pure_self_report("I understand because it is required first.")
+
+
+def test_turn_intent_is_conservative_for_instructional_support_requests() -> None:
+    assert ChatService._resolve_turn_intent(
+        TurnIntent.AUTO,
+        message="Give me a hint.",
+        has_prior_assessment=True,
+    ) is TurnIntent.ASK
+    assert ChatService._resolve_turn_intent(
+        TurnIntent.AUTO,
+        message="It works because the invariant is preserved.",
+        has_prior_assessment=True,
+    ) is TurnIntent.ANSWER
+    assert ChatService._resolve_turn_intent(
+        TurnIntent.REQUEST_EXAMPLE,
+        message="anything",
+        has_prior_assessment=True,
+    ) is TurnIntent.REQUEST_EXAMPLE
 
 
 def test_response_language_prefers_learner_and_safely_falls_back_to_workspace() -> None:

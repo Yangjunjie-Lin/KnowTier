@@ -58,11 +58,47 @@ async def test_rule_estimator_requires_two_turns_and_forms() -> None:
 
 @pytest.mark.asyncio
 async def test_rule_estimator_never_promotes_self_report() -> None:
-    current = state()
+    current = state().model_copy(
+        update={
+            "mastery_score": 0.62,
+            "confidence": 0.7,
+            "evidence_count": 4,
+        }
+    )
     self_report = evidence(current, evidence_type=EvidenceType.SELF_REPORT)
     update = await EvidenceRuleEstimator().update(current, self_report)
     assert update.decision is MasteryDecision.REQUEST_MORE_EVIDENCE
     assert not update.promotion_eligible
+    assert update.updated_state.mastery_score == current.mastery_score
+    assert update.updated_state.confidence == current.confidence
+    assert update.updated_state.evidence_count == current.evidence_count
+    assert update.updated_state.next_review_at == current.next_review_at
+
+
+@pytest.mark.asyncio
+async def test_latest_failed_retrieval_blocks_promotion_despite_strong_history() -> None:
+    current = state()
+    history = [
+        evidence(
+            current,
+            evidence_type=(EvidenceType.RECOGNITION if index % 2 else EvidenceType.EXPLANATION),
+        )
+        for index in range(7)
+    ]
+    latest = evidence(
+        current,
+        evidence_type=EvidenceType.APPLICATION,
+        correctness=0.0,
+        reasoning=0.0,
+        independence=0.9,
+    )
+
+    update = await EvidenceRuleEstimator(history).update(current, latest)
+
+    assert update.decision is MasteryDecision.CHANGE_EXPLANATION
+    assert not update.promotion_eligible
+    assert update.updated_state.current_level is current.current_level
+    assert update.machine_reason["latest_meets_promotion_gate"] is False
 
 
 @pytest.mark.asyncio

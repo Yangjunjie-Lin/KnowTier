@@ -35,6 +35,7 @@ from cognigraph.domain.enums import (
     LearnerRelationType,
     MasteryDecision,
     NodeType,
+    TurnIntent,
 )
 from cognigraph.domain.graph import RelationAssertion
 from cognigraph.domain.learner import LearnerKnowledgeState, MasteryEvidence, MasteryUpdate
@@ -94,6 +95,12 @@ _PURE_SELF_REPORT_PATTERN = re.compile(
     r"i\s+(?:understand|see|get\s+it)(?:\s+(?:it|this|now))?"
     r"|got\s+it|makes\s+sense|懂了|明白了|我懂了|我明白了|会了|知道了"
     r")[.!。\uff01?\uff1f]*\s*$",
+    re.IGNORECASE,
+)
+_INSTRUCTIONAL_SUPPORT_PATTERN = re.compile(
+    r"(?:hint|clue|example|re-?explain|different\s+way|prerequisite|"
+    r"don't\s+understand|do\s+not\s+understand|stuck|"
+    r"提示|例子|举例|换.{0,4}解释|重新解释|前置|没理解|不理解|卡住)",
     re.IGNORECASE,
 )
 _SEARCH_TOKEN_PATTERN = re.compile(r"[\w\u3400-\u9fff]+", re.UNICODE)
@@ -246,8 +253,10 @@ class ChatTurnContext:
     prior_assistant: ConversationTurn | None = None
     recent_turns: list[ConversationTurn] = field(default_factory=list)
     target_node: GraphNode | None = None
+    assessed_target_node: GraphNode | None = None
     session_goal_knowledge_point_id: UUID | None = None
     is_assessment_response: bool = False
+    resolved_turn_intent: TurnIntent = TurnIntent.AUTO
     previous_hint_level: HintLevel | None = None
     learner_state_record: LearnerStateRecord | None = None
     # The revision that was current when this turn began. Model-run audits
@@ -363,6 +372,8 @@ class ChatService:
         }
         if request.client_request_id is not None:
             metadata["client_request_id"] = str(request.client_request_id)
+        if request.turn_intent is not TurnIntent.AUTO:
+            metadata["turn_intent"] = request.turn_intent.value
         return metadata
 
     async def _node_understand(self, state: WorkflowState) -> WorkflowState:
@@ -422,13 +433,20 @@ class ChatService:
 
         snapshot = await self.runtime.ensure_graph_loaded(request.workspace_id)
         prior_target_id = self._prior_target(context)
-        new_learning_request = context.prior_assistant is None or self._looks_like_learning_request(
-            request.message
+        context.resolved_turn_intent = self._resolve_turn_intent(
+            request.turn_intent,
+            message=request.message,
+            has_prior_assessment=bool(
+                context.prior_assistant is not None and context.prior_assistant.assessment
+            ),
+        )
+        new_learning_request = (
+            context.prior_assistant is None or context.resolved_turn_intent is TurnIntent.NEW_GOAL
         )
         context.is_assessment_response = bool(
             context.prior_assistant is not None
             and context.prior_assistant.assessment
-            and not new_learning_request
+            and context.resolved_turn_intent is TurnIntent.ANSWER
         )
         if new_learning_request:
             existing_knowledge_ids = {
@@ -499,6 +517,7 @@ class ChatService:
         if not assessment or context.learner_state is None or context.target_node is None:
             return state
         evaluated_state = context.learner_state
+        context.assessed_target_node = context.target_node
         assessed_level = CognitiveLevel(
             context.prior_assistant.cognitive_level or int(evaluated_state.current_level)
         )
@@ -571,6 +590,7 @@ class ChatService:
         goal = SessionGoal(
             knowledge_point_id=context.target_node.id,
             requested_mode=context.request.requested_mode,
+            turn_intent=context.resolved_turn_intent,
             description=(
                 f"Learn {self._node_name(context.target_node)} while preserving the session goal"
             ),
@@ -795,6 +815,7 @@ class ChatService:
             SessionGoal(
                 knowledge_point_id=(context.session_goal_knowledge_point_id or target_id),
                 requested_mode=context.request.requested_mode,
+                turn_intent=context.resolved_turn_intent,
                 description=f"Learn {self._node_name(context.target_node)}",
             ),
             policy,
@@ -1008,8 +1029,6 @@ class ChatService:
             current_state_for_graph = (
                 context.mastery_update.updated_state
                 if context.mastery_update is not None
-                and context.mastery_update.updated_state.knowledge_point_id
-                == context.target_node.id
                 else context.learner_state
             )
             if current_state_for_graph is None:
@@ -1064,12 +1083,7 @@ class ChatService:
             assertions_superseded=0,
         )
         update = context.mastery_update
-        current_state = (
-            update.updated_state
-            if update is not None
-            and update.updated_state.knowledge_point_id == context.target_node.id
-            else context.learner_state
-        )
+        current_state = update.updated_state if update is not None else context.learner_state
         decision = update.decision if update else MasteryDecision.HOLD
         reason = (
             update.reason
@@ -1082,6 +1096,14 @@ class ChatService:
             target_knowledge_point=TargetKnowledgePointResponse(
                 id=context.target_node.id,
                 name=self._node_name(context.target_node),
+            ),
+            assessed_knowledge_point=(
+                TargetKnowledgePointResponse(
+                    id=context.assessed_target_node.id,
+                    name=self._node_name(context.assessed_target_node),
+                )
+                if context.assessed_target_node is not None
+                else None
             ),
             cognitive_level=context.directive.target_level,
             teaching_action=context.directive.teaching_action.value,
@@ -1101,6 +1123,7 @@ class ChatService:
             tool_usage=context.tool_usage,
             model_fallback=context.model_fallback,
             sources=context.sources,
+            turn_intent=context.resolved_turn_intent,
         )
 
     @staticmethod
@@ -1122,12 +1145,19 @@ class ChatService:
         if context.user_turn is None or context.assistant_turn is None:
             raise RuntimeError("learner graph assertions require persisted turn ids")
         learner_id = context.request.learner_id
-        target_id = (
+        teaching_target_id = (
             context.target_node.id
             if context.target_node is not None
             else current_state.knowledge_point_id
         )
-        goal_target_id = context.session_goal_knowledge_point_id or target_id
+        evaluated_target_id = (
+            context.mastery_update.updated_state.knowledge_point_id
+            if context.mastery_update is not None
+            else context.evidence.knowledge_point_id
+            if context.evidence is not None
+            else teaching_target_id
+        )
+        goal_target_id = context.session_goal_knowledge_point_id or teaching_target_id
         turn_id = context.user_turn.id
         confidence = max(0.0, min(1.0, current_state.confidence))
         drafts: list[dict[str, object]] = [
@@ -1154,7 +1184,7 @@ class ChatService:
             {
                 "subject_id": learner_id,
                 "predicate": LearnerRelationType.RECENTLY_PRACTICED.value,
-                "object_id": target_id,
+                "object_id": teaching_target_id,
                 "natural_language_description": (
                     "The learner practiced this knowledge point in the latest turn."
                 ),
@@ -1169,11 +1199,11 @@ class ChatService:
                 current_state.knowledge_point_id,
             ),
             (LearnerRelationType.LEARNING_GOAL.value, learner_id, goal_target_id),
-            (LearnerRelationType.RECENTLY_PRACTICED.value, learner_id, target_id),
-            (LearnerRelationType.READY_FOR_PROMOTION.value, learner_id, target_id),
-            (LearnerRelationType.REQUIRES_REVIEW.value, learner_id, target_id),
-            (LearnerRelationType.NEEDS_TRANSFER_EVIDENCE.value, learner_id, target_id),
-            (LearnerRelationType.HAS_MISCONCEPTION.value, learner_id, target_id),
+            (LearnerRelationType.RECENTLY_PRACTICED.value, learner_id, teaching_target_id),
+            (LearnerRelationType.READY_FOR_PROMOTION.value, learner_id, evaluated_target_id),
+            (LearnerRelationType.REQUIRES_REVIEW.value, learner_id, evaluated_target_id),
+            (LearnerRelationType.NEEDS_TRANSFER_EVIDENCE.value, learner_id, evaluated_target_id),
+            (LearnerRelationType.HAS_MISCONCEPTION.value, learner_id, evaluated_target_id),
         ]
         if context.graph_report is not None:
             # ``graph_report`` is set here only when a new topic had to be
@@ -1184,7 +1214,7 @@ class ChatService:
                 {
                     "subject_id": learner_id,
                     "predicate": LearnerRelationType.USER_SUPPLIED.value,
-                    "object_id": target_id,
+                    "object_id": teaching_target_id,
                     "natural_language_description": (
                         "The learner supplied this topic; it remains an unverified candidate."
                     ),
@@ -1192,13 +1222,15 @@ class ChatService:
                     "source_turn_id": turn_id,
                 }
             )
-            replace_keys.append((LearnerRelationType.USER_SUPPLIED.value, learner_id, target_id))
-        if goal_target_id != target_id:
+            replace_keys.append(
+                (LearnerRelationType.USER_SUPPLIED.value, learner_id, teaching_target_id)
+            )
+        if goal_target_id != teaching_target_id:
             drafts.append(
                 {
                     "subject_id": goal_target_id,
                     "predicate": LearnerRelationType.BLOCKED_BY_PREREQUISITE.value,
-                    "object_id": target_id,
+                    "object_id": teaching_target_id,
                     "natural_language_description": (
                         "The learner's goal is blocked by this prerequisite."
                     ),
@@ -1210,7 +1242,7 @@ class ChatService:
                 (
                     LearnerRelationType.BLOCKED_BY_PREREQUISITE.value,
                     goal_target_id,
-                    target_id,
+                    teaching_target_id,
                 )
             )
         if context.evidence is not None:
@@ -1230,7 +1262,7 @@ class ChatService:
                     {
                         "subject_id": learner_id,
                         "predicate": LearnerRelationType.HAS_MISCONCEPTION.value,
-                        "object_id": target_id,
+                        "object_id": evaluated_target_id,
                         "natural_language_description": misconception,
                         "confidence": context.evidence.grader_confidence,
                         "source_turn_id": turn_id,
@@ -1244,7 +1276,7 @@ class ChatService:
                     {
                         "subject_id": learner_id,
                         "predicate": LearnerRelationType.READY_FOR_PROMOTION.value,
-                        "object_id": target_id,
+                        "object_id": evaluated_target_id,
                         "natural_language_description": (
                             "Evidence satisfies the deterministic promotion policy."
                         ),
@@ -1257,7 +1289,7 @@ class ChatService:
                     {
                         "subject_id": learner_id,
                         "predicate": LearnerRelationType.REQUIRES_REVIEW.value,
-                        "object_id": target_id,
+                        "object_id": evaluated_target_id,
                         "natural_language_description": (
                             "The learner needs prerequisite review before continuing."
                         ),
@@ -1274,7 +1306,7 @@ class ChatService:
                     {
                         "subject_id": learner_id,
                         "predicate": LearnerRelationType.NEEDS_TRANSFER_EVIDENCE.value,
-                        "object_id": target_id,
+                        "object_id": evaluated_target_id,
                         "natural_language_description": (
                             "Additional independent evidence is required."
                         ),
@@ -1283,7 +1315,8 @@ class ChatService:
                     }
                 )
         summary: dict[str, object] = {
-            "target_knowledge_point_id": str(target_id),
+            "target_knowledge_point_id": str(teaching_target_id),
+            "assessed_knowledge_point_id": str(evaluated_target_id),
             "knowledge_point_id": str(current_state.knowledge_point_id),
             "assertion_count": len(drafts),
             "mastery_score": current_state.mastery_score,
@@ -1454,6 +1487,23 @@ class ChatService:
     @staticmethod
     def _looks_like_learning_request(message: str) -> bool:
         return _LEARNING_REQUEST_PATTERN.search(message) is not None
+
+    @staticmethod
+    def _resolve_turn_intent(
+        requested: TurnIntent,
+        *,
+        message: str,
+        has_prior_assessment: bool,
+    ) -> TurnIntent:
+        if requested is not TurnIntent.AUTO:
+            return requested
+        if ChatService._looks_like_learning_request(message):
+            return TurnIntent.NEW_GOAL
+        if _INSTRUCTIONAL_SUPPORT_PATTERN.search(message):
+            return TurnIntent.ASK
+        if has_prior_assessment:
+            return TurnIntent.ANSWER
+        return TurnIntent.ASK
 
     @staticmethod
     def _preferred_response_language(

@@ -14,6 +14,7 @@ from cognigraph.domain.enums import (
     HintLevel,
     RequestedMode,
     TeachingAction,
+    TurnIntent,
 )
 from cognigraph.domain.graph import GraphManifest
 
@@ -40,6 +41,7 @@ class SessionGoal(DomainModel):
     knowledge_point_id: UUID | None = None
     desired_level: CognitiveLevel | None = None
     requested_mode: RequestedMode = RequestedMode.LEARN
+    turn_intent: TurnIntent = TurnIntent.AUTO
     description: str = ""
 
 

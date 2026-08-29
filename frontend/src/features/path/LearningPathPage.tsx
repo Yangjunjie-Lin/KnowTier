@@ -1,5 +1,14 @@
 import { keepPreviousData, useQuery } from "@tanstack/react-query";
-import { ArrowRight, GitBranch, ListOrdered, Target } from "lucide-react";
+import {
+  ArrowRight,
+  Clock3,
+  GitBranch,
+  ListOrdered,
+  Route,
+  ShieldCheck,
+  Sparkles,
+  Target,
+} from "lucide-react";
 import { useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "@/services/api";
@@ -18,7 +27,11 @@ import {
   LoadingState,
 } from "@/components/shared/States";
 import { PageHeader } from "@/components/shared/PageHeader";
-import type { LearnerModelItem } from "@/types/api";
+import type {
+  LearnerModelItem,
+  LearningPlan,
+  LearningPriority,
+} from "@/types/api";
 import { GraphCanvas } from "@/components/graph/GraphCanvas";
 import { useI18n } from "@/lib/i18n";
 
@@ -160,6 +173,7 @@ export function LearningPathPage() {
           </div>
         }
       />
+      <PlanFocusCard plan={data?.plan} />
       <div className="mb-5 rounded-xl border border-slate-200 bg-white p-4 dark:border-slate-800 dark:bg-slate-900">
         <label className="flex flex-col gap-2 text-xs font-medium text-slate-600 sm:flex-row sm:items-center dark:text-slate-300">
           <span className="inline-flex items-center gap-1">
@@ -231,6 +245,174 @@ export function LearningPathPage() {
       )}
     </div>
   );
+}
+
+function PlanFocusCard({ plan }: { plan?: LearningPlan }) {
+  const { pick } = useI18n();
+  const focus = plan?.focus;
+  if (!plan || !focus) return null;
+  return (
+    <section
+      className="relative mb-5 overflow-hidden rounded-3xl border border-indigo-200/80 bg-[linear-gradient(135deg,#ffffff_0%,#f4f7ff_55%,#edf2ff_100%)] p-5 shadow-[0_18px_55px_rgba(49,87,213,0.1)] dark:border-indigo-900/70 dark:bg-[linear-gradient(135deg,#0f172a_0%,#111a35_55%,#172554_100%)] sm:p-6"
+      aria-labelledby="plan-focus-title"
+    >
+      <div
+        className="pointer-events-none absolute -right-16 -top-20 h-56 w-56 rounded-full bg-indigo-300/20 blur-3xl"
+        aria-hidden="true"
+      />
+      <div className="relative grid gap-6 xl:grid-cols-[minmax(0,1fr)_minmax(360px,0.72fr)] xl:items-center">
+        <div>
+          <p className="inline-flex items-center gap-1.5 text-xs font-bold tracking-[0.16em] text-[#3157D5] uppercase dark:text-indigo-300">
+            <Sparkles className="h-3.5 w-3.5" />
+            {pick("今日最佳学习行动", "Best next learning action")}
+          </p>
+          <h2
+            id="plan-focus-title"
+            className="mt-3 max-w-2xl text-2xl font-bold tracking-tight text-slate-950 dark:text-white sm:text-3xl"
+          >
+            {focus.knowledge_point}
+          </h2>
+          <p className="mt-2 max-w-2xl text-sm leading-6 text-slate-700 dark:text-slate-300">
+            {priorityDescription(focus.priority, focus.unlocks_topic_count, pick)}
+          </p>
+          <div className="mt-4 flex flex-wrap gap-2 text-xs font-semibold text-slate-700 dark:text-slate-200">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-white/80 bg-white/80 px-3 py-1.5 shadow-sm dark:border-slate-700 dark:bg-slate-900/70">
+              <Clock3 className="h-3.5 w-3.5 text-[#3157D5]" />
+              {pick(`${plan.total_minutes} 分钟`, `${plan.total_minutes} min`)}
+            </span>
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-white/80 bg-white/80 px-3 py-1.5 shadow-sm dark:border-slate-700 dark:bg-slate-900/70">
+              <Target className="h-3.5 w-3.5 text-[#3157D5]" />
+              {pick(`目标 L${focus.target_level}`, `Target L${focus.target_level}`)}
+            </span>
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-white/80 bg-white/80 px-3 py-1.5 shadow-sm dark:border-slate-700 dark:bg-slate-900/70">
+              <ShieldCheck className="h-3.5 w-3.5 text-[#3157D5]" />
+              {priorityLabel(focus.priority, pick)}
+            </span>
+          </div>
+          <Link
+            to="/learn"
+            state={{
+              learningTarget: {
+                id: focus.knowledge_point_id,
+                name: focus.knowledge_point,
+                source: "learning-path",
+                mode: focus.requested_mode,
+                priority: focus.priority,
+                totalMinutes: plan.total_minutes,
+              },
+            }}
+            className="primary-button mt-5 min-h-11 px-5"
+          >
+            {pick(`开始 ${plan.total_minutes} 分钟学习`, `Start ${plan.total_minutes}-minute session`)}
+            <ArrowRight className="h-4 w-4" />
+          </Link>
+        </div>
+        <div className="rounded-2xl border border-white/90 bg-white/80 p-4 shadow-sm backdrop-blur dark:border-slate-700/80 dark:bg-slate-950/45">
+          <p className="flex items-center gap-2 text-sm font-semibold text-slate-900 dark:text-white">
+            <Route className="h-4 w-4 text-[#3157D5]" />
+            {pick("本次学习节奏", "Session agenda")}
+          </p>
+          <ol className="mt-4 grid gap-3 sm:grid-cols-3 xl:grid-cols-1">
+            {plan.steps.map((step, index) => (
+              <li key={step.phase} className="flex items-center gap-3">
+                <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#3157D5] text-xs font-bold text-white shadow-sm">
+                  {index + 1}
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="text-sm font-semibold text-slate-900 dark:text-slate-100">
+                    {phaseLabel(step.phase, pick)}
+                  </p>
+                  <p className="mt-0.5 text-xs leading-5 text-slate-600 dark:text-slate-400">
+                    {strategyLabel(step.strategy, pick)} · {step.minutes} min
+                  </p>
+                </div>
+              </li>
+            ))}
+          </ol>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+type PickCopy = (zh: string, en: string) => string;
+
+function priorityLabel(priority: LearningPriority, pick: PickCopy): string {
+  const labels: Record<LearningPriority, [string, string]> = {
+    correct_misconception: ["纠正关键误解", "Correct a misconception"],
+    review_due: ["到期复习", "Review due"],
+    unlock_prerequisite: ["解锁前置", "Unlock a prerequisite"],
+    remediate_foundation: ["巩固基础", "Strengthen foundations"],
+    continue_practice: ["继续练习", "Continue practice"],
+    start_topic: ["开始新主题", "Start a new topic"],
+    deepen_mastery: ["深化掌握", "Deepen mastery"],
+  };
+  const [zh, en] = labels[priority];
+  return pick(zh, en);
+}
+
+function priorityDescription(
+  priority: LearningPriority,
+  unlocksTopicCount: number,
+  pick: PickCopy,
+): string {
+  if (priority === "unlock_prerequisite" && unlocksTopicCount > 0) {
+    return pick(
+      `先完成这个前置主题，可解锁后续 ${unlocksTopicCount} 个学习节点。`,
+      `Complete this prerequisite first to unlock ${unlocksTopicCount} later topic${unlocksTopicCount === 1 ? "" : "s"}.`,
+    );
+  }
+  const descriptions: Record<LearningPriority, [string, string]> = {
+    correct_misconception: [
+      "这里有仍在影响理解的误解，优先纠正能避免后续知识建立在错误基础上。",
+      "An active misconception is affecting understanding; correct it before building further.",
+    ],
+    review_due: [
+      "这个主题已到复习时间，用一次主动回忆巩固长期记忆。",
+      "This topic is due. Use active recall to strengthen long-term retention.",
+    ],
+    unlock_prerequisite: ["先打稳这个基础，再继续后续路径。", "Build this foundation before continuing."],
+    remediate_foundation: [
+      "当前证据显示基础仍不稳定，先换一种表示并完成针对性练习。",
+      "Current evidence shows an unstable foundation; use a new representation and targeted practice.",
+    ],
+    continue_practice: [
+      "你已经有学习证据，下一轮练习将帮助形成稳定、独立的理解。",
+      "You already have evidence; another practice round can make understanding independent and stable.",
+    ],
+    start_topic: [
+      "这是当前路径中已满足前置条件、最适合开始的主题。",
+      "This is the best unstarted topic whose prerequisites are ready.",
+    ],
+    deepen_mastery: [
+      "继续提升认知层级，并用迁移任务检验是否真正掌握。",
+      "Move to the next cognitive level and verify mastery through transfer.",
+    ],
+  };
+  const [zh, en] = descriptions[priority];
+  return pick(zh, en);
+}
+
+function phaseLabel(phase: LearningPlan["steps"][number]["phase"], pick: PickCopy) {
+  if (phase === "activate") return pick("激活旧知", "Activate");
+  if (phase === "build") return pick("建立理解", "Build");
+  return pick("独立检测", "Check");
+}
+
+function strategyLabel(strategy: string, pick: PickCopy): string {
+  const labels: Record<string, [string, string]> = {
+    retrieval_warmup: ["主动回忆", "Retrieval warm-up"],
+    contrast_and_correct: ["对比纠错", "Contrast and correct"],
+    spaced_retrieval: ["间隔提取", "Spaced retrieval"],
+    prerequisite_scaffold: ["前置脚手架", "Prerequisite scaffold"],
+    worked_example: ["例题重建", "Worked example"],
+    guided_practice: ["引导练习", "Guided practice"],
+    conceptual_bridge: ["概念桥接", "Conceptual bridge"],
+    transfer_challenge: ["迁移挑战", "Transfer challenge"],
+    independent_mastery_check: ["掌握检测", "Mastery check"],
+  };
+  const [zh, en] = labels[strategy] ?? [strategy, strategy];
+  return pick(zh, en);
 }
 
 function LinearPath({

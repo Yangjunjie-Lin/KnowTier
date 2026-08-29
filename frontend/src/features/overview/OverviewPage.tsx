@@ -32,6 +32,7 @@ import {
 } from "@/components/shared/States";
 import { PageHeader } from "@/components/shared/PageHeader";
 import { useI18n } from "@/lib/i18n";
+import { NextLearningActionCard } from "@/components/learn/NextLearningActionCard";
 
 export function OverviewPage() {
   const { locale, pick, t } = useI18n();
@@ -70,6 +71,11 @@ export function OverviewPage() {
     queryFn: ({ signal }) =>
       api.listDomainRevisions(workspaceId as string, signal),
     enabled: Boolean(workspaceId),
+  });
+  const learningPlan = useQuery({
+    queryKey: queryKeys.learningPath(learnerId ?? ""),
+    queryFn: ({ signal }) => api.getLearningPath(learnerId as string, undefined, signal),
+    enabled: Boolean(learnerId),
   });
   if (!workspaceId || !learnerId)
     return (
@@ -137,12 +143,14 @@ export function OverviewPage() {
     !model.isError &&
     !evidence.isError &&
     !hasStartedLearning;
+  const nextPlan = learningPlan.data?.plan;
   const refreshing = [
     manifest,
     model,
     evidence,
     revisions,
     domainRevisions,
+    learningPlan,
   ].some((query) => query.isFetching);
   return (
     <div>
@@ -161,7 +169,7 @@ export function OverviewPage() {
               )
         }
         actions={
-          !isNewLearner ? (
+          !isNewLearner && !nextPlan?.focus ? (
             <Link to="/learn" className="primary-button">
               <BookOpen className="h-4 w-4" />
               {pick("继续学习", "Continue learning")}
@@ -178,7 +186,8 @@ export function OverviewPage() {
           {pick("可用模块仍显示真实数据；对应区块可以单独重试。", "Available sections still show real data. Retry unavailable sections independently.")}
         </PartialSuccess>
       )}
-      {isNewLearner ? (
+      {nextPlan?.focus && <NextLearningActionCard plan={nextPlan} />}
+      {isNewLearner && !nextPlan?.focus ? (
         <GettingStartedPanel hasRecentMaterial={hasRecentMaterial} />
       ) : (
         <>

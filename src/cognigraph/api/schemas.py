@@ -4,9 +4,9 @@ from datetime import datetime
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 
-from cognigraph.domain.enums import CognitiveLevel, RequestedMode
+from cognigraph.domain.enums import CognitiveLevel, RequestedMode, TurnIntent
 
 
 class WorkspaceCreateRequest(BaseModel):
@@ -75,6 +75,29 @@ class DocumentListResponse(BaseModel):
     next_offset: int | None = Field(default=None, ge=0)
 
 
+class DocumentChunkResponse(BaseModel):
+    """Public chunk projection; embeddings and ingestion metadata stay internal."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    id: UUID
+    sequence: int = Field(ge=0)
+    text: str = Field(min_length=1)
+    page_start: int | None = Field(default=None, ge=1)
+    page_end: int | None = Field(default=None, ge=1)
+    heading_path: list[str] = Field(default_factory=list)
+    token_count: int = Field(ge=0)
+
+
+class DocumentChunksResponse(BaseModel):
+    """Stable public envelope for document retrieval chunks."""
+
+    model_config = ConfigDict(extra="forbid", strict=True)
+
+    document_id: UUID
+    items: list[DocumentChunkResponse] = Field(default_factory=list)
+
+
 class IngestionResponse(BaseModel):
     document_id: UUID
     parser: str
@@ -99,6 +122,7 @@ class ChatRequest(BaseModel):
     message: str = Field(min_length=1, max_length=20_000)
     attachment_ids: list[UUID] = Field(default_factory=list, max_length=20)
     requested_mode: RequestedMode = RequestedMode.LEARN
+    turn_intent: TurnIntent = TurnIntent.AUTO
 
 
 class TargetKnowledgePointResponse(BaseModel):
@@ -145,6 +169,7 @@ class ChatResponse(BaseModel):
     turn_id: UUID
     response: str
     target_knowledge_point: TargetKnowledgePointResponse
+    assessed_knowledge_point: TargetKnowledgePointResponse | None = None
     cognitive_level: CognitiveLevel
     teaching_action: str
     assessment: AssessmentResponse
@@ -154,6 +179,7 @@ class ChatResponse(BaseModel):
     tool_usage: ToolUsageResponse | None = None
     model_fallback: bool = False
     sources: list[dict[str, object]] = Field(default_factory=list)
+    turn_intent: TurnIntent = TurnIntent.AUTO
 
 
 class ConversationUserTurnResponse(BaseModel):

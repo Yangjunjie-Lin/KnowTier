@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from uuid import uuid4
+from uuid import UUID, uuid4
 
 from fastapi.testclient import TestClient
 
@@ -52,6 +52,24 @@ def test_api_chat_graph_and_learner_exports(tmp_path: Path) -> None:
         assert first_payload["cognitive_level"] == 1
         assert first_payload["graph_update"]["revision_id"]
         node_id = first_payload["target_knowledge_point"]["id"]
+
+        hint = client.post(
+            "/v1/chat",
+            json={
+                "workspace_id": workspace_id,
+                "learner_id": learner_id,
+                "session_id": session_id,
+                "message": "Give me a hint without revealing the answer.",
+                "requested_mode": "learn",
+                "turn_intent": "request_hint",
+            },
+        )
+        assert hint.status_code == 200, hint.text
+        assert hint.json()["turn_intent"] == "request_hint"
+        assert hint.json()["teaching_action"] == "GIVE_HINT"
+        evidence_before_answer = client.get(f"/v1/learners/{learner_id}/evidence")
+        assert evidence_before_answer.status_code == 200
+        assert evidence_before_answer.json()["items"] == []
 
         partial = client.post(
             "/v1/chat",
@@ -153,6 +171,18 @@ def test_api_chat_graph_and_learner_exports(tmp_path: Path) -> None:
         model = client.get(f"/v1/learners/{learner_id}/model")
         assert model.status_code == 200
         assert model.json()["items"][0]["current_level"] == 2
+        learning_path = client.get(f"/v1/learners/{learner_id}/learning-path")
+        assert learning_path.status_code == 200, learning_path.text
+        plan = learning_path.json()["data"]["plan"]
+        assert plan["focus"]["knowledge_point_id"] == node_id
+        assert plan["focus"]["priority"] == "deepen_mastery"
+        assert plan["focus"]["requested_mode"] == "practice"
+        assert [step["phase"] for step in plan["steps"]] == [
+            "activate",
+            "build",
+            "check",
+        ]
+        assert plan["total_minutes"] == 20
         csv_response = client.get(f"/v1/learners/{learner_id}/model.csv")
         assert csv_response.status_code == 200
         assert "knowledge_point,current_level" in csv_response.text
@@ -196,7 +226,25 @@ def test_document_upload_ingest_and_query_api(tmp_path: Path) -> None:
         assert detail.json()["status"] == "INGESTED"
         chunks = client.get(f"/v1/documents/{document_id}/chunks")
         assert chunks.status_code == 200
-        assert chunks.json()["items"]
+        warm_payload = chunks.json()
+        assert warm_payload["items"]
+        public_chunk_fields = {
+            "id",
+            "sequence",
+            "text",
+            "page_start",
+            "page_end",
+            "heading_path",
+            "token_count",
+        }
+        assert all(set(item) == public_chunk_fields for item in warm_payload["items"])
+
+        # A process restart leaves the SQL records but not this in-memory cache.
+        # Exercise both projections in one test and require a byte-for-byte JSON contract.
+        client.app.state.runtime.document_registry.chunks.pop(UUID(document_id), None)
+        cold_chunks = client.get(f"/v1/documents/{document_id}/chunks")
+        assert cold_chunks.status_code == 200
+        assert cold_chunks.json() == warm_payload
         extracted = client.get(f"/v1/documents/{document_id}/extracted-knowledge")
         assert extracted.status_code == 200
         assert extracted.json()["blueprint"]["knowledge_points"]
