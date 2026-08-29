@@ -1,4 +1,4 @@
-# KnowTier v1.0.1 中文使用说明
+# KnowTier v1.1.0 中文使用说明
 
 KnowTier 是一款本地优先的 AI 学习助手。桌面版已经包含界面和本地服务，普通用户不需要
 安装 Node.js、Python、Docker、PostgreSQL 或 Neo4j。
@@ -7,15 +7,15 @@ KnowTier 是一款本地优先的 AI 学习助手。桌面版已经包含界面�
 
 从 [GitHub 最新正式版](https://github.com/Yangjunjie-Lin/KnowTier/releases/latest) 下载：
 
-- Windows 日常安装：`KnowTier-Setup-1.0.1-windows-x64.exe`
-- Windows 免安装：`KnowTier-Portable-1.0.1-windows-x64.zip`
-- macOS Intel：`KnowTier-1.0.1-macOS-x64.dmg`
-- Linux：`KnowTier-1.0.1-linux-x64.AppImage` 或 `knowtier_1.0.1_amd64.deb`
+- Windows 日常安装：`KnowTier-Setup-1.1.0-windows-x64.exe`
+- Windows 免安装：`KnowTier-Portable-1.1.0-windows-x64.zip`
+- macOS Intel：`KnowTier-1.1.0-macOS-x64.dmg`
+- Linux：`KnowTier-1.1.0-linux-x64.AppImage` 或 `knowtier_1.1.0_amd64.deb`
 
 同时下载 `SHA256SUMS.txt` 和对应平台的签名状态文件。Windows 可用以下命令计算哈希：
 
 ```powershell
-Get-FileHash .\KnowTier-Setup-1.0.1-windows-x64.exe -Algorithm SHA256
+Get-FileHash .\KnowTier-Setup-1.1.0-windows-x64.exe -Algorithm SHA256
 ```
 
 本版本没有代码签名证书时会明确附带 `UNSIGNED-<platform>.txt`。`UNSIGNED` 表示系统可能

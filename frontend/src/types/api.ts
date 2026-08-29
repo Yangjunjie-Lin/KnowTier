@@ -7,6 +7,15 @@ export type RequestedMode =
   | "practice"
   | "exam"
   | "research";
+export type TurnIntent =
+  | "auto"
+  | "new_goal"
+  | "answer"
+  | "ask"
+  | "request_hint"
+  | "request_reexplanation"
+  | "request_example"
+  | "check_prerequisites";
 
 export type JsonPrimitive = string | number | boolean | null;
 export type JsonValue =
@@ -85,12 +94,14 @@ export interface ChatRequest {
   message: string;
   attachment_ids: UUID[];
   requested_mode: RequestedMode;
+  turn_intent?: TurnIntent;
 }
 
 export interface ChatResponse {
   turn_id: UUID;
   response: string;
   target_knowledge_point: { id: UUID; name: string };
+  assessed_knowledge_point?: { id: UUID; name: string } | null;
   cognitive_level: CognitiveLevel;
   teaching_action: string;
   assessment: { type: string; question: string };
@@ -120,6 +131,7 @@ export interface ChatResponse {
   } | null;
   model_fallback?: boolean;
   sources: JsonObject[];
+  turn_intent?: TurnIntent;
 }
 
 export interface ConversationHistoryUserTurn {
@@ -336,6 +348,53 @@ export interface LearningPathData {
   learner_states?: JsonObject[];
   nodes?: JsonObject[];
   assertions?: JsonObject[];
+  plan?: LearningPlan;
+}
+
+export type LearningPriority =
+  | "correct_misconception"
+  | "review_due"
+  | "unlock_prerequisite"
+  | "remediate_foundation"
+  | "continue_practice"
+  | "start_topic"
+  | "deepen_mastery";
+
+export interface LearningPlanRecommendation {
+  knowledge_point_id: UUID;
+  knowledge_point: string;
+  priority: LearningPriority;
+  requested_mode: RequestedMode;
+  current_level: CognitiveLevel | null;
+  target_level: CognitiveLevel;
+  mastery_score: number;
+  confidence: number;
+  evidence_count: number;
+  misconception_count: number;
+  due_at: string | null;
+  unlocks_topic_count: number;
+}
+
+export interface LearningPlanStep {
+  phase: "activate" | "build" | "check";
+  minutes: number;
+  strategy: string;
+  requested_mode: RequestedMode;
+}
+
+export interface LearningPlan {
+  goal_knowledge_point_id: UUID | null;
+  focus: LearningPlanRecommendation | null;
+  alternatives: LearningPlanRecommendation[];
+  steps: LearningPlanStep[];
+  total_minutes: number;
+  summary: {
+    due_review_count: number;
+    active_misconception_count: number;
+    ready_topic_count: number;
+    blocked_topic_count: number;
+  };
+  source: string;
 }
 
 export interface LearningPathEnvelope {

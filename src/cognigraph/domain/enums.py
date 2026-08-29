@@ -151,6 +151,24 @@ class RequestedMode(StrEnum):
     RESEARCH = "research"
 
 
+class TurnIntent(StrEnum):
+    """Structured learner intent for one chat turn.
+
+    ``AUTO`` exists for backwards compatibility. First-party clients should
+    send an explicit value so instructional requests never become mastery
+    evidence accidentally.
+    """
+
+    AUTO = "auto"
+    NEW_GOAL = "new_goal"
+    ANSWER = "answer"
+    ASK = "ask"
+    REQUEST_HINT = "request_hint"
+    REQUEST_REEXPLANATION = "request_reexplanation"
+    REQUEST_EXAMPLE = "request_example"
+    CHECK_PREREQUISITES = "check_prerequisites"
+
+
 class DocumentStatus(StrEnum):
     UPLOADED = "UPLOADED"
     PARSING = "PARSING"

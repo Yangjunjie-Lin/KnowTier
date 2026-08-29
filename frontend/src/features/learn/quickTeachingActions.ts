@@ -1,4 +1,5 @@
 import type { LocalPreferences } from "@/types/app";
+import type { TurnIntent } from "@/types/api";
 
 export type QuickTeachingActionId =
   | "not-understood"
@@ -11,6 +12,7 @@ export interface QuickTeachingAction {
   id: QuickTeachingActionId;
   label: string;
   prompt: (preferences: LocalPreferences) => string;
+  intent: TurnIntent;
 }
 
 const detailWords = {
@@ -30,17 +32,20 @@ export const quickTeachingActions: readonly QuickTeachingAction[] = [
     id: "not-understood",
     label: "我没理解",
     prompt: () => "我还没有理解刚才的讲解，请先帮我定位卡住的地方。",
+    intent: "request_reexplanation",
   },
   {
     id: "hint",
     label: "给我一个提示",
     prompt: (preferences) => hintPrompts[preferences.hintStrength],
+    intent: "request_hint",
   },
   {
     id: "re-explain",
     label: "换一种解释",
     prompt: (preferences) =>
       `请${detailWords[preferences.explanationDetail]}重新解释这个知识点。`,
+    intent: "request_reexplanation",
   },
   {
     id: "example",
@@ -49,11 +54,13 @@ export const quickTeachingActions: readonly QuickTeachingAction[] = [
       preferences.prioritizeExamples
         ? "请先给我一个具体例子，再说明它与概念的对应关系。"
         : "请给我一个具体例子，并说明它为什么符合这个概念。",
+    intent: "request_example",
   },
   {
     id: "prerequisites",
     label: "检查前置知识",
     prompt: () => "请检查我是否缺少理解当前知识点所需的前置知识。",
+    intent: "check_prerequisites",
   },
 ];
 

@@ -15,10 +15,12 @@ import {
   LoaderCircle,
   Paperclip,
   PanelRightOpen,
+  Route,
   RotateCcw,
   Send,
   Sparkles,
   StopCircle,
+  Target,
   Upload,
   X,
 } from "lucide-react";
@@ -56,7 +58,9 @@ import type {
   ChatResponse,
   ConversationHistoryResponse,
   JsonObject,
+  LearningPriority,
   RequestedMode,
+  TurnIntent,
   UUID,
 } from "@/types/api";
 import { recentDocumentFrom } from "@/types/app";
@@ -87,6 +91,9 @@ export interface LearningTarget {
   name: string;
   prompt?: string;
   source?: string;
+  mode?: RequestedMode;
+  priority?: LearningPriority;
+  totalMinutes?: number;
 }
 
 type UploadStage = "upload" | "ingest" | "attachment";
@@ -107,6 +114,7 @@ interface ChatSubmission {
   text: string;
   attachmentIds: UUID[];
   requestedMode: RequestedMode;
+  turnIntent: TurnIntent;
   workspaceId: UUID;
   learnerId: UUID;
   sessionId: UUID;
@@ -128,6 +136,28 @@ export function learningTargetFromState(state: unknown): LearningTarget | null {
       : {}),
     ...(typeof target.source === "string" && target.source.trim()
       ? { source: target.source.trim() }
+      : {}),
+    ...(target.mode === "learn" ||
+    target.mode === "review" ||
+    target.mode === "practice" ||
+    target.mode === "exam" ||
+    target.mode === "research"
+      ? { mode: target.mode }
+      : {}),
+    ...(target.priority === "correct_misconception" ||
+    target.priority === "review_due" ||
+    target.priority === "unlock_prerequisite" ||
+    target.priority === "remediate_foundation" ||
+    target.priority === "continue_practice" ||
+    target.priority === "start_topic" ||
+    target.priority === "deepen_mastery"
+      ? { priority: target.priority }
+      : {}),
+    ...(typeof target.totalMinutes === "number" &&
+    Number.isInteger(target.totalMinutes) &&
+    target.totalMinutes > 0 &&
+    target.totalMinutes <= 90
+      ? { totalMinutes: target.totalMinutes }
       : {}),
   };
 }
@@ -166,16 +196,21 @@ function quickActionContent(
   id: (typeof quickTeachingActions)[number]["id"],
   preferences: LocalPreferences,
   locale: UiLocale,
-): { label: string; prompt: string } {
+): { label: string; prompt: string; intent: TurnIntent } {
   if (locale !== "en") {
     const action = quickTeachingActions.find((item) => item.id === id)!;
-    return { label: action.label, prompt: action.prompt(preferences) };
+    return {
+      label: action.label,
+      prompt: action.prompt(preferences),
+      intent: action.intent,
+    };
   }
   const actions = {
     "not-understood": {
       label: "I don't understand",
       prompt:
         "I did not understand the last explanation. Help me identify where I am stuck first.",
+      intent: "request_reexplanation",
     },
     hint: {
       label: "Give me a hint",
@@ -185,6 +220,7 @@ function quickActionContent(
           : preferences.hintStrength === "strong"
             ? "Give me a more explicit, structured hint, but do not reveal the complete answer yet."
             : "Give me a step-by-step hint while leaving the key step for me to complete.",
+      intent: "request_hint",
     },
     "re-explain": {
       label: "Explain differently",
@@ -195,17 +231,20 @@ function quickActionContent(
             ? "in more detail, step by step"
             : "from a different angle"
       }.`,
+      intent: "request_reexplanation",
     },
     example: {
       label: "Show an example",
       prompt: preferences.prioritizeExamples
         ? "Start with a concrete example, then show how it maps to the concept."
         : "Give me a concrete example and explain why it fits this concept.",
+      intent: "request_example",
     },
     prerequisites: {
       label: "Check prerequisites",
       prompt:
         "Check whether I am missing any prerequisites needed to understand this topic.",
+      intent: "check_prerequisites",
     },
   } as const;
   return actions[id];
@@ -312,10 +351,13 @@ export function LearnPage() {
   const [navigationTargetConfirmed, setNavigationTargetConfirmed] =
     useState(false);
   const [mode, setMode] = useState<RequestedMode>(
-    preferences.defaultTeachingMode,
+    navigationTarget?.mode ?? preferences.defaultTeachingMode,
   );
   const [message, setMessage] = useState(() =>
     learningTargetDraft(navigationTarget, locale),
+  );
+  const [turnIntent, setTurnIntent] = useState<TurnIntent>(
+    navigationTarget ? "new_goal" : "auto",
   );
   const [attachments, setAttachments] = useState<UUID[]>([]);
   const attachmentIdsRef = useRef<UUID[]>([]);
@@ -435,6 +477,7 @@ export function LearnPage() {
             message: input.text,
             attachment_ids: input.attachmentIds,
             requested_mode: input.requestedMode,
+            turn_intent: input.turnIntent,
           },
           controller.signal,
         )
@@ -456,6 +499,7 @@ export function LearnPage() {
         },
       ]);
       setMessage("");
+      setTurnIntent("auto");
       replaceAttachments([]);
       setNavigationTargetConfirmed(true);
       const targetId = result.target_knowledge_point.id;
@@ -505,15 +549,17 @@ export function LearnPage() {
     chatMutation.reset();
     setMessages([]);
     setMessage("");
+    setTurnIntent("auto");
     attachmentIdsRef.current = [];
     setAttachments([]);
     setShowAttachments(false);
     setUploadOperation(null);
     setNavigationTargetConfirmed(false);
+    setMode(preferences.defaultTeachingMode);
     setSynchronizingInsightsTargetId(null);
     setLearningStatusOpen(false);
     setRequestCancelled(false);
-  }, [chatMutation, contextKey]);
+  }, [chatMutation, contextKey, preferences.defaultTeachingMode]);
 
   useEffect(() => {
     if (previousNavigationTargetRef.current === navigationTargetKey) return;
@@ -527,11 +573,19 @@ export function LearnPage() {
     setShowAttachments(false);
     setUploadOperation(null);
     setNavigationTargetConfirmed(false);
+    setMode(navigationTarget?.mode ?? preferences.defaultTeachingMode);
     setSynchronizingInsightsTargetId(null);
     setLearningStatusOpen(false);
     setMessage(learningTargetDraft(navigationTarget, locale));
+    setTurnIntent(navigationTarget ? "new_goal" : "auto");
     setRequestCancelled(false);
-  }, [chatMutation, locale, navigationTarget, navigationTargetKey]);
+  }, [
+    chatMutation,
+    locale,
+    navigationTarget,
+    navigationTargetKey,
+    preferences.defaultTeachingMode,
+  ]);
 
   useEffect(() => {
     if (!conversationHistory.data) return;
@@ -754,6 +808,7 @@ export function LearnPage() {
       text,
       attachmentIds,
       requestedMode: mode,
+      turnIntent,
       workspaceId: currentWorkspace.id,
       learnerId: currentLearner.id,
       sessionId,
@@ -784,6 +839,7 @@ export function LearnPage() {
     setBypassedHistorySessionId(bypassHistory ? nextSessionId : null);
     setMessages([]);
     setMessage("");
+    setTurnIntent("auto");
     replaceAttachments([]);
     setShowAttachments(false);
     setUploadOperation(null);
@@ -829,6 +885,7 @@ export function LearnPage() {
     setNavigationTargetConfirmed(false);
     setSynchronizingInsightsTargetId(null);
     setMessage(learningTargetDraft(target, locale));
+    setTurnIntent("new_goal");
     setLearningStatusOpen(false);
     window.setTimeout(() => inputRef.current?.focus(), 0);
   };
@@ -867,9 +924,20 @@ export function LearnPage() {
   const hasProgressColumn = Boolean(
     latestResult || hasMisconceptions || hasEvidence || hasInsightFailure,
   );
+  const hasPendingNavigationTarget = Boolean(
+    navigationTarget && !navigationTargetConfirmed,
+  );
+  const awaitingAssessment = Boolean(
+    !hasPendingNavigationTarget &&
+      latestResult?.assessment.question &&
+      messages.at(-1)?.role === "assistant",
+  );
   const firstTurnWithoutTarget = messages.length === 0 && !navigationTarget;
   const composerActions = firstTurnWithoutTarget
-    ? starterActionContent(locale)
+    ? starterActionContent(locale).map((action) => ({
+        ...action,
+        intent: "new_goal" as TurnIntent,
+      }))
     : quickTeachingActions.map((action) => ({
         id: action.id,
         ...quickActionContent(action.id, preferences, locale),
@@ -934,6 +1002,12 @@ export function LearnPage() {
           </div>
         }
       />
+      {navigationTarget?.totalMinutes && (
+        <LessonAgenda
+          target={navigationTarget}
+          activeStep={messages.length === 0 ? 0 : latestResult ? 2 : 1}
+        />
+      )}
       <div className="mb-4">
         <RuntimeModelBadge
           role="teacher"
@@ -1244,6 +1318,22 @@ export function LearnPage() {
               className="learn-composer fixed inset-x-0 bottom-[calc(4rem+env(safe-area-inset-bottom))] z-30 max-h-[calc(100dvh-7.5rem)] shrink-0 overflow-y-auto overscroll-contain border-t border-slate-200 bg-white/95 p-3 shadow-[0_-12px_30px_rgba(15,23,42,0.12)] backdrop-blur-xl transition-[left] duration-200 motion-reduce:transition-none dark:border-slate-800 dark:bg-slate-900/95 lg:bottom-0 lg:left-60 lg:right-0 xl:static xl:z-auto xl:max-h-none xl:overflow-visible xl:p-4 xl:shadow-none"
               aria-label={pick("学习消息编辑器", "Learning message editor")}
             >
+            {hasPendingNavigationTarget ? (
+              <div className="mb-2 flex items-center gap-2 rounded-xl bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-800 dark:bg-amber-950/50 dark:text-amber-200">
+                <Target className="h-4 w-4" />
+                <span>
+                  {pick(
+                    "新学习目标 · 发送下方预填问题开始",
+                    "New learning goal · Send the prepared question below to begin",
+                  )}
+                </span>
+              </div>
+            ) : awaitingAssessment ? (
+              <div className="mb-2 flex items-center gap-2 rounded-xl bg-indigo-50 px-3 py-2 text-xs font-semibold text-indigo-800 dark:bg-indigo-950/60 dark:text-indigo-200">
+                <CheckCircle2 className="h-4 w-4" />
+                <span>{pick("掌握检测 1/1 · 在下方独立作答", "Mastery check 1/1 · Answer independently below")}</span>
+              </div>
+            ) : null}
             <div
               className="-mx-1 mb-2 flex gap-2 overflow-x-auto px-1 pb-1 [-ms-overflow-style:none] [scrollbar-width:none] [&::-webkit-scrollbar]:hidden"
               role="toolbar"
@@ -1259,6 +1349,7 @@ export function LearnPage() {
                       setMessage((current) =>
                         mergeQuickPrompt(current, action.prompt),
                       );
+                      setTurnIntent(action.intent);
                       inputRef.current?.focus();
                     }}
                     disabled={chatMutation.isPending}
@@ -1300,9 +1391,17 @@ export function LearnPage() {
                 placeholder={pick(
                   firstTurnWithoutTarget
                     ? "例如：请从零讲解什么是机器学习"
+                    : hasPendingNavigationTarget
+                      ? "发送或修改预填的学习目标…"
+                    : awaitingAssessment
+                      ? "回答上方的掌握检测题…"
                     : "输入你的问题或回答…",
                   firstTurnWithoutTarget
                     ? "For example: Teach me what machine learning is from scratch"
+                    : hasPendingNavigationTarget
+                      ? "Send or edit the prepared learning goal…"
+                    : awaitingAssessment
+                      ? "Answer the mastery check above…"
                     : "Type your question or answer…",
                 )}
                 className="form-input min-h-20 resize-none pr-12 text-base leading-6 sm:text-sm"
@@ -1601,6 +1700,77 @@ export function LearnPage() {
         onStartPrerequisite={startPrerequisite}
       />
     </div>
+  );
+}
+
+function LessonAgenda({
+  target,
+  activeStep,
+}: {
+  target: LearningTarget;
+  activeStep: number;
+}) {
+  const { pick } = useI18n();
+  const total = target.totalMinutes ?? 20;
+  const steps = [
+    { label: pick("激活旧知", "Activate"), minutes: 3 },
+    { label: pick("建立理解", "Build"), minutes: Math.max(total - 8, 1) },
+    { label: pick("独立检测", "Check"), minutes: 5 },
+  ];
+  return (
+    <section
+      className="mb-4 rounded-2xl border border-indigo-200/80 bg-indigo-50/70 px-4 py-3 dark:border-indigo-900/60 dark:bg-indigo-950/25"
+      aria-label={pick("本次学习计划", "Lesson agenda")}
+    >
+      <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="min-w-0">
+          <p className="flex items-center gap-2 text-xs font-bold tracking-wide text-[#3157D5] uppercase dark:text-indigo-300">
+            <Route className="h-3.5 w-3.5" />
+            {pick(`${total} 分钟学习计划`, `${total}-minute lesson`)}
+          </p>
+          <p className="mt-1 truncate text-sm font-semibold text-slate-900 dark:text-white">
+            {target.name}
+          </p>
+        </div>
+        <ol className="flex min-w-0 flex-1 items-center gap-2 lg:max-w-2xl">
+          {steps.map((step, index) => (
+            <li key={step.label} className="flex min-w-0 flex-1 items-center gap-2">
+              <span
+                className={cn(
+                  "flex h-7 w-7 shrink-0 items-center justify-center rounded-full text-[11px] font-bold",
+                  index < activeStep
+                    ? "bg-emerald-600 text-white"
+                    : index === activeStep
+                      ? "bg-[#3157D5] text-white shadow-[0_0_0_4px_rgba(49,87,213,0.12)]"
+                      : "bg-white text-slate-600 dark:bg-slate-800 dark:text-slate-300",
+                )}
+                aria-current={index === activeStep ? "step" : undefined}
+              >
+                {index < activeStep ? (
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                ) : (
+                  index + 1
+                )}
+              </span>
+              <span className="min-w-0">
+                <span className="block truncate text-xs font-semibold text-slate-800 dark:text-slate-200">
+                  {step.label}
+                </span>
+                <span className="block text-[11px] text-slate-600 dark:text-slate-400">
+                  {step.minutes} min
+                </span>
+              </span>
+              {index < steps.length - 1 && (
+                <span
+                  className="ml-auto hidden h-px min-w-4 flex-1 bg-indigo-200 sm:block dark:bg-indigo-800"
+                  aria-hidden="true"
+                />
+              )}
+            </li>
+          ))}
+        </ol>
+      </div>
+    </section>
   );
 }
 

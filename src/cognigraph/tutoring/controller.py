@@ -7,7 +7,9 @@ from cognigraph.domain.enums import (
     CognitiveLevel,
     HintLevel,
     MasteryDecision,
+    RequestedMode,
     TeachingAction,
+    TurnIntent,
 )
 from cognigraph.domain.learner import LearnerKnowledgeState, MasteryUpdate
 from cognigraph.domain.teaching import SessionGoal, TeachingDirective
@@ -81,6 +83,15 @@ class TeachingController:
                 action = TeachingAction.GIVE_HINT
                 hint = self.next_hint(previous_hint_level)
 
+        action, hint, constraints = self._apply_interaction_policy(
+            action=action,
+            hint=hint,
+            constraints=constraints,
+            requested_mode=session_goal.requested_mode,
+            turn_intent=session_goal.turn_intent,
+            has_assessment_update=latest_update is not None,
+        )
+
         return TeachingDirective(
             teaching_action=action,
             target_knowledge_point_id=target_id,
@@ -105,3 +116,65 @@ class TeachingController:
             "use only the compiled context bundle",
             *constraints,
         ]
+
+    @staticmethod
+    def _apply_interaction_policy(
+        *,
+        action: TeachingAction,
+        hint: HintLevel,
+        constraints: list[str],
+        requested_mode: RequestedMode,
+        turn_intent: TurnIntent,
+        has_assessment_update: bool,
+    ) -> tuple[TeachingAction, HintLevel, list[str]]:
+        updated = list(constraints)
+        if turn_intent is TurnIntent.REQUEST_HINT:
+            return (
+                TeachingAction.GIVE_HINT,
+                TeachingController.next_hint(hint),
+                [*updated, "respond with a bounded hint and do not grade the request"],
+            )
+        if turn_intent is TurnIntent.REQUEST_REEXPLANATION:
+            return (
+                TeachingAction.REMEDIATE,
+                hint,
+                [*updated, "change representation before asking the mastery check"],
+            )
+        if turn_intent is TurnIntent.REQUEST_EXAMPLE:
+            return (
+                TeachingAction.DEMONSTRATE,
+                hint,
+                [*updated, "use one concrete worked example before the mastery check"],
+            )
+        if turn_intent is TurnIntent.CHECK_PREREQUISITES:
+            updated.append("make prerequisite readiness explicit before continuing")
+
+        if requested_mode is RequestedMode.EXAM:
+            return (
+                TeachingAction.ASSESS,
+                HintLevel.LEVEL_1_DIRECTION,
+                [
+                    *updated,
+                    "assessment first",
+                    "do not teach, hint, or reveal a solution before the learner answers",
+                ],
+            )
+        if requested_mode is RequestedMode.PRACTICE and not has_assessment_update:
+            return (
+                TeachingAction.ASSESS,
+                hint,
+                [*updated, "lead with one application problem before explanation"],
+            )
+        if requested_mode is RequestedMode.REVIEW and not has_assessment_update:
+            return (
+                TeachingAction.ASSESS,
+                hint,
+                [*updated, "use retrieval practice before restating the material"],
+            )
+        if requested_mode is RequestedMode.RESEARCH and not has_assessment_update:
+            return (
+                TeachingAction.FORMULATE_RESEARCH_QUESTION,
+                hint,
+                [*updated, "frame a bounded research question and evaluation criteria"],
+            )
+        return action, hint, updated

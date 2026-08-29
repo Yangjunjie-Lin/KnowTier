@@ -51,7 +51,7 @@ def _installed_version() -> str:
     try:
         return version("cognigraph-tutor")
     except PackageNotFoundError:
-        return "1.0.1"
+        return "1.1.0"
 
 
 @dataclass(frozen=True, slots=True)

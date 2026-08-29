@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import io
+from datetime import datetime
 from uuid import UUID
 
 from fastapi import APIRouter, HTTPException, Query, Response, status
@@ -14,6 +15,9 @@ from cognigraph.api.dependencies import (
     enforce_workspace_scope,
 )
 from cognigraph.api.schemas import LearnerCreateRequest, LearnerListResponse, LearnerResponse
+from cognigraph.domain.enums import CognitiveLevel, NodeType
+from cognigraph.domain.learning_plan import LearningPlanTopic
+from cognigraph.graph.applier import GraphSnapshot
 from cognigraph.graph.query_tools import LearningPathParams
 from cognigraph.persistence.postgres.models import (
     ConversationTurn,
@@ -24,6 +28,7 @@ from cognigraph.persistence.postgres.models import (
 from cognigraph.persistence.postgres.models import (
     Learner as LearnerRecord,
 )
+from cognigraph.services.learning_plan import build_learning_plan
 from cognigraph.services.runtime import ApplicationRuntime
 
 router = APIRouter(tags=["learners"])
@@ -566,19 +571,20 @@ async def get_learning_path(
 ) -> dict[str, object]:
     learner, rows = await _model_rows(runtime, learner_id, workspace_scope=workspace_scope)
     snapshot = await runtime.ensure_graph_loaded(learner.workspace_id)
-    target_id = target_knowledge_point_id
+    plan_topics = _learning_plan_topics(snapshot, rows)
+    initial_plan = build_learning_plan(
+        plan_topics,
+        goal_knowledge_point_id=target_knowledge_point_id,
+    )
+    target_id = target_knowledge_point_id or (
+        initial_plan.focus.knowledge_point_id if initial_plan.focus is not None else None
+    )
     if target_id is None:
-        target_id = next(
-            (
-                node.id
-                for node in snapshot.nodes
-                if node.node_type.value == "KnowledgePoint"
-                and all(row["knowledge_point_id"] != str(node.id) for row in rows)
-            ),
-            None,
-        )
-    if target_id is None:
-        return {"learner_id": str(learner_id), "knowledge_point_ids": []}
+        return {
+            "learner_id": str(learner_id),
+            "knowledge_point_ids": [],
+            "plan": initial_plan.model_dump(mode="json"),
+        }
     try:
         result = await runtime.semantic_queries.get_learning_path(
             LearningPathParams(
@@ -589,7 +595,103 @@ async def get_learning_path(
         )
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="target knowledge point not found") from exc
-    return result.model_dump(mode="json")
+    raw_eligible_ids = result.data.get("knowledge_point_ids")
+    eligible_ids = (
+        {UUID(value) for value in raw_eligible_ids if isinstance(value, str)}
+        if isinstance(raw_eligible_ids, list)
+        else set()
+    )
+    plan = (
+        build_learning_plan(
+            plan_topics,
+            goal_knowledge_point_id=target_id,
+            eligible_topic_ids=eligible_ids,
+        )
+        if target_knowledge_point_id is not None
+        else initial_plan
+    )
+    payload = result.model_dump(mode="json")
+    payload["data"]["plan"] = plan.model_dump(mode="json")
+    return payload
+
+
+def _learning_plan_topics(
+    snapshot: GraphSnapshot,
+    rows: list[dict[str, object]],
+) -> list[LearningPlanTopic]:
+    """Adapt graph structure and persisted learner state into planner input."""
+
+    row_by_id = {
+        UUID(value): row
+        for row in rows
+        if isinstance((value := row.get("knowledge_point_id")), str)
+    }
+    prerequisites: dict[UUID, list[UUID]] = {}
+    for assertion in snapshot.assertions:
+        if assertion.is_active and assertion.predicate_key.value == "REQUIRES":
+            prerequisites.setdefault(assertion.subject_id, []).append(assertion.object_id)
+    topics: list[LearningPlanTopic] = []
+    for source_order, node in enumerate(snapshot.nodes):
+        if node.node_type is not NodeType.KNOWLEDGE_POINT:
+            continue
+        row = row_by_id.get(node.id)
+        current_level = _optional_int(row, "current_level")
+        topics.append(
+            LearningPlanTopic(
+                knowledge_point_id=node.id,
+                knowledge_point=str(
+                    node.properties.get("display_name")
+                    or node.properties.get("canonical_name")
+                    or node.id
+                ),
+                current_level=(
+                    CognitiveLevel(current_level) if current_level is not None else None
+                ),
+                mastery_score=_optional_float(row, "mastery_score"),
+                confidence=_optional_float(row, "confidence"),
+                evidence_count=_optional_int(row, "evidence_count") or 0,
+                misconception_count=len(_optional_string_list(row, "critical_misconceptions")),
+                next_review_at=_optional_datetime(row, "next_review_at"),
+                prerequisite_ids=prerequisites.get(node.id, []),
+                source_order=source_order,
+            )
+        )
+    return topics
+
+
+def _optional_int(row: dict[str, object] | None, key: str) -> int | None:
+    if row is None:
+        return None
+    value = row.get(key)
+    return value if isinstance(value, int) and not isinstance(value, bool) else None
+
+
+def _optional_float(row: dict[str, object] | None, key: str) -> float:
+    if row is None:
+        return 0.0
+    value = row.get(key)
+    return float(value) if isinstance(value, int | float) and not isinstance(value, bool) else 0.0
+
+
+def _optional_string_list(row: dict[str, object] | None, key: str) -> list[str]:
+    if row is None:
+        return []
+    value = row.get(key)
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, str)]
+
+
+def _optional_datetime(row: dict[str, object] | None, key: str) -> datetime | None:
+    if row is None:
+        return None
+    value = row.get(key)
+    if not isinstance(value, str):
+        return None
+    try:
+        return datetime.fromisoformat(value)
+    except ValueError:
+        return None
 
 
 @router.get("/learners/{learner_id}/evidence")

@@ -702,6 +702,78 @@ async function installApiContract(
         items: [activeItem, prerequisiteState],
       });
     }
+    if (
+      method === "GET" &&
+      path === `/v1/learners/${learnerId}/learning-path`
+    ) {
+      const switched = chatRound >= 2;
+      const focusId = switched ? switchedPrerequisiteId : thirdKnowledgePointId;
+      const focusName = switched ? "导数方向基础" : "概率公理基础";
+      const goalId = switched ? switchedKnowledgePointId : knowledgePointId;
+      return json(route, {
+        workspace_id: workspaceId,
+        graph_revision_id: domainRevisionId,
+        data: {
+          learner_id: learnerId,
+          knowledge_point_ids: [focusId, goalId],
+          nodes: [
+            { id: focusId, type: "KnowledgePoint", label: focusName },
+            {
+              id: goalId,
+              type: "KnowledgePoint",
+              label: switched ? "梯度下降" : "贝叶斯定理",
+            },
+          ],
+          assertions: [],
+          plan: {
+            goal_knowledge_point_id: goalId,
+            focus: {
+              knowledge_point_id: focusId,
+              knowledge_point: focusName,
+              priority: "unlock_prerequisite",
+              requested_mode: "practice",
+              current_level: 1,
+              target_level: 1,
+              mastery_score: 0.2,
+              confidence: 0.5,
+              evidence_count: 1,
+              misconception_count: 0,
+              due_at: null,
+              unlocks_topic_count: 1,
+            },
+            alternatives: [],
+            steps: [
+              {
+                phase: "activate",
+                minutes: 3,
+                strategy: "retrieval_warmup",
+                requested_mode: "review",
+              },
+              {
+                phase: "build",
+                minutes: 12,
+                strategy: "prerequisite_scaffold",
+                requested_mode: "practice",
+              },
+              {
+                phase: "check",
+                minutes: 5,
+                strategy: "independent_mastery_check",
+                requested_mode: "exam",
+              },
+            ],
+            total_minutes: 20,
+            summary: {
+              due_review_count: 0,
+              active_misconception_count: switched ? 1 : 0,
+              ready_topic_count: 1,
+              blocked_topic_count: 1,
+            },
+            source: "deterministic_learner_state",
+          },
+        },
+      });
+    }
     if (method === "GET" && path === `/v1/learners/${learnerId}/evidence`) {
       if (evidenceFailure) {
         return json(route, { detail: "deterministic evidence outage" }, 503);
@@ -1029,6 +1101,32 @@ test("initialization, ingestion, tutoring, model and both graph views", async ({
       .getByRole("button", { name: "查看 梯度下降 的个人模型详情" })
       .filter({ visible: true }),
   ).toBeVisible();
+
+  await page.goto("/learning-path");
+  await expect(
+    page.getByText("今日最佳学习行动"),
+  ).toBeVisible();
+  await expect(
+    page
+      .getByRole("region", { name: "导数方向基础" })
+      .getByRole("heading", { name: "导数方向基础" }),
+  ).toBeVisible();
+  const plannedSessionLink = page.getByRole("link", {
+    name: "开始 20 分钟学习",
+  });
+  await expect(plannedSessionLink).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+  await expectNoSeriousAxeViolations(page);
+
+  await plannedSessionLink.click();
+  await expect(page).toHaveURL(/\/learn$/);
+  await expect(page.getByRole("region", { name: "本次学习计划" })).toContainText(
+    "导数方向基础",
+  );
+  await expect(page.getByText(/新学习目标.*发送下方预填问题开始/)).toBeVisible();
+  await expect(page.getByPlaceholder("发送或修改预填的学习目标…")).toBeVisible();
+  await expectNoHorizontalOverflow(page);
+  await expectNoSeriousAxeViolations(page);
 
   await page.goto("/graph/domain");
   await expect(

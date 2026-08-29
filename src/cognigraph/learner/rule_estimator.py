@@ -53,6 +53,7 @@ class EvidenceRuleEstimator:
         turns = {item.turn_id for item in relevant}
         forms = {item.evidence_type for item in relevant}
         misconceptions = self._unresolved_misconceptions(current_state, relevant)
+        latest_meets_promotion_gate = self._meets_promotion_gate(evidence)
 
         promotion_eligible = all(
             (
@@ -64,6 +65,7 @@ class EvidenceRuleEstimator:
                 independence >= self.policy.independence_threshold,
                 not misconceptions,
                 bool(relevant),
+                latest_meets_promotion_gate,
             )
         )
         decision, reason = self._decision(
@@ -78,21 +80,41 @@ class EvidenceRuleEstimator:
         next_level = current_state.current_level
         if promotion_eligible and current_state.current_level < CognitiveLevel.CREATION_RESEARCH:
             next_level = CognitiveLevel(current_state.current_level + 1)
+        valid_evidence = not evidence.is_self_report_only
         updated = current_state.model_copy(
             update={
                 "current_level": next_level,
-                "mastery_score": round(correctness, 4),
-                "confidence": round(self._confidence(relevant, evidence), 4),
-                "evidence_count": current_state.evidence_count + 1,
+                "mastery_score": (
+                    round(correctness, 4) if valid_evidence else current_state.mastery_score
+                ),
+                "confidence": (
+                    round(self._confidence(relevant, evidence), 4)
+                    if valid_evidence
+                    else current_state.confidence
+                ),
+                "evidence_count": current_state.evidence_count + int(valid_evidence),
                 "independent_success_count": current_state.independent_success_count
-                + int(evidence.independence_score >= self.policy.independence_threshold),
+                + int(
+                    valid_evidence
+                    and evidence.independence_score >= self.policy.independence_threshold
+                ),
                 "reasoning_success_count": current_state.reasoning_success_count
-                + int(evidence.reasoning_score >= self.policy.reasoning_threshold),
+                + int(
+                    valid_evidence and evidence.reasoning_score >= self.policy.reasoning_threshold
+                ),
                 "transfer_success_count": current_state.transfer_success_count
-                + int(evidence.transfer_score >= self.policy.correctness_threshold),
-                "critical_misconceptions": misconceptions,
+                + int(
+                    valid_evidence and evidence.transfer_score >= self.policy.correctness_threshold
+                ),
+                "critical_misconceptions": (
+                    misconceptions if valid_evidence else current_state.critical_misconceptions
+                ),
                 "last_interaction_at": now,
-                "next_review_at": now + timedelta(days=self.policy.review_interval_days),
+                "next_review_at": (
+                    now + timedelta(days=self.policy.review_interval_days)
+                    if valid_evidence
+                    else current_state.next_review_at
+                ),
                 "version": current_state.version + 1,
                 "updated_at": now,
             }
@@ -106,6 +128,8 @@ class EvidenceRuleEstimator:
             "aggregate_independence": round(independence, 4),
             "aggregate_transfer": round(transfer, 4),
             "unresolved_misconceptions": list(misconceptions),
+            "latest_meets_promotion_gate": latest_meets_promotion_gate,
+            "valid_mastery_evidence": valid_evidence,
         }
         return MasteryUpdate(
             decision=decision,
@@ -147,6 +171,19 @@ class EvidenceRuleEstimator:
         grader = sum(item.grader_confidence for item in evidence) / len(evidence)
         return min((grader * 0.5) + (diversity * 0.25) + (volume * 0.25), 1.0)
 
+    def _meets_promotion_gate(self, evidence: MasteryEvidence) -> bool:
+        """Require the latest independent retrieval to pass on its own."""
+
+        return all(
+            (
+                not evidence.is_self_report_only,
+                evidence.correctness_score >= self.policy.correctness_threshold,
+                evidence.reasoning_score >= self.policy.reasoning_threshold,
+                evidence.independence_score >= self.policy.independence_threshold,
+                not evidence.observed_misconceptions,
+            )
+        )
+
     @staticmethod
     def _unresolved_misconceptions(
         state: LearnerKnowledgeState,
@@ -183,6 +220,11 @@ class EvidenceRuleEstimator:
                 MasteryDecision.REQUEST_MORE_EVIDENCE,
                 "Self-report alone cannot establish mastery.",
             )
+        if evidence.correctness_score < self.policy.remediation_threshold:
+            return (
+                MasteryDecision.CHANGE_EXPLANATION,
+                "Latest evidence indicates the explanation did not establish the concept.",
+            )
         if (
             evidence.cognitive_level is CognitiveLevel.CREATION_RESEARCH
             and correctness >= self.policy.correctness_threshold
@@ -201,11 +243,6 @@ class EvidenceRuleEstimator:
             )
         if misconceptions:
             return MasteryDecision.REMEDIATE, "A critical misconception remains unresolved."
-        if evidence.correctness_score < self.policy.remediation_threshold:
-            return (
-                MasteryDecision.CHANGE_EXPLANATION,
-                "Latest evidence indicates the explanation did not establish the concept.",
-            )
         if (
             correctness >= self.policy.correctness_threshold
             and reasoning < self.policy.reasoning_threshold

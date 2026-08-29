@@ -74,6 +74,30 @@ The complete workflow is serialized per runtime and session. PostgreSQL addition
 session row while allocating turn ordinals and uses bounded savepoint retries, so concurrent API
 processes cannot create duplicate sessions or turn numbers.
 
+### Adaptive learning contract
+
+The API carries an explicit `TurnIntent` for every turn. Only `answer` enters grading and mastery
+estimation; requests for a hint, example, re-explanation, prerequisite check, or a new goal remain
+teaching interactions and cannot become mastery evidence. A conservative text fallback is retained
+for older clients. Teaching modes are deterministic policies rather than prompt decoration:
+assessment starts with retrieval and withholds hints, practice prioritizes application, review starts
+with retrieval, and research frames a question with evaluation criteria.
+
+The assessed knowledge point and the next teaching target are separate turn fields. Evidence,
+misconceptions, and learner-state changes are always written against the assessed point even when a
+failed answer causes the controller to teach a prerequisite next. Promotion additionally requires
+the newest independent evidence to pass the threshold; an older high score cannot dilute a current
+fully incorrect answer. Self-reports may inform the teaching response but do not change mastery,
+confidence, evidence count, or review timing.
+
+`LearningPlanService` computes the learner's next action from verified graph structure and persisted
+learner state. It does not ask a model to choose facts or update state. Priorities are deterministic:
+correct a misconception, complete due review, unlock a prerequisite, remediate a foundation,
+continue practice, start a topic, then deepen mastery. The response contains one focus, two
+alternatives, a mode and cognitive target, and a 20-minute Activate/Build/Check agenda. Overview,
+Learning Path, and Learn consume this same contract so the recommended action, lesson mode, and
+mastery check remain one continuous workflow.
+
 ## Bounded model context
 
 The model never receives the full graph or full conversation. `GraphContextCompiler` receives
@@ -133,3 +157,7 @@ explicitly marked as untrusted data in model calls. Prompts contain no credentia
 and Neo4j repositories use bound parameters; arbitrary SQL/Cypher is not accepted. Error
 handlers return stable messages and do not expose stack traces. Structured logs carry
 correlation identifiers without full source documents or secrets.
+
+Document chunk endpoints use an explicit public response model for both in-memory and SQL-backed
+reads. Embeddings, normalized text, internal metadata, and source identifiers never cross that API
+boundary, so cache temperature cannot change the response contract.

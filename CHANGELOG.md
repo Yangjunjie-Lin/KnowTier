@@ -5,6 +5,32 @@ All notable changes to KnowTier are documented in this file. The format is based
 
 ## [Unreleased]
 
+## [1.1.0] - 2026-08-30
+
+### Added
+
+- Added a deterministic learner plan that prioritizes misconceptions, due review, prerequisites,
+  foundation repair and continued practice, with one focus, alternatives, and a 20-minute
+  Activate/Build/Check agenda shared by Overview, Learning Path and Learn.
+- Added explicit turn intents and an assessed-knowledge-point contract so teaching requests cannot
+  be mistaken for answers and prerequisite redirection cannot write evidence to the wrong topic.
+
+### Changed
+
+- Made teaching modes deterministic policies for assessment, practice, review, research and direct
+  help requests, and required the newest independent evidence to pass before mastery promotion.
+- Reworked the primary learner journey around one best next action, plan-aware route state, an
+  explicit lesson agenda, one mastery check, and responsive desktop/tablet/mobile presentation.
+
+### Fixed
+
+- Prevented hints, examples, re-explanations and self-reports from inflating mastery evidence or
+  postponing review; a current fully incorrect answer now takes precedence over older high scores.
+- Removed duplicate assessment text from tutor prose and stopped a newly selected learning-plan
+  goal from being labelled as the previous turn's pending mastery answer.
+- Unified hot- and cold-cache document chunk responses behind a strict public schema that excludes
+  embeddings and internal indexing metadata.
+
 ## [1.0.1] - 2026-08-16
 
 ### Added
@@ -271,7 +297,8 @@ All notable changes to KnowTier are documented in this file. The format is based
 - Mutable desktop data is kept outside the installed application, in the operating system's
   per-user application-data directory.
 
-[Unreleased]: https://github.com/Yangjunjie-Lin/KnowTier/compare/v1.0.1...HEAD
+[Unreleased]: https://github.com/Yangjunjie-Lin/KnowTier/compare/v1.1.0...HEAD
+[1.1.0]: https://github.com/Yangjunjie-Lin/KnowTier/compare/v1.0.1...v1.1.0
 [1.0.1]: https://github.com/Yangjunjie-Lin/KnowTier/releases/tag/v1.0.1
 [1.0.0]: https://github.com/Yangjunjie-Lin/KnowTier/releases/tag/v1.0.0
 [1.0.0-rc.5]: https://github.com/Yangjunjie-Lin/KnowTier/releases/tag/v1.0.0-rc.5

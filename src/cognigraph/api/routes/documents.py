@@ -10,8 +10,16 @@ from cognigraph.api.dependencies import (
     WorkspaceScopeDependency,
     enforce_workspace_scope,
 )
-from cognigraph.api.schemas import DocumentListResponse, DocumentResponse, IngestionResponse
+from cognigraph.api.schemas import (
+    DocumentChunkResponse,
+    DocumentChunksResponse,
+    DocumentListResponse,
+    DocumentResponse,
+    IngestionResponse,
+)
+from cognigraph.domain.documents import DocumentChunk
 from cognigraph.persistence.postgres.models import Document as DocumentRecord
+from cognigraph.persistence.postgres.models import DocumentChunk as DocumentChunkRecord
 
 router = APIRouter(tags=["documents"])
 
@@ -104,37 +112,26 @@ async def get_document(
     return _document_record_response(record)
 
 
-@router.get("/documents/{document_id}/chunks")
+@router.get("/documents/{document_id}/chunks", response_model=DocumentChunksResponse)
 async def get_document_chunks(
     document_id: UUID,
     runtime: RuntimeDependency,
     workspace_scope: WorkspaceScopeDependency,
-) -> dict[str, object]:
+) -> DocumentChunksResponse:
     document = await _get_user_visible_document(runtime, document_id)
     enforce_workspace_scope(workspace_scope, document.workspace_id)
     chunks = runtime.document_registry.chunks.get(document_id)
     if chunks is not None:
-        return {
-            "document_id": str(document_id),
-            "items": [item.model_dump(mode="json") for item in chunks],
-        }
+        return DocumentChunksResponse(
+            document_id=document_id,
+            items=[_domain_chunk_response(item) for item in chunks],
+        )
     async with runtime.database.unit_of_work() as unit:
         records = await unit.documents.list_chunks(document_id)
-    return {
-        "document_id": str(document_id),
-        "items": [
-            {
-                "id": str(item.id),
-                "sequence": item.ordinal,
-                "text": item.text,
-                "page_start": item.page_start,
-                "page_end": item.page_end,
-                "heading_path": item.heading_path,
-                "token_count": item.token_count,
-            }
-            for item in records
-        ],
-    }
+    return DocumentChunksResponse(
+        document_id=document_id,
+        items=[_record_chunk_response(item) for item in records],
+    )
 
 
 @router.get("/documents/{document_id}/extracted-knowledge")
@@ -174,6 +171,30 @@ def _document_response(document: object) -> DocumentResponse:
         page_count=document.page_count,
         warnings=document.warnings,
         created_at=document.created_at,
+    )
+
+
+def _domain_chunk_response(chunk: DocumentChunk) -> DocumentChunkResponse:
+    return DocumentChunkResponse(
+        id=chunk.id,
+        sequence=chunk.sequence,
+        text=chunk.text,
+        page_start=chunk.page_start,
+        page_end=chunk.page_end,
+        heading_path=chunk.heading_path,
+        token_count=chunk.token_count,
+    )
+
+
+def _record_chunk_response(chunk: DocumentChunkRecord) -> DocumentChunkResponse:
+    return DocumentChunkResponse(
+        id=chunk.id,
+        sequence=chunk.ordinal,
+        text=chunk.text,
+        page_start=chunk.page_start,
+        page_end=chunk.page_end,
+        heading_path=chunk.heading_path,
+        token_count=chunk.token_count,
     )
 
 

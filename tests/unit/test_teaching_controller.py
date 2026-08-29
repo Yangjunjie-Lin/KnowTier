@@ -7,7 +7,9 @@ from cognigraph.domain.enums import (
     CognitiveLevel,
     HintLevel,
     MasteryDecision,
+    RequestedMode,
     TeachingAction,
+    TurnIntent,
 )
 from cognigraph.domain.learner import LearnerKnowledgeState, MasteryUpdate
 from cognigraph.domain.teaching import SessionGoal
@@ -104,3 +106,40 @@ def test_hold_increases_hint_one_level() -> None:
 def test_hint_level_is_capped_at_full_demonstration() -> None:
     next_hint = TeachingController.next_hint(HintLevel.LEVEL_5_FULL_DEMONSTRATION)
     assert next_hint is HintLevel.LEVEL_5_FULL_DEMONSTRATION
+
+
+def test_exam_mode_is_assessment_first_and_never_reveals_a_hint() -> None:
+    point = uuid4()
+    directive = TeachingController().decide(
+        learner_state=LearnerKnowledgeState(learner_id=uuid4(), knowledge_point_id=point),
+        current_knowledge_point_id=point,
+        latest_update=None,
+        prerequisite_status={},
+        session_goal=SessionGoal(
+            knowledge_point_id=point,
+            requested_mode=RequestedMode.EXAM,
+            turn_intent=TurnIntent.ASK,
+        ),
+    )
+
+    assert directive.teaching_action is TeachingAction.ASSESS
+    assert "assessment first" in directive.response_constraints
+    assert any("do not teach" in item for item in directive.response_constraints)
+
+
+def test_explicit_hint_intent_overrides_practice_mode_without_grading() -> None:
+    point = uuid4()
+    directive = TeachingController().decide(
+        learner_state=LearnerKnowledgeState(learner_id=uuid4(), knowledge_point_id=point),
+        current_knowledge_point_id=point,
+        latest_update=None,
+        prerequisite_status={},
+        session_goal=SessionGoal(
+            knowledge_point_id=point,
+            requested_mode=RequestedMode.PRACTICE,
+            turn_intent=TurnIntent.REQUEST_HINT,
+        ),
+    )
+
+    assert directive.teaching_action is TeachingAction.GIVE_HINT
+    assert any("do not grade" in item for item in directive.response_constraints)

@@ -32,6 +32,7 @@ vi.mock("@/services/api", () => ({
     getLearnerEvidence: vi.fn(),
     listLearnerRevisions: vi.fn(),
     listDomainRevisions: vi.fn(),
+    getLearningPath: vi.fn(),
   },
 }));
 
@@ -69,6 +70,10 @@ describe("OverviewPage recovery", () => {
     vi.mocked(api.listDomainRevisions).mockResolvedValue({
       workspace_id: "workspace-1",
       items: [],
+    });
+    vi.mocked(api.getLearningPath).mockResolvedValue({
+      learner_id: "learner-1",
+      knowledge_point_ids: [],
     });
   });
 
@@ -149,5 +154,74 @@ describe("OverviewPage recovery", () => {
     expect(
       screen.getByText("你的学习档案已经准备好。选择一种方式，开始第一次学习。"),
     ).toBeVisible();
+  });
+
+  it("leads with one deterministic next learning action", async () => {
+    vi.mocked(api.getManifest).mockResolvedValue({
+      workspace_id: "workspace-1",
+      graph_revision_id: "revision-1",
+      data: {
+        workspace_id: "workspace-1",
+        revision_id: "revision-1",
+        ontology: { entity_types: [], relation_types: [] },
+        top_level_domains: [],
+        theories: [],
+        knowledge_point_count: 2,
+        assertion_count: 1,
+        source_count: 1,
+        major_clusters: [],
+      },
+    });
+    vi.mocked(api.getLearnerModel).mockResolvedValue({
+      learner_id: "learner-1",
+      workspace_id: "workspace-1",
+      items: [],
+    });
+    vi.mocked(api.getLearningPath).mockResolvedValue({
+      learner_id: "learner-1",
+      knowledge_point_ids: ["topic-1"],
+      plan: {
+        goal_knowledge_point_id: null,
+        focus: {
+          knowledge_point_id: "topic-1",
+          knowledge_point: "梯度下降",
+          priority: "start_topic",
+          requested_mode: "learn",
+          current_level: null,
+          target_level: 1,
+          mastery_score: 0,
+          confidence: 0,
+          evidence_count: 0,
+          misconception_count: 0,
+          due_at: null,
+          unlocks_topic_count: 0,
+        },
+        alternatives: [],
+        steps: [
+          { phase: "activate", minutes: 3, strategy: "retrieval_warmup", requested_mode: "review" },
+          { phase: "build", minutes: 12, strategy: "conceptual_bridge", requested_mode: "learn" },
+          { phase: "check", minutes: 5, strategy: "independent_mastery_check", requested_mode: "exam" },
+        ],
+        total_minutes: 20,
+        summary: {
+          due_review_count: 0,
+          active_misconception_count: 0,
+          ready_topic_count: 1,
+          blocked_topic_count: 0,
+        },
+        source: "deterministic_learner_state",
+      },
+    });
+
+    renderPage();
+
+    expect(
+      await screen.findByRole("heading", { name: "梯度下降" }),
+    ).toBeVisible();
+    expect(
+      screen.getByRole("link", { name: "开始 20 分钟学习" }),
+    ).toHaveAttribute("href", "/learn");
+    expect(screen.getByText("激活旧知")).toBeVisible();
+    expect(screen.getByText("独立检测")).toBeVisible();
   });
 });

@@ -266,11 +266,78 @@ describe("LearnPage", () => {
     expect(screen.queryByText("会话状态")).not.toBeInTheDocument();
     expect(screen.queryByText("工具调用")).not.toBeInTheDocument();
     expect(screen.queryByText("图谱更新")).not.toBeInTheDocument();
+    expect(screen.getByText(/新学习目标.*发送下方预填问题开始/)).toBeVisible();
+    expect(screen.getByPlaceholderText("发送或修改预填的学习目标…")).toBeVisible();
     fireEvent.click(screen.getByRole("button", { name: "给我一个提示" }));
     expect(
       screen.getByLabelText<HTMLTextAreaElement>("学习消息").value,
     ).toContain("请给我一个分步骤提示");
     expect(api.chat).not.toHaveBeenCalled();
+  });
+
+  it("does not present an earlier mastery check as the planned goal composer", async () => {
+    vi.mocked(api.getConversationHistory).mockResolvedValue({
+      ...emptyHistory,
+      items: [
+        {
+          id: chatResponse.turn_id,
+          role: "assistant",
+          response: chatResponse,
+          created_at: "2026-08-16T08:00:01Z",
+        },
+      ],
+    });
+
+    renderPage({
+      learningTarget: {
+        id: "88888888-8888-4888-8888-888888888888",
+        name: "新的计划目标",
+        source: "learning-path",
+        mode: "practice",
+        totalMinutes: 20,
+      },
+    });
+
+    expect(await screen.findByText("这是教师讲解。")).toBeVisible();
+    expect(screen.queryByText(/掌握检测 1\/1/)).not.toBeInTheDocument();
+    expect(screen.getByText(/新学习目标.*发送下方预填问题开始/)).toBeVisible();
+    expect(screen.getByPlaceholderText("发送或修改预填的学习目标…")).toBeVisible();
+  });
+
+  it("preserves lesson mode and sends quick actions as structured intent", async () => {
+    vi.mocked(api.chat).mockResolvedValue({
+      ...chatResponse,
+      turn_intent: "request_hint",
+    });
+    renderPage({
+      learningTarget: {
+        id: chatResponse.target_knowledge_point.id,
+        name: "梯度下降",
+        source: "overview",
+        mode: "review",
+        priority: "review_due",
+        totalMinutes: 20,
+      },
+    });
+
+    expect(screen.getByText("20 分钟学习计划")).toBeVisible();
+    expect(screen.getByText("激活旧知")).toBeVisible();
+    fireEvent.click(screen.getByRole("button", { name: "给我一个提示" }));
+    fireEvent.click(screen.getByRole("button", { name: "发送学习消息" }));
+
+    await waitFor(() =>
+      expect(api.chat).toHaveBeenCalledWith(
+        expect.objectContaining({
+          requested_mode: "review",
+          turn_intent: "request_hint",
+        }),
+        expect.any(AbortSignal),
+      ),
+    );
+    expect(
+      await screen.findByText(/掌握检测 1\/1/),
+    ).toBeVisible();
+    expect(screen.getByPlaceholderText("回答上方的掌握检测题…")).toBeVisible();
   });
 
   it("restores the persisted conversation for the current session", async () => {
