@@ -11,36 +11,52 @@
 > · [中文使用说明](docs/USER_GUIDE_ZH.md)
 > · [Desktop guide](docs/DESKTOP.md)
 
-KnowTier is a full-stack tutoring workspace. Its Cognigraph backend combines a deterministic six-level
-teaching policy, learner mastery estimation, source-grounded knowledge extraction, and a
-versioned first-class relation graph. FastAPI exposes document, chat, graph, learner, and
-export APIs. The React frontend exposes these workflows through a responsive learning UI.
-PostgreSQL is the operational/audit system of record; Neo4j is the semantic projection written
-through a transactional Outbox.
+KnowTier is a local-first adaptive learning platform with evidence-grounded AI tutoring, auditable
+mastery tracking, and versioned knowledge graphs. It turns learning goals, source material,
+prerequisites, misconceptions, review timing, and assessment evidence into one explainable next
+action and a focused **Activate → Build → Check** lesson.
+
+The Cognigraph backend combines deterministic six-level pedagogy with source-grounded extraction,
+explicit teaching intents, conservative mastery estimation, and first-class versioned relations.
+FastAPI exposes the document, tutoring, learner, graph, search, and export boundaries; the React and
+Tauri clients provide the same workflow across desktop, tablet, and mobile layouts. Packaged desktop
+builds use local SQLite, while production deployments keep PostgreSQL as the operational and audit
+system of record and project semantic relations to Neo4j through a transactional Outbox.
 
 The default mock mode needs no model API key and performs a complete, deterministic teaching
 flow suitable for local development and tests.
 
 ## Product tour
 
-### Learning overview
+### Today's learning plan
+
+The overview selects one highest-priority action from misconceptions, due review, prerequisites,
+foundation repair, and continued practice, then explains the 20-minute lesson before it starts.
 
 ![KnowTier learning overview](docs/images/knowtier-overview.png)
 
-### AI learning workspace
+### Guided learning workspace
+
+Learning mode, current goal, supporting sources, and the single mastery check stay visible in one
+workspace. Hint, example, and re-explanation requests are routed as teaching support rather than
+being recorded as assessment answers.
 
 ![KnowTier AI learning workspace](docs/images/knowtier-learning-workbench.png)
 
-### Knowledge graph and model providers
+### Evidence and learning preferences
 
-| Source-grounded knowledge graph | Backend-only model configuration |
+| Source-grounded knowledge graph | Learning and application preferences |
 | --- | --- |
-| ![KnowTier domain knowledge graph](docs/images/knowtier-domain-graph.png) | ![KnowTier model and provider settings](docs/images/knowtier-model-providers.png) |
+| ![KnowTier domain knowledge graph](docs/images/knowtier-domain-graph.png) | ![KnowTier learning and application settings](docs/images/knowtier-settings.png) |
 
 ## Highlights
 
-- Evidence-linked tutoring, six learning levels, mastery detection, misconceptions, and sources.
-- Versioned domain and learner knowledge graphs with one readable relationship line per entity pair.
+- Deterministic learning plans with one best next action, alternatives, and a shared 20-minute
+  Activate/Build/Check agenda across Overview, Learning Path, and Learn.
+- Evidence-grounded tutoring across six cognitive levels, with explicit turn intents, misconception
+  handling, source spans, and a latest-independent-evidence gate for mastery promotion.
+- Versioned domain and learner knowledge graphs with auditable assertions and one readable
+  relationship line per entity pair.
 - Local-first desktop storage with SQLite, OS App Data persistence, and no Node/Python/Docker
   requirement for end users.
 - Mock, SiliconFlow, and custom OpenAI-compatible providers behind a backend-only ModelGateway.

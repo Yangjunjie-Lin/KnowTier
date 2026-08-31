@@ -5,7 +5,7 @@ build-backend = "hatchling.build"
 [project]
 name = "cognigraph-tutor"
 version = "1.1.0"
-description = "Traceable six-level tutoring agent with learner and knowledge graphs"
+description = "Local-first adaptive learning platform with evidence-grounded AI tutoring and auditable knowledge graphs"
 readme = "README.md"
 requires-python = ">=3.12,<3.14"
 license = { file = "LICENSE" }
