@@ -1,25 +1,25 @@
-# KnowTier v1 product acceptance matrix
+# KnowTier v1.1.0 product acceptance matrix
 
-Final-release baseline: `0f808f30de1ca1ba06e91b4f6b0ecc3e7240b2d5` (`origin/main`, 2026-08-12)
+Published source identity: `11c8f93225397c5f66f7fb2920efbe796fc0ac8b` (`main` and `v1.1.0`,
+2026-08-30). The public release is
+<https://github.com/Yangjunjie-Lin/KnowTier/releases/tag/v1.1.0>.
 
-This matrix is the release acceptance source of truth. `PASS` means the
-referenced automated acceptance ran against the release candidate. `PARTIAL`
-means the product path is implemented and lower-level checks pass, but one of
-the requested packaged or fault-injection gates is still missing. `BLOCKED`
-means an external prerequisite prevented the release-candidate gate; blocked
-rows prevent promotion from Draft RC to v1.0.0.
+This matrix describes the current stable product boundary. `PASS` means the referenced automated
+acceptance ran against the v1.1.0 source or its reviewed release artifacts. A skipped optional paid
+provider call does not count as product acceptance; credential-free Mock, provider-contract, OCR,
+Compose, packaged application, and post-release checks remain mandatory where listed.
 
 | Surface / route | User-visible functions and states | Backend API | Authoritative data | Automated acceptance | Current status |
 | --- | --- | --- | --- | --- | --- |
 | Initialization `/init` | Create/connect workspace; create/connect learner; provisioning token is request-only; validation, loading, 401/403/409/network recovery | `POST /v1/workspaces`, `POST /v1/learners`, `GET /v1/learners/{id}` | `workspaces`, `learners`; non-secret recent context in device storage | `InitPage.test.tsx`, Playwright onboarding and deep-link suite | PASS |
-| Overview `/overview` | Active learner/workspace summary, graph and mastery summaries, recent material, empty/partial/error states | graph manifest/export; learner model/evidence | graph revision, learner knowledge state, recent device documents | responsive/axe/visual page suite | PASS |
-| Learning workspace `/learn` | Three-column tutor; mode and target selection; attachments/camera entry; send/cancel/retry/timeout; deduped submit; source, model change, misconception and evidence sections; mobile Learning Status Sheet | `POST /v1/chat`; learner model/evidence/graph detail | tutoring turns/sessions, model runs, learner evidence, learner graph revisions | `LearnPage.test.tsx`, insight hook tests, contract and full-stack Playwright | PASS |
+| Overview `/overview` | One explainable best-next action, alternatives, a 20-minute Activate/Build/Check agenda, mastery/review/evidence summaries, and empty/partial/error states | learner plan, graph manifest/export, learner model/evidence | deterministic plan inputs, graph revision, learner knowledge state, review schedule | responsive/axe/visual page suite and learning-plan tests | PASS |
+| Learning workspace `/learn` | Plan-aware goal, explicit teaching mode and turn intent, attachments/camera, support requests that do not count as answers, one mastery check, source/model/misconception/evidence sections, mobile status sheet | `POST /v1/chat`; learner plan/model/evidence/graph detail | tutoring turns/sessions, assessed target, model runs, learner evidence, learner graph revisions | `LearnPage.test.tsx`, routing/controller tests, contract and full-stack Playwright | PASS |
 | Materials `/materials` | Upload, drag/drop, camera entry, recent list, size/type validation, progress/error/empty state | `POST /v1/workspaces/{id}/documents`, `GET /v1/documents/{id}` | documents and App Data uploads | contract/full-stack upload suite plus responsive/keyboard/axe | PASS |
-| Material detail `/materials/:documentId` | Ingest/re-ingest, extract knowledge, chunks, provenance, parser/OCR/vision status, partial warnings and retry | `POST /v1/documents/{id}/ingest`, `GET /v1/documents/{id}`, `/chunks`, `/extracted-knowledge` | document/chunk/source span/model run/graph revision | component blueprint tests, API integration, full-stack ingestion | PASS |
+| Material detail `/materials/:documentId` | Ingest/re-ingest, extract knowledge, public chunk view, provenance, parser/OCR/vision status, partial warnings and retry | `POST /v1/documents/{id}/ingest`, `GET /v1/documents/{id}`, `/chunks`, `/extracted-knowledge` | document/chunk/source span/model run/graph revision; embeddings and internal indexing metadata remain private | strict chunk contract, API integration, full-stack ingestion | PASS |
 | Domain graph `/graph/domain` | Canvas interaction, node/assertion detail, list alternative, keyboard, filters, focus subgraph, full screen, export | graph manifest/subgraph/node/assertion/revisions/export | domain nodes/assertions/source spans/revisions and semantic projection | graph component/unit, API graph tests, Playwright canvas/list/export | PASS |
 | Student graph `/graph/student` | Learner graph canvas/list, mastery/evidence detail, filters, keyboard, full screen | learner knowledge graph, node/assertion detail, revisions | learner assertions, evidence and learner graph revisions | graph component/API/full-stack tests plus accessibility flow | PASS |
 | Personal model `/model` | Mastery/confidence/cognitive level, evidence links, filters, CSV export, empty/error states | `GET /v1/learners/{id}/model`, `/evidence`, `/model.csv` | learner knowledge state and evidence | learner API/integration, CSV safety, page Playwright | PASS |
-| Learning path `/learning-path` | Select target, prerequisite order, blocked/ready/mastered status, stale revision notice, empty/error states | `GET /v1/learners/{id}/learning-path` | graph revision plus learner mastery | learning path unit/API and page tests | PASS |
+| Learning path `/learning-path` | Current focus, rationale, next milestone, alternatives, prerequisite order, blocked/ready/mastered status, stale revision notice, empty/error states | learner plan plus `GET /v1/learners/{id}/learning-path` | deterministic plan, graph revision, learner mastery and review state | learning-plan unit/API, page tests, and route-state Playwright | PASS |
 | Domain versions `/history/domain` | Version list, detail drawer, graph changes and evidence provenance, empty/error states | graph revisions list/detail | graph revisions/change events/model runs | version component/API and full-stack persistence test | PASS |
 | Learner versions `/history/learner` | Version list/detail, assertion lifecycle and evidence provenance | learner graph revisions list/detail | learner graph revisions/assertions/evidence | version component/API and full-stack persistence test | PASS |
 | Global search | Search across knowledge, materials and learner state; keyboard open/close; empty/error states | bounded search API (no arbitrary Cypher) | scoped SQL and bounded semantic projection | API security + keyboard/axe/Playwright | PASS |
@@ -29,7 +29,7 @@ rows prevent promotion from Draft RC to v1.0.0.
 | Responsive shell | Sidebar/top bar, mobile bottom nav, sheets/dialogs, no horizontal overflow or covered composer | all page APIs | current context and query cache | Playwright projects at 1440x900, 1024x768, 390x844 | PASS |
 | Error and recovery | Loading/empty/partial, timeout, 401/403/404/429/500, offline and recovery, local retry without losing successful panels | all APIs | query cache keyed by workspace/learner/session/target | typed API-client/error-state tests plus retry, offline and HTTP-fault Playwright | PASS |
 | Desktop first run | Sidecar boot, authenticated ready handshake, onboarding, Mock full flow, App Data persistence | local FastAPI on random `127.0.0.1` port | App Data SQLite/uploads/logs; rehydratable semantic projection | packaged sidecar/lifecycle/install smoke on Windows NSIS/portable, macOS DMG, Linux AppImage/Debian | PASS |
-| Desktop upgrade/uninstall | Migration and retained data; no orphan sidecar; uninstall policy is visible | local operational endpoints | App Data retained by default unless user deletes it | installed-upgrade/uninstall/orphan process tests | PASS: stable v1.0.0 silent uninstall retained App Data, reinstall preserved it, and both-launch orphan checks passed |
+| Desktop upgrade/uninstall | Migration and retained data; no orphan sidecar; uninstall policy is visible | local operational endpoints | App Data retained by default unless user deletes it | installed-upgrade/uninstall/orphan process tests | PASS: v1.1.0 release packaging repeated installed/portable lifecycle, persistence, restart, and cleanup smoke |
 
 ## Cross-cutting invariants
 

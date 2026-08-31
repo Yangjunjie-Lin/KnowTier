@@ -1,142 +1,128 @@
-# KnowTier v1.0.0 product acceptance record
+# KnowTier v1.1.0 product acceptance record
 
-This record is the release gate for the first general-availability build. The remote `main` baseline
-at the start of final acceptance was `0f808f30de1ca1ba06e91b4f6b0ecc3e7240b2d5`. The published
-`v1.0.0` tag and the successful Desktop release workflow are the authoritative source identity;
-the public release is <https://github.com/Yangjunjie-Lin/KnowTier/releases/tag/v1.0.0>. Only checks
-that actually ran are marked as passing.
+This record describes the current stable KnowTier desktop release. The authoritative source is
+commit `11c8f93225397c5f66f7fb2920efbe796fc0ac8b`, merged through
+[PR #29](https://github.com/Yangjunjie-Lin/KnowTier/pull/29), tagged `v1.1.0`, and published on
+2026-08-30 at <https://github.com/Yangjunjie-Lin/KnowTier/releases/tag/v1.1.0>.
 
-## Page — function — API — data — test matrix
+Only checks that actually ran are recorded as passing. Optional paid-provider coverage is kept
+separate from credential-free release acceptance.
 
-| Page / state | User-visible function | Real API chain | Durable / derived data | Executed coverage | Result |
-| --- | --- | --- | --- | --- | --- |
-| First launch | Create Workspace/Learner and restore deep links | `POST /v1/workspaces`, `POST /v1/learners` | Workspace, Learner, current context | Vitest plus three-viewport Playwright | Pass |
-| Overview | Mastery, review, evidence, graph summary | learner/domain reads | SQL learner state and revisions | Playwright navigation, axe, visuals | Pass |
-| Learning | Tutoring, target/session switching, status on demand | `POST /v1/chat`, active Teacher, insight reads | Turns, evidence, misconceptions, learner/domain revisions | Vitest duplicate/cancel/retry/context plus Contract/full-stack E2E | Pass |
-| Materials | Upload, camera entry, ingest, retry | document upload and ingest | App Data upload, chunks, provenance, report | Vitest failures plus real full-stack ingestion | Pass |
-| Extraction | Schema-validated grounded knowledge extraction | ModelGateway Extractor | non-confirmed facts remain unverified without evidence | unit, provider contract, integration, Mock RAG | Pass |
-| Domain graph | Canvas/list, keyboard, filter, fullscreen, export, details | domain graph/detail/export | versioned nodes, assertions, sources | Playwright, backend graph/export, production E2E | Pass |
-| Student graph | One line per node pair and ontology fact details | learner graph/node/assertion/revision | mastery/evidence projection and immutable revisions | Vitest, three-viewport E2E, real browser verification | Pass |
-| Personal model | Mastery, evidence, misconceptions, partial reads | learner model/evidence | audited mastery and evidence | Playwright success/failure/retry and Vitest | Pass |
-| Learning path | Select target without stale state | learning-path plus chat target | derived path | Playwright and session-isolation unit tests | Pass |
-| Versions | Domain/learner history and readable details | revision list/detail | immutable revisions and audit metadata | Playwright, Vitest, production restart recovery | Pass |
-| Search | Ctrl/Cmd+K and ranked navigation | global search | derived ranked results | three-viewport keyboard/axe/visual E2E | Pass |
-| Settings | Language, theme, density, font, health, preferences | health/ready plus local preferences | non-secret browser preferences | Vitest and Playwright | Pass |
-| Models | Mock, SiliconFlow, Custom; discovery/test/activate/delete | backend model-config and `/models` proxy | non-secret profiles plus session/keyring credential | unit, contract, API, three-viewport provider E2E | Pass |
-| Errors | Loading, empty, partial, timeout, offline, 401/403/404/429/500 | structured API errors and retries | request IDs and sanitized JSONL logs | backend errors plus Playwright recovery | Pass |
-| Desktop | Random loopback boot, first run, persistence, upgrade, shutdown | authenticated local ready/API/shutdown | App Data SQLite/uploads/logs/backups | pytest desktop, Rust, Sidecar, Portable and installed-package Smoke | Pass |
+## Release outcome
 
-## Defects fixed during final acceptance
+| Gate | Authoritative evidence | Result |
+| --- | --- | --- |
+| Source integration | PR #29 into `main` | Pass; 7 remote check runs succeeded |
+| Offline quality and version gate | [Desktop release run 33282195693](https://github.com/Yangjunjie-Lin/KnowTier/actions/runs/33282195693) | Pass |
+| Real production-shaped browser workflow | React → FastAPI → PostgreSQL → Neo4j → Mock LLM in the release run | Pass |
+| Windows x64 | NSIS install smoke and Portable archive lifecycle | Pass |
+| macOS Intel x64 | DMG build, architecture check, mount and application smoke | Pass |
+| Linux x64 | AppImage execution and installed Debian-package smoke | Pass |
+| Release integrity | 18 uploaded assets, 17 SHA-256 entries, three validated CycloneDX SBOMs | Pass |
+| Post-release acceptance | [Release-check run 33283654352](https://github.com/Yangjunjie-Lin/KnowTier/actions/runs/33283654352) | Pass; live-model gate, real OCR, and Compose jobs succeeded |
 
-1. Learner graphs with two knowledge nodes on the same concentric ring could calculate extreme
-   coordinates and render an empty canvas. The layout now uses a safe node-count sweep and reflows
-   when the WebView/container size becomes stable.
-2. Multiple learner facts between one entity pair could appear as overlapping lines. The final
-   Cytoscape boundary now guarantees one undirected presentation line while retaining every
-   directional fact, confidence, evidence, history, and ontology category in the detail view.
-3. Production HTTP Smoke could be intercepted by a workstation system proxy even though it targets
-   localhost. The test client now ignores environment proxy settings for both initial and recovery
-   phases.
-4. Production Smoke assumed the ingestion revision remained the newest after teaching. Chat may
-   legitimately create a newer graph-model revision, so acceptance now checks that the ingestion
-   revision remains present and directly auditable.
-5. Version replacement left two Python files with non-canonical line endings/format. Ruff formatting
-   was restored, and generated local evidence/package directories are ignored without removing them.
-6. A clean Windows runner could take longer than the former 120-second PyInstaller readiness budget,
-   and failure cleanup could leave the bootloader child holding its JSONL log. The release smoke now
-   uses a five-minute Windows cold-start budget and reaps the complete process tree before closing
-   pipes or deleting temporary App Data.
+The packaging run intentionally did not dispatch the optional paid SiliconFlow smoke. Provider
+compatibility remains covered by the offline OpenAI-compatible contract; a paid live call requires
+an explicit manual run and repository secret.
 
-These fixes preserve the graph, evidence, learner, revision and audit boundaries. Model output stays
-schema-validated with deterministic fallback; unsupported facts remain non-confirmed. No API or model
-output is accepted as arbitrary Cypher.
+## What changed in v1.1.0
+
+- Added a deterministic learner plan that ranks misconceptions, due review, prerequisites,
+  foundation repair, and continued practice into one explainable focus plus alternatives.
+- Unified Overview, Learning Path, and Learn around a 20-minute
+  **Activate → Build → Check** agenda.
+- Added explicit turn intents so hint, example, re-explanation, self-report, and meta requests do not
+  become assessment evidence or postpone review.
+- Separated the assessed knowledge point from the next teaching target, preventing prerequisite
+  redirection from attaching evidence or misconceptions to the wrong topic.
+- Made teaching, practice, review, exam, and research modes deterministic policies and required the
+  newest independent evidence to pass before mastery promotion.
+- Reworked the responsive learner journey around one best next action, one mastery check, clear
+  evidence provenance, and desktop/tablet/mobile accessibility.
+- Unified hot- and cold-cache document chunk responses behind a strict public schema that excludes
+  embeddings, normalized text, source IDs, and internal indexing metadata.
+
+No arbitrary Cypher surface was added and no release-specific schema migration was required for the
+adaptive workflow change.
+
+## User-facing acceptance boundary
+
+| Surface | Stable v1.1.0 behavior | Acceptance evidence |
+| --- | --- | --- |
+| First launch | Create or resume a workspace and learner without deployment identifiers | component and three-viewport Playwright coverage |
+| Overview | Explain one recommended learning action and its 20-minute agenda | learning-plan unit tests, responsive visual snapshots, axe checks |
+| Learning Path | Show focus, rationale, next milestone, alternatives, prerequisites, and status | plan API/unit tests and route-state coverage |
+| Learn | Route support requests separately from answers; teach and assess one target at a time | routing/controller tests, frontend tests, API and full-stack E2E |
+| Materials | Upload, ingest, retry, inspect provenance, and expose only the public chunk contract | contract, integration, OCR, and production-shaped browser tests |
+| Knowledge and learner graphs | Preserve sources, assertions, evidence, direction, and immutable revisions | graph/export tests, keyboard list view, responsive browser coverage |
+| Models and settings | Keep provider traffic behind ModelGateway; support Mock, SiliconFlow, and custom OpenAI-compatible profiles | provider contract, masked-credential API tests, settings E2E |
+| Desktop lifecycle | Random authenticated loopback service, App Data persistence, upgrade backup, clean shutdown | sidecar, installed-package, restart, and orphan-process smoke |
 
 ## Executed quality gates
 
-| Command / gate | Observed result |
-| --- | --- |
-| `uv lock --check` | Pass |
-| Ruff format/lint and strict mypy | Pass; 107 typed source files |
-| `uv run pytest` | Pass; 215 passed, 16 explicit external/performance/OCR/live skips |
-| OpenAI-compatible Provider Contract | Pass; chat, stream, JSON, embedding, timeout, 429, invalid key/model, malformed response |
-| `npm ci` | Pass; 0 vulnerabilities reported |
-| Frontend typecheck/lint/Vitest/build | Pass; 31 files, 132 tests, production build |
-| Playwright Contract E2E | Pass; 12/12 at 1440×900, 1024×768, 390×844 with axe, keyboard, visuals, provider security, network/HTTP recovery |
-| Rust GNU `fmt` and `test` | Pass; 3/3 desktop shell tests |
-| Compose validation | Pass for production and E2E manifests |
-| PostgreSQL/pgvector boundary | Pass; 2/2 |
-| Live Neo4j repository boundary | Pass; 1/1 |
-| Real React→FastAPI→PostgreSQL→Neo4j→Mock LLM | Pass; ingestion, tutoring, graphs, versions and API restart persistence |
-| Production API Smoke and restart recovery | Pass after proxy isolation; both phases pass |
-| Frozen Sidecar Smoke | Pass: ready, anonymous 401, authenticated 200, Workspace/Learner, Mock Chat, graceful exit |
-| Windows Portable/installed package Smoke | Pass on stable v1.0.0: two cold launches, persistence, GUI subsystem, no orphan Sidecar, silent uninstall retaining App Data, reinstall, and post-reinstall smoke |
+The final local release preparation observed:
 
-The release workflow repeats the offline gate and real full-stack suite before building each platform.
-The final GitHub-hosted matrix is authoritative for macOS/Linux packages and stable-version checksums.
+- Ruff format and lint: pass across 195 files.
+- Strict mypy: pass across 110 source files.
+- Backend credential-free suite: 248 passed, 16 explicitly deselected external/optional tests.
+- Frontend Vitest: 35 files and 169 tests passed.
+- Frontend typecheck, ESLint, and production Vite build: pass.
+- Playwright UI suite: 15/15 across 1440×900, 1024×768, and 390×844.
+- `uv lock --check`, Cargo formatting, and locked Cargo metadata: pass.
+- Python, npm, Tauri, Cargo, lockfile, and workflow version contracts: all `1.1.0`.
 
-## LLM configuration and credential security
+GitHub repeated the offline gates on the exact `main` commit before packaging. The release workflow
+then repeated sidecar authentication, lifecycle, installed-package, and real full-stack checks on
+hosted Windows, macOS, and Linux runners.
 
-- All calls remain behind backend `ModelGateway`; React never contacts a provider.
-- SiliconFlow defaults to `https://api.siliconflow.cn/v1`, discovers `/models` dynamically, and
-  separates generation and embedding capability selection.
-- Teacher, Extractor, Grader, Graph, Vision, and Embedding support quick or role-specific mapping.
-- Custom endpoints require HTTPS; explicit local-provider opt-in is required for loopback HTTP.
-- Keys are write-only, masked in responses, and absent from localStorage, URLs, logs, traces,
+## Integrity, SBOM, and signing record
+
+The published release contains:
+
+- `KnowTier-Setup-1.1.0-windows-x64.exe`
+- `KnowTier-Portable-1.1.0-windows-x64.zip`
+- `KnowTier-1.1.0-macOS-x64.dmg`
+- `KnowTier-1.1.0-linux-x64.AppImage`
+- `knowtier_1.1.0_amd64.deb`
+- `SHA256SUMS.txt`
+- Node.js, Python, and Rust CycloneDX SBOMs
+- license, privacy, changelog, desktop guide, Chinese user guide, and third-party notices
+- one explicit signing-status record for each platform
+
+The checksum manifest covers every published asset except itself and matched GitHub's stored asset
+digests during final review. The validated SBOMs contain 168 Node.js, 116 Python, and 475 Rust
+components.
+
+No platform signing credentials were configured. The release therefore publishes
+`UNSIGNED-windows.txt`, `UNSIGNED-macos.txt`, and `UNSIGNED-linux.txt`. Checksums prove file integrity
+against the release manifest but do not establish publisher identity.
+
+## Security and evidence invariants
+
+- Facts created from model output without external evidence remain non-confirmed.
+- Only schema-validated model output enters domain services.
+- No API or model response may submit arbitrary Cypher.
+- Learner, workspace, session, target, source, and revision boundaries remain explicit.
+- Mastery promotion requires valid independent evidence; support requests and self-reports do not
+  inflate evidence or delay review.
+- Provider credentials and desktop process tokens stay out of URLs, localStorage, logs, traces,
   screenshots, Git, and ordinary profile JSON.
-- Desktop uses the OS credential vault where available and also supports session-only credentials and
-  explicit deletion.
-
-The bounded live SiliconFlow workflow is manual-only, reads `SILICONFLOW_API_KEY` from GitHub
-Secrets, performs model discovery plus one structured chat and one embedding request, uses zero
-retries and a hard token cap, and does not persist full prompts or responses. The release-candidate
-run verified `/models`, structured chat with `Qwen/Qwen2.5-7B-Instruct`, and a dynamically discovered
-embedding model. This is a provider contract/connectivity check, not a claim that every optional
-role or model in the provider catalog has been quality-evaluated.
-
-## Desktop architecture and release artifacts
-
-Tauri 2 owns the native window and starts a PyInstaller FastAPI sidecar. The service selects a random
-`127.0.0.1` port, uses one-time bootstrap plus per-process control tokens, waits for authenticated
-readiness, and shuts down gracefully. SQLite and rebuildable semantic projection, uploads, logs, and
-backups live in per-user OS App Data. Server/PostgreSQL/Neo4j/Docker deployment remains supported.
-
-Stable artifact hashes are generated by the cross-platform workflow and published in the release's
-`SHA256SUMS.txt`. Each release also includes Node/Python/Rust CycloneDX SBOMs, changelog,
-license/privacy material, and explicit signing-status records. No signing certificate is configured
-for this release; assets are labelled `UNSIGNED` and are never represented as signed.
-
-Locally verified Windows artifacts before the independent GitHub-hosted rebuild:
-
-| Artifact | SHA-256 |
-| --- | --- |
-| `KnowTier-Setup-1.0.0-windows-x64.exe` | `5ecfeb7cb378f69d99c302ca7ba70cd9a04bb314c50fa11ea1425a37d3decddc` |
-| `KnowTier-Portable-1.0.0-windows-x64.zip` | `343ec85bd4705814a595b57a013ac084bd272c8d7f64bca8cb191f781d84928c` |
-
-They are under an ignored local `desktop-release-v1.0.0-final-secure/` directory. GitHub-hosted
-artifacts have independent hashes and are the authoritative public downloads.
+- React never contacts a model provider directly; all provider traffic passes through the backend
+  ModelGateway.
 
 ## Known limitations
 
-- Windows, macOS, and Linux artifacts are unsigned unless their release record explicitly says
-  otherwise; operating-system warnings are expected and checksums do not establish publisher identity.
-- macOS output is Intel x64, not Apple Silicon native. Apple Silicon users may require Rosetta.
-- OCR and Vision are optional large runtimes/capabilities. The default desktop remains lightweight;
-  image/provider capability depends on the configured model and platform runtime.
-- Uninstall keeps App Data intentionally to prevent silent learner-data loss; complete removal is a
-  separate documented user action.
-- The Graph model can degrade independently; deterministic graph construction and explicit partial
-  success remain available.
-- The Linux Tauri 2 build transitively retains `glib 0.18.5` through the current GTK3/WebKit stack,
-  which is reported by GHSA-wrw7-89jp-8q8g. KnowTier does not use the affected `VariantStrIter` API;
-  no compatible `glib 0.20` upgrade exists in Tauri 2.11.5, so the advisory remains visible until the
-  upstream desktop stack migrates.
+- Windows, macOS, and Linux assets are unsigned unless a future release explicitly states otherwise.
+- The macOS artifact targets Intel x64; Apple Silicon users may require Rosetta.
+- OCR and vision are optional large capabilities and depend on the selected runtime/provider.
+- Uninstall intentionally retains App Data; complete deletion is a separate documented action.
+- The default Mock Provider validates the workflow but is not a claim of production model quality.
 
-## Final release identity
+## Final identity
 
-- Baseline remote `main`: `0f808f30de1ca1ba06e91b4f6b0ecc3e7240b2d5`
-- Final published source identity: lightweight Git tag `v1.0.0` and matching release target at
-  `8dd40d35365b189ef5c27b88b9325c7801d5b0a7`. The repository does not technically protect or make
-  the tag immutable; release policy forbids moving it and requires a new semantic version instead.
-- GitHub Actions evidence: <https://github.com/Yangjunjie-Lin/KnowTier/actions/workflows/release-desktop.yml>
-- GitHub Release: <https://github.com/Yangjunjie-Lin/KnowTier/releases/tag/v1.0.0>
+- Git tag: `v1.1.0`
+- Source commit: `11c8f93225397c5f66f7fb2920efbe796fc0ac8b`
+- Release: <https://github.com/Yangjunjie-Lin/KnowTier/releases/tag/v1.1.0>
+- Packaging evidence: <https://github.com/Yangjunjie-Lin/KnowTier/actions/runs/33282195693>
+- Post-release evidence: <https://github.com/Yangjunjie-Lin/KnowTier/actions/runs/33283654352>
 - Signing status: `UNSIGNED` for Windows, macOS, and Linux

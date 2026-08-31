@@ -5,6 +5,11 @@ All notable changes to KnowTier are documented in this file. The format is based
 
 ## [Unreleased]
 
+### Changed
+
+- Refreshed the stable-release overview, desktop and Chinese user guides, product acceptance record,
+  repository description, and verified product screenshots to match the published v1.1.0 workflow.
+
 ## [1.1.0] - 2026-08-30
 
 ### Added

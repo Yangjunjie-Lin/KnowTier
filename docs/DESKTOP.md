@@ -1,13 +1,28 @@
 # KnowTier desktop guide
 
-KnowTier Desktop packages the web interface and its application service as one local-first app. The
-desktop service chooses and binds a random loopback port itself, uses process-scoped control tokens,
-and stores mutable data outside the installed application so upgrades do not overwrite a learner's
-workspace. The React UI always runs on Tauri's stable application origin, so browser preferences and
-the selected workspace survive restarts even though the private API port changes.
+KnowTier Desktop is the packaged edition of KnowTier's local-first adaptive learning platform. It
+combines the learning interface and private application service in one install, chooses a random
+loopback port, protects the local API with process-scoped control tokens, and stores mutable data
+outside the installed application so upgrades do not overwrite a learner's workspace. The React UI
+runs on Tauri's stable application origin, so preferences and learning context survive restarts even
+though the private API port changes.
 
 The current stable build is `v1.1.0`. Download it from the
 [latest GitHub Release](https://github.com/Yangjunjie-Lin/KnowTier/releases/latest).
+
+## What v1.1.0 delivers
+
+- An explainable daily learning plan that prioritizes misconceptions, due review, prerequisites,
+  foundation repair, and continued practice.
+- One shared 20-minute **Activate → Build → Check** agenda across Overview, Learning Path, and Learn.
+- Explicit assessment and support intents, so requests for a hint, example, or re-explanation do not
+  create mastery evidence or postpone review.
+- Conservative mastery promotion that requires the newest independent evidence to pass, with
+  source-linked learner and knowledge graph history.
+- Responsive desktop, tablet, and mobile layouts with keyboard, accessibility, and visual-regression
+  coverage.
+
+![KnowTier v1.1.0 learning overview](images/knowtier-overview.png)
 
 ## Choose a download
 
@@ -83,10 +98,12 @@ signature and are explicitly identified as unsigned.
 ## Configure a model provider
 
 Desktop starts with the deterministic Mock Provider, so first launch and ordinary UI exploration do
-not require a credential or make a paid model request. In **Settings → Model Configuration**, a user
+not require a credential or make a paid model request. In **Settings → Models & providers**, a user
 can add SiliconFlow or another OpenAI-compatible endpoint, test model discovery, select models for
-all six roles, and activate the profile. SiliconFlow uses its fixed HTTPS API origin. A custom origin
-must use HTTPS, except that explicit local-development opt-in permits loopback HTTP.
+all six roles, and activate the profile. Application connection and model-provider controls are
+advanced settings because the packaged app configures its local service automatically. SiliconFlow
+uses its fixed HTTPS API origin. A custom origin must use HTTPS, except that explicit
+local-development opt-in permits loopback HTTP.
 
 A credential can be kept only for the current session or stored in the operating system's secure
 credential vault when a supported vault is available. KnowTier persists non-secret profile settings
